@@ -1,0 +1,18 @@
+{
+  "name": "loppisskannern",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Privat PWA för reselling: fota ett föremål, få sålda priser och köp-rekommendation.",
+  "scripts": {
+    "dev": "node scripts/dev-server.mjs",
+    "dev:mock": "MOCK=1 node scripts/dev-server.mjs",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "0.132.1"
+  }
+}
