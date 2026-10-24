@@ -10,7 +10,8 @@ Skanningen görs i tre steg, så att den dyra modellen bara tittar på bilderna 
 iPhone (PWA) ──1–4 bilder──▶ Vercel /api/scan
                                1. Google Vision Web Detection  (bildsök, ~0,0035 $/bild, 1000 gratis/mån)
                                2. Identifiering                (ser bilderna + bildsökets träffar; standard Opus 5.5)
-                               3. Prissökning                  (bara text, web search Tradera/eBay; standard Haiku 5.5)
+                               3. Prissökning                  (bara text; läser färdiga söksidor för sålda objekt
+                                                                på artikelnumret, webbsökning som reserv; standard Haiku 5.5)
      ▲                         │
      └── strömmat svar ◀───────┤
                                └──▶ Apps Script ──▶ Drive (huvudbilden) + Sheet (rad)
@@ -18,6 +19,9 @@ iPhone (PWA) ──1–4 bilder──▶ Vercel /api/scan
 
 - **Identifieringen syns direkt** efter steg 2; priser och källor fylls på när sökningen är klar.
 - **Modell per steg** väljs i appens inställningar (eller `ID_MODEL` / `SEARCH_MODEL` i Vercel). Bildsöket kan slås av där också. Jämför kostnad och träffsäkerhet i Sheet.
+- **Artikelnummer först:** nummer som återkommer i bildsökets träffar lyfts fram, identifieringen ger upp till 3 kandidater, och prissteget söker på märke + artikelnummer.
+- **Färdiga söksidor:** servern bygger adresser till Tradera avslutade objekt, eBay sålda objekt och Tradera till salu nu, som modellen läser direkt (web_fetch, max 4 sidor, `MAX_FETCHES`). Går de inte att läsa används webbsökning. Länkarna visas också på resultatkortet så att du kan kontrollera själv.
+- **Till salu nu** visas som eget intervall men påverkar aldrig medianen.
 - **Bara två källor:** webbsökningen är låst till `tradera.com` och `ebay.*` (max 4 sökningar, `MAX_SEARCHES`). Bara sålda priser räknas. eBay-priser redovisas separat som internationellt pris.
 - **Ärlighet om osäkerhet:** servern räknar om ekonomin själv och tillämpar regler utöver modellens bedömning:
   - Inga sålda jämförelser → säkerhet "låg", poäng max 25, tydlig flagga.
