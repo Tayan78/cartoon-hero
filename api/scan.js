@@ -1,4 +1,4 @@
-// POST /api/scan  { images: [dataURL, …] (1–4 vinklar), buyPrice?: number, settings?: {...} }
+// POST /api/scan  { images: [dataURL, …] (1–4 vinklar), buyPrice?: number, note?: string, settings?: {...} }
 // Tre steg: Googles bildsök → identifiering (ser bilderna) → prissökning (bara text).
 // Svarar med NDJSON (en JSON per rad) så att appen kan visa delresultat:
 //   {"type":"status","text":"…"}      – vad som händer just nu
@@ -46,6 +46,8 @@ export async function POST(request) {
   const images = dataUrls.map(parseDataUrl);
   if (!images.length || images.some((img) => !img)) return json({ error: "Bild saknas eller har fel format" }, 400);
   const buyPrice = Math.max(0, Math.round(Number(body.buyPrice) || 0));
+  // Egna uppgifter om föremålet (märke, modell, storlek …), valfritt.
+  const note = String(body.note ?? "").replace(/\s+/g, " ").trim().slice(0, 300);
   const settings = mergeSettings(body.settings);
   const scanId = newScanId();
   const started = Date.now();
@@ -77,7 +79,7 @@ export async function POST(request) {
               });
         const geminiJob = !useGemini
           ? null
-          : (MOCK ? mockGemini() : geminiIdentify(images))
+          : (MOCK ? mockGemini() : geminiIdentify(images, note))
               .then((g) => {
                 steps.push({ step: "Gemini", model: g.model, tokens_in: g.tokensIn, tokens_out: g.tokensOut, searches: g.queries.length, usd: g.usd });
                 if (!g.grounded) flags.push("Gemini sökte inte på Google trots två försök – dess förslag användes bara som ledtråd.");
@@ -98,7 +100,7 @@ export async function POST(request) {
 
         // 2. Identifiering
         send({ type: "status", text: images.length > 1 ? `Identifierar (${images.length} bilder)…` : "Identifierar…", scan_id: scanId });
-        const id = await (MOCK ? mockIdentify : identify)(images, hints, settings.models.identify);
+        const id = await (MOCK ? mockIdentify : identify)(images, hints, settings.models.identify, note);
         steps.push(stepCost("Identifiering", id));
         send({ type: "prelim", item: id.raw.item ?? {} });
 
@@ -107,7 +109,7 @@ export async function POST(request) {
         const urls = marketUrls(searchTerms(id.raw, evidence));
         send({ type: "status", text: "Hämtar sålda objekt…" });
         const price = await (MOCK ? mockPrice : priceSearch)(
-          { identification: id.raw, vision: hints, urls, buyPrice, settings },
+          { identification: id.raw, vision: hints, urls, buyPrice, settings, note },
           settings.models.search,
           (text) => send({ type: "status", text }),
         );
@@ -118,6 +120,7 @@ export async function POST(request) {
           { buyPrice, settings },
         );
         result.search_urls = urls;
+        result.note = note;
         result.article = pickArticle({ item: id.raw.item, gemini, vision });
         result.flags.push(...flags);
         if (vision) result.vision = vision;

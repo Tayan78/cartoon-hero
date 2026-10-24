@@ -153,6 +153,7 @@ $("photo-gallery").addEventListener("change", async (e) => {
 function resetScan() {
   photos = [];
   $("buy-price").value = "";
+  $("note").value = "";
   renderPhotos();
   show("scan");
 }
@@ -170,7 +171,7 @@ function resetCard() {
   $("card-img").src = photos[0];
   $("r-name").textContent = "Identifierar…";
   $("r-sub").textContent = "";
-  for (const id of ["r-main", "r-verdict", "r-details", "r-sources-title", "btn-save"]) $(id).hidden = true;
+  for (const id of ["r-price", "r-verdict-row", "r-article", "r-details", "r-sources-title", "btn-save"]) $(id).hidden = true;
   for (const id of ["r-reason", "r-evidence", "r-cost"]) $(id).textContent = "";
   $("r-flags").replaceChildren();
   $("r-sources").replaceChildren();
@@ -188,27 +189,108 @@ function renderPrelim(item) {
 const colorFor = (score) => (score >= 70 ? "green" : score >= 40 ? "yellow" : "red");
 const confText = { high: "hög", medium: "medel", low: "låg" };
 
+// Prispanelen: utpris (lägsta till salu), budgräns (sålt median) och en
+// prislinje med annonserna som prickar och det sålda spannet som grönt fält.
+function renderPrice(r) {
+  const p = r.price_sek;
+  const e = r.economics;
+  const fs = r.for_sale ?? { low: 0, high: 0, count: 0 };
+  const hasSold = p.comparables > 0 && e.bid_floor > 0;
+  const asks = r.sources.filter((s) => !s.sold && s.price_sek > 0).map((s) => s.price_sek);
+
+  $("r-price").hidden = false;
+  $("r-list").textContent = e.list_price > 0 ? kr(e.list_price) : "–";
+  $("r-floor-label").textContent = hasSold ? "Bud ned till" : "Sålt (median)";
+  $("r-floor").textContent = hasSold ? kr(e.bid_floor) : "–";
+  $("r-floor").className = `floor ${hasSold ? "has" : "none"}`;
+  $("r-basis").textContent =
+    e.list_basis === "lägsta till salu"
+      ? hasSold
+        ? `Lägsta till salu just nu. Säljs oftast för ${kr(p.median)} – bud ned dit är rimliga.`
+        : "Lägsta till salu just nu. Bud under det kan accepteras."
+      : e.list_basis === "sålt median"
+        ? "Inga annonser till salu just nu – priset bygger på sålda objekt."
+        : e.list_price > 0
+          ? "Inga annonser eller försäljningar hittades – priset är en uppskattning."
+          : "Inget pris hittades.";
+
+  // Skala för prislinjen, med lite luft på båda sidor.
+  const values = [...asks, fs.low, fs.high, hasSold ? p.low : 0, hasSold ? p.high : 0, p.median].filter((v) => v > 0);
+  const bar = $("r-bar");
+  const labels = $("r-bar-labels");
+  if (values.length < 2) {
+    bar.hidden = true;
+    labels.hidden = true;
+  } else {
+    bar.hidden = false;
+    labels.hidden = false;
+    const lo = Math.min(...values);
+    const hi = Math.max(...values);
+    const pad = (hi - lo) * 0.1 || hi * 0.1 || 1;
+    const pos = (v) => `${(((v - lo + pad) / (hi - lo + 2 * pad)) * 100).toFixed(1)}%`;
+    const span = (cls, left, width) => {
+      const el = Object.assign(document.createElement("span"), { className: cls });
+      el.style.left = left;
+      if (width) el.style.width = width;
+      return el;
+    };
+    const parts = [span("track", "0")];
+    if (hasSold && p.low > 0 && p.high > 0) {
+      parts.push(span("sold-range", pos(p.low), `calc(${pos(p.high)} - ${pos(p.low)})`));
+    }
+    if (fs.low > 0 && fs.high > fs.low) parts.push(span("ask-range", pos(fs.low), `calc(${pos(fs.high)} - ${pos(fs.low)})`));
+    if (p.median > 0) parts.push(span(hasSold ? "median" : "estimate", pos(p.median)));
+    for (const a of asks) parts.push(span("dot", pos(a)));
+    if (e.list_basis === "lägsta till salu") parts.push(span("list-dot", pos(e.list_price)));
+    bar.replaceChildren(...parts);
+
+    const label = (html) => Object.assign(document.createElement("span"), { innerHTML: html });
+    const range = fs.low && fs.high && fs.high !== fs.low ? `${kr(fs.low)}–${kr(fs.high)}` : kr(fs.low || fs.high);
+    labels.replaceChildren(
+      ...(hasSold
+        ? [label(`<span class="sold">sålt ${kr(p.low)}–${kr(p.high)}</span>`), fs.count ? label(`<b>${range}</b> till salu`) : label("")]
+        : [
+            fs.low ? label(`<b>${kr(fs.low)}</b> lägst`) : label(""),
+            p.median > 0 ? label(`<span class="est">uppskattat ${kr(p.median)}</span>`) : label(""),
+            fs.high && fs.high !== fs.low ? label(`<b>${kr(fs.high)}</b> högst`) : label(""),
+          ]),
+    );
+  }
+  const where = [...new Set(r.sources.filter((s) => !s.sold).map((s) => s.platform))].join(", ");
+  $("r-counts").textContent = `${fs.count} annonser till salu${where ? ` (${where})` : ""} · ${p.comparables} sålda`;
+  $("r-nosold").hidden = hasSold;
+
+  const color = colorFor(r.buy_score);
+  $("r-verdict-row").hidden = false;
+  $("r-score").className = `score ${color}`;
+  $("r-score-num").textContent = r.buy_score;
+  $("r-verdict").textContent = r.verdict;
+  $("r-net").textContent = hasSold && e.net_at_floor !== null && e.bid_floor !== e.list_price
+    ? `Netto vid ${kr(e.list_price)}: ${kr(e.net_profit)} · vid ${kr(e.bid_floor)}: ${kr(e.net_at_floor)}`
+    : `Netto ca ${kr(e.net_profit)} vid ${kr(e.list_price)}`;
+}
+
 function renderResult(data) {
   const r = data.result;
   const p = r.price_sek;
   renderPrelim(r.item);
   if (r.item.condition) $("r-sub").textContent += (r.item.age ? ` · ${r.item.age}` : "") + ` · ${r.item.condition}`;
+  if (r.article) {
+    $("r-article").hidden = false;
+    $("r-article").textContent = `Modellnummer ${r.article.number} · ${r.article.source}${r.article.verified ? "" : " (obekräftat)"}`;
+  }
 
-  $("r-main").hidden = false;
-  $("r-median").textContent = p.median > 0 ? kr(p.median) : "–";
-  $("r-range").textContent = p.median > 0 ? `${kr(p.low)} – ${kr(p.high)}` : "Inget pris hittat";
-
-  const color = colorFor(r.buy_score);
-  $("r-score").className = `score ${color}`;
-  $("r-score-num").textContent = r.buy_score;
-  $("r-verdict").hidden = false;
-  $("r-verdict").className = `verdict ${color}`;
-  $("r-verdict").textContent = r.verdict;
+  renderPrice(r);
   $("r-reason").textContent = r.reason;
-  $("r-evidence").textContent = r.evidence ? `Identifiering: ${r.evidence}` : "";
+  $("r-evidence").textContent = [r.note && `Din info: ${r.note}`, r.evidence && `Identifiering: ${r.evidence}`]
+    .filter(Boolean)
+    .join(" · ");
 
+  // "Inga sålda" visas redan i prispanelen.
   $("r-flags").replaceChildren(
-    ...r.flags.map((f) => Object.assign(document.createElement("li"), { textContent: f })),
+    ...r.flags
+      .filter((f) => !f.startsWith("Inga sålda jämförelser"))
+      .map((f) => Object.assign(document.createElement("li"), { textContent: f })),
   );
 
   const e = r.economics;
@@ -216,11 +298,6 @@ function renderResult(data) {
     ["Jämförelser", `${p.comparables} sålda · säkerhet ${confText[p.confidence]}`],
     ["Identifiering", `säkerhet ${confText[r.item.confidence_id]}`],
   ];
-  const fs = r.for_sale;
-  if (fs?.count > 0) {
-    const range = fs.low && fs.high && fs.low !== fs.high ? `${kr(fs.low)}–${kr(fs.high)}` : kr(fs.high || fs.low);
-    rows.splice(1, 0, ["Till salu nu", `${range} (${fs.count} annonser)`]);
-  }
   if (r.gemini?.name) {
     rows.push(["Google (Gemini)", [r.gemini.name, r.gemini.article_number].filter(Boolean).join(" · ")]);
   }
@@ -233,15 +310,12 @@ function renderResult(data) {
   }
   rows.push(
     ["Bästa plattform", r.best_platform],
-    ["Försäljningspris", kr(e.sale_price)],
+    ["Utpris", kr(e.list_price)],
     ["Avgift", `−${kr(e.fees)}`],
     ["Frakt", `−${kr(e.shipping)}`],
     ["Inköpspris", `−${kr(e.buy_price)}`],
     ["Netto", kr(e.net_profit)],
   );
-  if (r.article) {
-    rows.unshift(["Modellnummer", `${r.article.number} · ${r.article.source}${r.article.verified ? "" : " (obekräftat)"}`]);
-  }
   $("r-details").replaceChildren(
     ...rows.flatMap(([k, v]) => [
       Object.assign(document.createElement("dt"), { textContent: k }),
@@ -338,7 +412,12 @@ $("btn-scan").addEventListener("click", async () => {
     const res = await fetch("/api/scan", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-app-token": getToken() },
-      body: JSON.stringify({ images: photos, buyPrice: Number($("buy-price").value) || 0, settings: getSettings() }),
+      body: JSON.stringify({
+        images: photos,
+        buyPrice: Number($("buy-price").value) || 0,
+        note: $("note").value.trim(),
+        settings: getSettings(),
+      }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
