@@ -153,3 +153,4 @@ button:disabled { opacity: .4; }
   background: var(--surface-2); color: var(--text); font-weight: 600; cursor: pointer;
 }
 .sources .search-link { color: var(--accent); background: transparent; border: 1px solid var(--line); }
+#s-test { white-space: pre-line; }

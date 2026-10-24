@@ -462,18 +462,23 @@ $("btn-test").addEventListener("click", async () => {
   const token = $("s-token").value.trim();
   $("s-test").textContent = "Testar…";
   try {
-    const res = await fetch("/api/ping", { headers: { "x-app-token": token } });
+    const res = await fetch("/api/ping?check=1", { headers: { "x-app-token": token } });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || `Fel ${res.status}`);
     store.set("token", token);
     const label = (id) => data.models[id] ?? id;
-    $("s-test").textContent =
-      `✓ Ansluten. API-nyckel: ${data.api_key ? "ja" : "SAKNAS"}. ` +
-      `Bildsök: ${data.vision ? "ja" : "inte konfigurerat"}. ` +
-      `Gemini: ${data.gemini ? `ja (${data.gemini_model})` : "inte konfigurerat"}. ` +
-      `Google Sheet: ${data.storage ? "ja" : "inte konfigurerat"}. ` +
+    const c = data.checks;
+    const line = (name, check, configured) =>
+      c ? `${check.ok ? "✓" : "✗"} ${name}: ${check.detail}` : `${configured ? "✓" : "–"} ${name}: ${configured ? "konfigurerat" : "inte konfigurerat"}`;
+    $("s-test").textContent = [
+      "✓ Lösenordet stämmer.",
+      line("Claude", c?.claude, data.api_key),
+      line(`Gemini (${data.gemini_model})`, c?.gemini, data.gemini),
+      line("Bildsök (Cloud Vision)", c?.vision, data.vision),
+      line("Google Sheet", c?.sheet, data.storage),
       `Standard: identifiering ${label(data.defaults.identify)}, prissök ${label(data.defaults.search)}.` +
-      (data.mock ? " (testläge)" : "");
+        (data.mock ? " (testläge)" : ""),
+    ].join("\n");
   } catch (err) {
     $("s-test").textContent = `✗ ${err.message}`;
   }
