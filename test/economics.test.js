@@ -26,8 +26,11 @@ test("räknar om ekonomin från medianpris och plattformens avgifter", () => {
     },
     { buyPrice: 20, settings },
   );
-  // 200 − 10 % (20) − frakt 59 − inköp 20
-  assert.deepEqual(r.economics, { buy_price: 20, sale_price: 200, fees: 20, shipping: 59, net_profit: 101 });
+  // Inga annonser till salu → utpris = sålt median. 200 − 10 % (20) − frakt 59 − inköp 20
+  assert.deepEqual(r.economics, {
+    buy_price: 20, sale_price: 200, list_price: 200, list_basis: "sålt median", bid_floor: 200,
+    fees: 20, shipping: 59, net_profit: 101, net_at_floor: 101,
+  });
   assert.equal(r.buy_score, 80);
   assert.equal(r.verdict, "Köp");
   assert.deepEqual(r.flags, []);
@@ -123,6 +126,44 @@ test("annonser till salu visas separat och räknas inte som sålda", () => {
     { buyPrice: 0, settings },
   );
   assert.deepEqual(r.for_sale, { low: 150, high: 488, count: 2 });
-  assert.equal(r.economics.sale_price, 90);
+  assert.equal(r.price_sek.median, 90); // annonserna påverkar inte medianen
   assert.equal(r.price_sek.no_tradera_data, false);
+});
+
+test("utpris = lägsta till salu, budgräns = sålt median, netto på båda", () => {
+  const r = finalizeResult(
+    {
+      price_sek: { low: 60, median: 95, high: 150, comparables: 14, confidence: "high" },
+      sources: [sold("Tradera", 95), { ...sold("Tradera", 149), sold: false }, { ...sold("Tradera", 450), sold: false }],
+      buy_score: 62,
+      best_platform: "Tradera",
+    },
+    { buyPrice: 10, settings },
+  );
+  assert.equal(r.economics.list_price, 149);
+  assert.equal(r.economics.list_basis, "lägsta till salu");
+  assert.equal(r.economics.bid_floor, 95);
+  // 149 − 15 − 59 − 10 = 65 ; 95 − 10 − 59 − 10 = 16
+  assert.equal(r.economics.net_profit, 65);
+  assert.equal(r.economics.net_at_floor, 16);
+});
+
+test("inga sålda: utpris från annonser, ingen budgräns", () => {
+  const r = finalizeResult(
+    {
+      price_sek: { low: 30, median: 60, high: 90, comparables: 0, confidence: "low" },
+      sources: [{ ...sold("eBay", 45), sold: false }, { ...sold("eBay", 120), sold: false }],
+      buy_score: 40,
+    },
+    { buyPrice: 0, settings },
+  );
+  assert.equal(r.economics.list_price, 45);
+  assert.equal(r.economics.bid_floor, 0);
+  assert.equal(r.economics.net_at_floor, null);
+});
+
+test("inga sålda och inga annonser: utpris = uppskattningen", () => {
+  const r = finalizeResult({ price_sek: { median: 60, comparables: 0 }, sources: [], buy_score: 20 }, { buyPrice: 0, settings });
+  assert.equal(r.economics.list_price, 60);
+  assert.equal(r.economics.list_basis, "uppskattat");
 });

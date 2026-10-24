@@ -16,12 +16,14 @@ var SCAN_HEADERS = [
   'ID-säkerhet', 'Pris lågt', 'Pris median', 'Pris högt', 'Jämförelser', 'Pris-säkerhet', 'Inga Tradera-träffar',
   'Intl median (SEK)', 'Inköpspris', 'Avgift', 'Frakt', 'Netto', 'Köp-poäng', 'Verdict', 'Motivering',
   'Bästa plattform', 'Flaggor', 'Källor', 'Modell (AI)', 'Input-token', 'Output-token', 'Sökningar',
-  'Kostnad USD', 'Kostnad SEK', 'Tid (ms)', 'JSON'
+  'Kostnad USD', 'Kostnad SEK', 'Tid (ms)', 'JSON',
+  'Lägg ut för', 'Bud ned till', 'Lägst till salu', 'Högst till salu', 'Antal till salu', 'Info'
 ];
 
 var INVENTORY_HEADERS = [
   'Sparad', 'Skannings-ID', 'Bild', 'Namn', 'Kategori', 'Märke', 'Modell', 'Skick', 'Inköpspris',
-  'Pris median', 'Netto', 'Köp-poäng', 'Bästa plattform', 'Status', 'Artikelnr'
+  'Pris median', 'Netto', 'Köp-poäng', 'Bästa plattform', 'Status', 'Artikelnr',
+  'Lägg ut för', 'Bud ned till', 'Info'
 ];
 
 function doPost(e) {
@@ -50,6 +52,7 @@ function logScan(body) {
   var p = r.price_sek || {};
   var ec = r.economics || {};
   var cost = body.cost || {};
+  var fs = r.for_sale || {};
 
   var imageUrl = '';
   if (body.image) imageUrl = saveImage(body.image, body.scan_id);
@@ -64,7 +67,8 @@ function logScan(body) {
     item.confidence_id, p.low, p.median, p.high, p.comparables, p.confidence, p.no_tradera_data ? 'Ja' : '',
     (p.international || {}).median, ec.buy_price, ec.fees, ec.shipping, ec.net_profit, r.buy_score, r.verdict,
     r.reason, r.best_platform, (r.flags || []).join(' '), sources, body.model, cost.input_tokens,
-    cost.output_tokens, cost.web_searches, cost.usd, cost.sek, body.duration_ms, JSON.stringify(r)
+    cost.output_tokens, cost.web_searches, cost.usd, cost.sek, body.duration_ms, JSON.stringify(r),
+    ec.list_price, ec.bid_floor || '', fs.low || '', fs.high || '', fs.count || 0, r.note || ''
   ]);
   return { ok: true, image_url: imageUrl };
 }
@@ -77,7 +81,8 @@ function saveInventory(body) {
   sheet('Lager', INVENTORY_HEADERS).appendRow([
     new Date(), body.scan_id, url ? '=HYPERLINK("' + url + '","Bild")' : '', item.name, item.category,
     item.brand, item.model, item.condition, ec.buy_price, (r.price_sek || {}).median, ec.net_profit,
-    r.buy_score, r.best_platform, 'Ny', item.article_number
+    r.buy_score, r.best_platform, 'Ny', item.article_number,
+    ec.list_price, ec.bid_floor || '', r.note || ''
   ]);
   return { ok: true };
 }

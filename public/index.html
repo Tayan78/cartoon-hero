@@ -47,6 +47,11 @@
         <input id="buy-price" type="number" inputmode="numeric" pattern="[0-9]*" min="0" placeholder="kr">
       </label>
 
+      <label class="field">
+        <span>Info om föremålet (valfritt)</span>
+        <textarea id="note" rows="2" maxlength="300" placeholder="Märke, modell, storlek, skick … t.ex. Ekelund, linne, 50×70"></textarea>
+      </label>
+
       <button id="btn-scan" class="primary big" disabled>Skanna</button>
       <p id="scan-hint" class="hint"></p>
     </section>
@@ -60,19 +65,36 @@
           <img id="card-img" class="thumb" alt="">
           <div>
             <h2 id="r-name">…</h2>
+            <p id="r-article" class="article" hidden></p>
             <p id="r-sub" class="muted"></p>
           </div>
         </div>
 
-        <div id="r-main" class="main-row" hidden>
-          <div>
-            <div class="label">Median</div>
-            <div id="r-median" class="median"></div>
-            <div id="r-range" class="muted"></div>
+        <section id="r-price" class="price-panel" hidden>
+          <div class="price-top">
+            <div>
+              <div class="eyebrow">LÄGG UT FÖR</div>
+              <div id="r-list" class="list-price"></div>
+            </div>
+            <div class="price-side">
+              <div id="r-floor-label" class="label"></div>
+              <div id="r-floor" class="floor"></div>
+            </div>
           </div>
+          <p id="r-basis" class="basis"></p>
+          <div id="r-bar" class="bar" aria-hidden="true"></div>
+          <div id="r-bar-labels" class="bar-labels"></div>
+          <p id="r-counts" class="hint"></p>
+          <div id="r-nosold" class="nosold" hidden>Inga bekräftade försäljningar – priset följer marknaden just nu.</div>
+        </section>
+
+        <div id="r-verdict-row" class="verdict-row" hidden>
           <div id="r-score" class="score"><span id="r-score-num"></span><small>%</small></div>
+          <div>
+            <div id="r-verdict" class="verdict-text"></div>
+            <div id="r-net" class="muted small"></div>
+          </div>
         </div>
-        <div id="r-verdict" class="verdict" hidden></div>
         <p id="r-reason" class="reason"></p>
         <p id="r-evidence" class="muted small"></p>
         <ul id="r-flags" class="flags"></ul>
