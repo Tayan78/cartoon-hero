@@ -95,3 +95,45 @@ test("frågar igen med uttrycklig sökning när Gemini svarade utan att söka", 
     globalThis.fetch = realFetch;
   }
 });
+
+test("prissökning med Gemini: Google-sökning, bara Tradera/eBay-källor", async () => {
+  const { geminiPriceSearch } = await import("../lib/gemini.js");
+  const { mergeSettings } = await import("../lib/settings.js");
+  const settings = mergeSettings({ models: { search: "gemini" } });
+  assert.equal(settings.models.search, "gemini");
+  let body;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    body = JSON.parse(init.body);
+    return new Response(
+      JSON.stringify({
+        candidates: [
+          {
+            content: {
+              parts: [{ text: JSON.stringify({
+                price_sek: { median: 70, comparables: 2 },
+                sources: [
+                  { url: "https://www.tradera.com/item/1/2/hast", price_sek: 70, sold: true },
+                  { url: "https://www.ebay.de/itm/9", price_sek: 79, sold: false },
+                  { url: "https://example.com/fake", price_sek: 999, sold: true },
+                ],
+              }) }],
+            },
+            groundingMetadata: { webSearchQueries: ["site:tradera.com schleich 13695"] },
+          },
+        ],
+        usageMetadata: { promptTokenCount: 3000, candidatesTokenCount: 400 },
+      }),
+      { status: 200 },
+    );
+  };
+  try {
+    const r = await geminiPriceSearch({ identification: { item: { name: "Schleich 13695" } }, vision: "", urls: [], buyPrice: 0, settings, note: "" });
+    assert.deepEqual(body.tools, [{ google_search: {} }]);
+    assert.match(body.contents[0].parts.at(-1).text, /Schleich 13695/);
+    assert.equal(r.grounded, true);
+    assert.deepEqual(r.raw.sources.map((s) => s.url), ["https://www.tradera.com/item/1/2/hast", "https://www.ebay.de/itm/9"]);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});

@@ -337,8 +337,8 @@ function renderResult(data) {
       li.append(a);
       return li;
     }),
-    // Geminis Google-källor för identifieringen.
-    ...(r.gemini?.sources ?? []).slice(0, 3).map((g) => {
+    // Geminis Google-källor för identifieringen och (om Gemini sökte priset) prissökningen.
+    ...[...(r.gemini?.sources ?? []).slice(0, 3), ...(r.price_google_sources ?? []).slice(0, 3)].map((g) => {
       const li = document.createElement("li");
       const a = Object.assign(document.createElement("a"), { href: g.url, target: "_blank", rel: "noopener", className: "search-link" });
       a.append(Object.assign(document.createElement("span"), { textContent: `📎 ${g.title || "Google-källa"}` }));
@@ -478,8 +478,8 @@ function numberInput(value) {
   });
 }
 
-function modelOptions(selected) {
-  return MODEL_OPTIONS.map(([value, label]) =>
+function modelOptions(selected, extra = []) {
+  return [...MODEL_OPTIONS, ...extra].map(([value, label]) =>
     Object.assign(document.createElement("option"), { value, textContent: label, selected: value === selected }),
   );
 }
@@ -515,7 +515,9 @@ function openSettings(message = "") {
     }),
   );
   $("s-model-id").replaceChildren(...modelOptions(s.models.identify));
-  $("s-model-search").replaceChildren(...modelOptions(s.models.search));
+  $("s-model-search").replaceChildren(
+    ...modelOptions(s.models.search, [["gemini", "Gemini + Google-sökning"]]),
+  );
   $("s-vision").checked = s.vision;
   $("s-gemini").checked = s.gemini;
   const month = store.get("costs", {})[new Date().toISOString().slice(0, 7)];
