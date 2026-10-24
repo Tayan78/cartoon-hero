@@ -1,16 +1,20 @@
 // GET /api/ping – kontrollerar lösenordet och visar vad som är konfigurerat.
-import { MODEL } from "../lib/claude.js";
 import { checkAuth, json } from "../lib/http.js";
+import { DEFAULT_ID_MODEL, DEFAULT_SEARCH_MODEL, MODELS } from "../lib/models.js";
 import { storageConfigured } from "../lib/storage.js";
+import { visionConfigured } from "../lib/vision.js";
 
 export async function GET(request) {
   const denied = checkAuth(request);
   if (denied) return denied;
+  const mock = process.env.MOCK === "1";
   return json({
     ok: true,
-    model: MODEL,
-    api_key: Boolean(process.env.ANTHROPIC_API_KEY) || process.env.MOCK === "1",
+    api_key: Boolean(process.env.ANTHROPIC_API_KEY) || mock,
+    vision: visionConfigured() || mock,
     storage: storageConfigured(),
-    mock: process.env.MOCK === "1",
+    mock,
+    models: Object.fromEntries(Object.entries(MODELS).map(([id, m]) => [id, m.label])),
+    defaults: { identify: DEFAULT_ID_MODEL, search: DEFAULT_SEARCH_MODEL },
   });
 }

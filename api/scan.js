@@ -1,19 +1,23 @@
-// POST /api/scan  { image: dataURL, buyPrice?: number, settings?: {...} }
+// POST /api/scan  { images: [dataURL, …] (1–4 vinklar), buyPrice?: number, settings?: {...} }
+// Tre steg: Googles bildsök → identifiering (ser bilderna) → prissökning (bara text).
 // Svarar med NDJSON (en JSON per rad) så att appen kan visa delresultat:
 //   {"type":"status","text":"…"}      – vad som händer just nu
-//   {"type":"prelim","item":{…}}      – snabb identifiering innan priserna är klara
+//   {"type":"prelim","item":{…}}      – identifieringen, innan priserna är klara
 //   {"type":"result",…}               – färdigt resultatkort
 //   {"type":"logged",…}               – raden är sparad i Google Sheet
 //   {"type":"error","error":"…"}
 import { randomBytes } from "node:crypto";
-import { MODEL, identify, scan } from "../lib/claude.js";
+import { identify, priceSearch } from "../lib/claude.js";
 import { addUsage, costUsd, emptyUsage, finalizeResult } from "../lib/economics.js";
 import { checkAuth, json, parseDataUrl } from "../lib/http.js";
-import { mockIdentify, mockScan } from "../lib/mock.js";
+import { mockIdentify, mockPrice, mockVision } from "../lib/mock.js";
+import { VISION_USD_PER_IMAGE } from "../lib/models.js";
 import { mergeSettings } from "../lib/settings.js";
 import { callAppsScript } from "../lib/storage.js";
+import { visionConfigured, visionText, webDetect } from "../lib/vision.js";
 
 const MOCK = process.env.MOCK === "1";
+const MAX_IMAGES = 4;
 
 function newScanId() {
   // "2026-10-24 16:36:05" i svensk tid → "20261024-163605"
@@ -23,6 +27,8 @@ function newScanId() {
     .replace(" ", "-");
   return `S${stamp}-${randomBytes(2).toString("hex")}`;
 }
+
+const round = (n, d) => Number(n.toFixed(d));
 
 export async function POST(request) {
   const denied = checkAuth(request);
@@ -34,8 +40,9 @@ export async function POST(request) {
   } catch {
     return json({ error: "Ogiltig förfrågan" }, 400);
   }
-  const image = parseDataUrl(body.image);
-  if (!image) return json({ error: "Bild saknas eller har fel format" }, 400);
+  const dataUrls = (Array.isArray(body.images) ? body.images : [body.image]).filter(Boolean).slice(0, MAX_IMAGES);
+  const images = dataUrls.map(parseDataUrl);
+  if (!images.length || images.some((img) => !img)) return json({ error: "Bild saknas eller har fel format" }, 400);
   const buyPrice = Math.max(0, Math.round(Number(body.buyPrice) || 0));
   const settings = mergeSettings(body.settings);
   const scanId = newScanId();
@@ -45,44 +52,68 @@ export async function POST(request) {
   const stream = new ReadableStream({
     async start(controller) {
       const send = (obj) => controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
-      const usage = emptyUsage();
-      let finished = false;
-
-      send({ type: "status", text: "Identifierar…", scan_id: scanId });
-
-      const prelim = (MOCK ? mockIdentify() : identify(image))
-        .then((r) => {
-          addUsage(usage, r.usage);
-          if (!finished) send({ type: "prelim", item: r.item });
-        })
-        .catch((err) => console.warn("identify misslyckades:", err.message));
+      const steps = [];
+      const flags = [];
 
       try {
-        const full = await (MOCK ? mockScan : scan)(image, { buyPrice, settings }, (text) => {
-          if (!finished) send({ type: "status", text });
-        });
-        finished = true;
-        for (const u of full.usages) addUsage(usage, u);
-        await prelim;
+        // 1. Bildsök
+        let vision = null;
+        const useVision = settings.vision && (MOCK || visionConfigured());
+        if (useVision) {
+          send({ type: "status", text: "Bildsök…", scan_id: scanId });
+          try {
+            vision = await (MOCK ? mockVision() : webDetect(images));
+            steps.push({ step: "Bildsök", model: "google-vision", images: images.length, usd: images.length * VISION_USD_PER_IMAGE });
+          } catch (err) {
+            console.warn("Vision misslyckades:", err.message);
+            flags.push(`Bildsöket misslyckades (${err.message}).`);
+          }
+        }
+        const hints = useVision ? visionText(vision) : "Bildsök: används inte.";
 
-        const result = finalizeResult(full.raw, { buyPrice, settings });
-        const usd = costUsd(full.model === "mock" ? MODEL : full.model, usage);
-        const cost = { usd: Number(usd.toFixed(4)), sek: Number((usd * settings.fx.USD).toFixed(2)), ...usage };
+        // 2. Identifiering
+        send({ type: "status", text: images.length > 1 ? `Identifierar (${images.length} bilder)…` : "Identifierar…", scan_id: scanId });
+        const id = await (MOCK ? mockIdentify : identify)(images, hints, settings.models.identify);
+        steps.push(stepCost("Identifiering", id));
+        send({ type: "prelim", item: id.raw.item ?? {} });
+
+        // 3. Prissökning
+        send({ type: "status", text: "Söker sålda objekt…" });
+        const price = await (MOCK ? mockPrice : priceSearch)(
+          { identification: id.raw, vision: hints, buyPrice, settings },
+          settings.models.search,
+          (text) => send({ type: "status", text }),
+        );
+        steps.push(stepCost("Prissök", price));
+
+        const result = finalizeResult({ ...price.raw, item: id.raw.item, evidence: id.raw.evidence }, { buyPrice, settings });
+        result.flags.push(...flags);
+        if (vision) result.vision = vision;
+
+        const totals = emptyUsage();
+        for (const s of steps) for (const u of s.usages ?? []) addUsage(totals, u);
+        const usd = steps.reduce((sum, s) => sum + s.usd, 0);
+        const cost = {
+          usd: round(usd, 4),
+          sek: round(usd * settings.fx.USD, 2),
+          ...totals,
+          steps: steps.map(({ usages, ...s }) => ({ ...s, usd: round(s.usd, 4), sek: round(s.usd * settings.fx.USD, 2) })),
+        };
+        const model = `ID ${id.model} · Sök ${price.model}${vision ? " · Vision" : ""}`;
         const durationMs = Date.now() - started;
-        send({ type: "result", scan_id: scanId, result, cost, model: full.model, duration_ms: durationMs });
+        send({ type: "result", scan_id: scanId, result, cost, model, images: images.length, duration_ms: durationMs });
 
-        // Logga alltid skanningen, så att inget går förlorat.
+        // Logga alltid skanningen, så att inget går förlorat. (Huvudbilden sparas i Drive.)
         const logged = await callAppsScript("logScan", {
           scan_id: scanId,
-          image: body.image,
-          result,
+          image: dataUrls[0],
+          result: { ...result, cost_steps: cost.steps },
           cost,
-          model: full.model,
+          model,
           duration_ms: durationMs,
         }).catch((err) => ({ ok: false, error: err.message }));
         send({ type: "logged", ok: Boolean(logged.ok), image_url: logged.image_url ?? "", error: logged.error });
       } catch (err) {
-        finished = true;
         console.error("scan misslyckades:", err);
         send({ type: "error", error: friendlyError(err) });
       } finally {
@@ -94,6 +125,13 @@ export async function POST(request) {
   return new Response(stream, {
     headers: { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-store" },
   });
+}
+
+// Summerar token och kostnad för ett steg (ett eller flera API-anrop).
+function stepCost(step, { usages, model }) {
+  const usage = emptyUsage();
+  for (const u of usages) addUsage(usage, u);
+  return { step, model, usages, tokens_in: usage.input_tokens, tokens_out: usage.output_tokens, searches: usage.web_searches, usd: costUsd(model, usage) };
 }
 
 function friendlyError(err) {
