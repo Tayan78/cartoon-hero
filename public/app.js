@@ -1,4 +1,4 @@
-// Loppisskannern – fas 1: fota → (inköpspris) → skanna → resultatkort.
+// Loppisskannern – fas 1: fota (1–4 vinklar) → (inköpspris) → skanna → resultatkort.
 
 // Samma standardvärden som lib/settings.js på servern.
 const DEFAULT_SETTINGS = {
@@ -10,6 +10,14 @@ const DEFAULT_SETTINGS = {
   },
   fx: { USD: 10.5, EUR: 11.5, GBP: 13.5 },
 };
+// Tomt värde = serverns standard (ID_MODEL / SEARCH_MODEL i Vercel).
+const MODEL_OPTIONS = [
+  ["", "Standard (servern)"],
+  ["claude-opus-5-5", "Opus 5.5 – bäst, dyrast"],
+  ["claude-sonnet-5-5", "Sonnet 5.5 – mellan"],
+  ["claude-haiku-5-5", "Haiku 5.5 – billigast"],
+];
+const MAX_PHOTOS = 4;
 const MAX_SIDE = 1500;
 const JPEG_QUALITY = 0.82;
 
@@ -38,6 +46,8 @@ const getSettings = () => {
   return {
     platforms: { ...structuredClone(DEFAULT_SETTINGS.platforms), ...(s?.platforms ?? {}) },
     fx: { ...DEFAULT_SETTINGS.fx, ...(s?.fx ?? {}) },
+    models: { identify: s?.models?.identify ?? "", search: s?.models?.search ?? "" },
+    vision: s?.vision ?? true,
   };
 };
 
@@ -48,8 +58,8 @@ function show(name) {
   window.scrollTo(0, 0);
 }
 
-// ---------- bild ----------
-let photo = null; // dataURL efter komprimering
+// ---------- bilder ----------
+let photos = []; // dataURL:er efter komprimering, första = huvudbild
 
 async function compress(file) {
   const url = URL.createObjectURL(file);
@@ -74,34 +84,66 @@ async function compress(file) {
   }
 }
 
-$("photo").addEventListener("change", async (e) => {
-  const file = e.target.files?.[0];
-  if (!file) return;
+async function addPhoto(file, replaceMain) {
   $("btn-scan").disabled = true;
   $("scan-hint").textContent = "Förbereder bild…";
   try {
-    photo = await compress(file);
-    $("preview").src = photo;
-    $("preview").hidden = false;
-    $("camera-label").classList.add("has-photo");
-    $("camera-text").textContent = "Tryck för att fota igen";
-    $("btn-scan").disabled = false;
-    $("scan-hint").textContent = `${Math.round((photo.length * 0.75) / 1024)} kB`;
+    const url = await compress(file);
+    if (replaceMain && photos.length) photos[0] = url;
+    else photos.push(url);
   } catch (err) {
     $("scan-hint").textContent = err.message;
   }
+  renderPhotos();
+}
+
+function renderPhotos() {
+  const has = photos.length > 0;
+  $("preview").hidden = !has;
+  if (has) $("preview").src = photos[0];
+  else $("preview").removeAttribute("src");
+  $("camera-label").classList.toggle("has-photo", has);
+  if (has) $("camera-text").textContent = "Tryck för att fota om huvudbilden";
+  else $("camera-text").innerHTML = "📷<br>Fota föremål";
+
+  $("angles").hidden = !has;
+  $("angle-list").replaceChildren(
+    ...photos.slice(1).map((url, i) => {
+      const wrap = Object.assign(document.createElement("div"), { className: "angle" });
+      const img = Object.assign(document.createElement("img"), { src: url, alt: `Vinkel ${i + 2}` });
+      const del = Object.assign(document.createElement("button"), { type: "button", textContent: "×", ariaLabel: "Ta bort" });
+      del.addEventListener("click", () => {
+        photos.splice(i + 1, 1);
+        renderPhotos();
+      });
+      wrap.append(img, del);
+      return wrap;
+    }),
+  );
+  $("add-angle").hidden = photos.length >= MAX_PHOTOS;
+  $("add-angle-text").textContent = `+ Vinkel (${photos.length}/${MAX_PHOTOS})`;
+
+  $("btn-scan").disabled = !has;
+  const kb = photos.reduce((sum, p) => sum + p.length * 0.75, 0) / 1024;
+  $("scan-hint").textContent = has ? `${photos.length} ${photos.length === 1 ? "bild" : "bilder"} · ${Math.round(kb)} kB` : "";
+}
+
+$("photo").addEventListener("change", async (e) => {
+  const file = e.target.files?.[0];
   e.target.value = "";
+  if (file) await addPhoto(file, true);
+});
+
+$("photo-more").addEventListener("change", async (e) => {
+  const file = e.target.files?.[0];
+  e.target.value = "";
+  if (file) await addPhoto(file, false);
 });
 
 function resetScan() {
-  photo = null;
-  $("preview").hidden = true;
-  $("preview").removeAttribute("src");
-  $("camera-label").classList.remove("has-photo");
-  $("camera-text").innerHTML = "📷<br>Fota föremål";
+  photos = [];
   $("buy-price").value = "";
-  $("btn-scan").disabled = true;
-  $("scan-hint").textContent = "";
+  renderPhotos();
   show("scan");
 }
 
@@ -115,11 +157,11 @@ function setStatus(text, busy = true) {
 }
 
 function resetCard() {
-  $("card-img").src = photo;
+  $("card-img").src = photos[0];
   $("r-name").textContent = "Identifierar…";
   $("r-sub").textContent = "";
   for (const id of ["r-main", "r-verdict", "r-details", "r-sources-title", "btn-save"]) $(id).hidden = true;
-  for (const id of ["r-reason", "r-cost"]) $(id).textContent = "";
+  for (const id of ["r-reason", "r-evidence", "r-cost"]) $(id).textContent = "";
   $("r-flags").replaceChildren();
   $("r-sources").replaceChildren();
   $("r-details").replaceChildren();
@@ -153,6 +195,7 @@ function renderResult(data) {
   $("r-verdict").className = `verdict ${color}`;
   $("r-verdict").textContent = r.verdict;
   $("r-reason").textContent = r.reason;
+  $("r-evidence").textContent = r.evidence ? `Identifiering: ${r.evidence}` : "";
 
   $("r-flags").replaceChildren(
     ...r.flags.map((f) => Object.assign(document.createElement("li"), { textContent: f })),
@@ -199,7 +242,10 @@ function renderResult(data) {
   );
 
   const secs = (data.duration_ms / 1000).toFixed(1);
-  $("r-cost").textContent = `Kostnad ${data.cost.sek.toFixed(2).replace(".", ",")} kr · ${data.cost.web_searches} sökningar · ${secs} s`;
+  const sek = (n) => `${n.toFixed(2).replace(".", ",")} kr`;
+  const parts = data.cost.steps.map((st) => `${st.step} ${sek(st.sek)}`).join(" · ");
+  $("r-cost").textContent =
+    `Kostnad ${sek(data.cost.sek)} (${parts}) · ${data.cost.web_searches} sökningar · ${data.images} bild${data.images === 1 ? "" : "er"} · ${secs} s`;
   $("btn-save").hidden = false;
   trackCost(data.cost.sek);
 }
@@ -230,7 +276,7 @@ async function readNdjson(res, onMessage) {
 }
 
 $("btn-scan").addEventListener("click", async () => {
-  if (!photo) return;
+  if (!photos.length) return;
   if (!getToken()) {
     openSettings("Ange lösenordet först.");
     return;
@@ -245,7 +291,7 @@ $("btn-scan").addEventListener("click", async () => {
     const res = await fetch("/api/scan", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-app-token": getToken() },
-      body: JSON.stringify({ image: photo, buyPrice: Number($("buy-price").value) || 0, settings: getSettings() }),
+      body: JSON.stringify({ images: photos, buyPrice: Number($("buy-price").value) || 0, settings: getSettings() }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
@@ -255,7 +301,7 @@ $("btn-scan").addEventListener("click", async () => {
       if (msg.type === "status") setStatus(msg.text);
       else if (msg.type === "prelim") {
         renderPrelim(msg.item);
-        setStatus("Preliminärt – söker sålda priser…");
+        setStatus("Identifierad – söker sålda priser…");
       } else if (msg.type === "result") {
         gotResult = true;
         current = { scan_id: msg.scan_id, result: msg.result, image_url: "" };
@@ -306,6 +352,12 @@ function numberInput(value) {
   });
 }
 
+function modelOptions(selected) {
+  return MODEL_OPTIONS.map(([value, label]) =>
+    Object.assign(document.createElement("option"), { value, textContent: label, selected: value === selected }),
+  );
+}
+
 function openSettings(message = "") {
   const visible = views.find((v) => !$(`view-${v}`).hidden);
   if (visible && visible !== "settings") viewBeforeSettings = visible;
@@ -336,6 +388,9 @@ function openSettings(message = "") {
       return label;
     }),
   );
+  $("s-model-id").replaceChildren(...modelOptions(s.models.identify));
+  $("s-model-search").replaceChildren(...modelOptions(s.models.search));
+  $("s-vision").checked = s.vision;
   const month = store.get("costs", {})[new Date().toISOString().slice(0, 7)];
   $("s-costs").textContent = month
     ? `Den här månaden (denna telefon): ${month.scans} skanningar, ${month.sek.toFixed(2).replace(".", ",")} kr. Exakt kostnad per skanning loggas i Sheet.`
@@ -354,6 +409,8 @@ $("btn-settings-save").addEventListener("click", () => {
     s.platforms[input.dataset.platform][input.dataset.key] = Number(input.value) || 0;
   }
   for (const input of $("s-fx").querySelectorAll("input")) s.fx[input.dataset.fx] = Number(input.value) || 0;
+  s.models = { identify: $("s-model-id").value, search: $("s-model-search").value };
+  s.vision = $("s-vision").checked;
   store.set("settings", s);
   $("s-test").textContent = "Sparat.";
 });
@@ -366,9 +423,13 @@ $("btn-test").addEventListener("click", async () => {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || `Fel ${res.status}`);
     store.set("token", token);
+    const label = (id) => data.models[id] ?? id;
     $("s-test").textContent =
-      `✓ Ansluten (${data.model}). API-nyckel: ${data.api_key ? "ja" : "SAKNAS"}. ` +
-      `Google Sheet: ${data.storage ? "ja" : "inte konfigurerat"}.${data.mock ? " (testläge)" : ""}`;
+      `✓ Ansluten. API-nyckel: ${data.api_key ? "ja" : "SAKNAS"}. ` +
+      `Bildsök: ${data.vision ? "ja" : "inte konfigurerat"}. ` +
+      `Google Sheet: ${data.storage ? "ja" : "inte konfigurerat"}. ` +
+      `Standard: identifiering ${label(data.defaults.identify)}, prissök ${label(data.defaults.search)}.` +
+      (data.mock ? " (testläge)" : "");
   } catch (err) {
     $("s-test").textContent = `✗ ${err.message}`;
   }

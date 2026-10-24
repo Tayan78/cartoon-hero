@@ -56,12 +56,13 @@ main { max-width: 560px; margin: 0 auto; }
 
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field span { color: var(--muted); font-size: 15px; }
-input {
+input, select {
   font: inherit; font-size: 20px; color: var(--text);
   background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
   padding: 14px; width: 100%;
 }
-input:focus { outline: 2px solid var(--accent); border-color: transparent; }
+select { appearance: none; -webkit-appearance: none; font-size: 17px; }
+input:focus, select:focus { outline: 2px solid var(--accent); border-color: transparent; }
 
 button { font: inherit; border-radius: var(--radius); border: 0; cursor: pointer; }
 button:disabled { opacity: .4; }
@@ -131,3 +132,18 @@ button:disabled { opacity: .4; }
 .fx label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 14px; }
 
 .saved { background: var(--green) !important; color: #111 !important; }
+
+.angles { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: -4px; }
+.angle-list { display: contents; }
+.angle { position: relative; width: 72px; height: 72px; }
+.angle img { width: 100%; height: 100%; object-fit: cover; border-radius: 10px; }
+.angle button {
+  position: absolute; top: -6px; right: -6px; width: 26px; height: 26px; border-radius: 50%;
+  background: var(--surface-2); color: var(--text); font-size: 18px; line-height: 1; padding: 0;
+}
+.add-angle {
+  height: 72px; padding: 0 16px; display: flex; align-items: center; border-radius: 10px;
+  background: var(--surface-2); color: var(--text); font-weight: 600; cursor: pointer;
+}
+.check { display: flex; align-items: center; gap: 10px; }
+.check input { width: 24px; height: 24px; }

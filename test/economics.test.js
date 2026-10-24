@@ -98,3 +98,17 @@ test("verdict-gränser", () => {
   assert.equal(verdictFor(69), "Kanske");
   assert.equal(verdictFor(39), "Låt bli");
 });
+
+test("modellval från appen: bara tillåtna modeller, annars standard", async () => {
+  const s = mergeSettings({ models: { identify: "claude-sonnet-5-5", search: "gpt-x" }, vision: false });
+  assert.equal(s.models.identify, "claude-sonnet-5-5");
+  assert.equal(s.models.search, "claude-haiku-5-5");
+  assert.equal(s.vision, false);
+  assert.equal(mergeSettings({ models: { identify: "" } }).models.identify, "claude-opus-5-5");
+});
+
+test("kostnad räknas med rätt modellpris", () => {
+  const u = { input_tokens: 1_000_000, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, web_searches: 0 };
+  assert.equal(costUsd("claude-haiku-5-5", u), 0.1);
+  assert.equal(costUsd("claude-sonnet-5-5", u), 2);
+});

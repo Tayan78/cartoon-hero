@@ -29,6 +29,14 @@
         <span id="camera-text" class="camera-text">📷<br>Fota föremål</span>
       </label>
 
+      <div id="angles" class="angles" hidden>
+        <div id="angle-list" class="angle-list"></div>
+        <label id="add-angle" class="add-angle">
+          <input id="photo-more" type="file" accept="image/*" capture="environment" hidden>
+          <span id="add-angle-text">+ Vinkel</span>
+        </label>
+      </div>
+
       <label class="field">
         <span>Inköpspris (valfritt)</span>
         <input id="buy-price" type="number" inputmode="numeric" pattern="[0-9]*" min="0" placeholder="kr">
@@ -61,6 +69,7 @@
         </div>
         <div id="r-verdict" class="verdict" hidden></div>
         <p id="r-reason" class="reason"></p>
+        <p id="r-evidence" class="muted small"></p>
         <ul id="r-flags" class="flags"></ul>
 
         <dl id="r-details" class="details" hidden></dl>
@@ -86,6 +95,20 @@
       </label>
       <button id="btn-test" class="secondary">Testa anslutning</button>
       <p id="s-test" class="hint"></p>
+
+      <h3>Modeller</h3>
+      <label class="field">
+        <span>Identifiering (ser bilderna)</span>
+        <select id="s-model-id"></select>
+      </label>
+      <label class="field">
+        <span>Prissökning (söker Tradera/eBay)</span>
+        <select id="s-model-search"></select>
+      </label>
+      <label class="check">
+        <input id="s-vision" type="checkbox">
+        <span>Använd Googles bildsök</span>
+      </label>
 
       <h3>Avgifter och frakt per plattform</h3>
       <p class="hint">Frakt = det du själv står för (emballage, frakt som inte betalas av köparen).</p>
