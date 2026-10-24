@@ -48,6 +48,7 @@ const getSettings = () => {
     fx: { ...DEFAULT_SETTINGS.fx, ...(s?.fx ?? {}) },
     models: { identify: s?.models?.identify ?? "", search: s?.models?.search ?? "" },
     vision: s?.vision ?? true,
+    gemini: s?.gemini ?? true,
   };
 };
 
@@ -220,6 +221,9 @@ function renderResult(data) {
     const range = fs.low && fs.high && fs.low !== fs.high ? `${kr(fs.low)}–${kr(fs.high)}` : kr(fs.high || fs.low);
     rows.splice(1, 0, ["Till salu nu", `${range} (${fs.count} annonser)`]);
   }
+  if (r.gemini?.name) {
+    rows.push(["Google (Gemini)", [r.gemini.name, r.gemini.article_number].filter(Boolean).join(" · ")]);
+  }
   const others = (r.candidates ?? []).filter((c) => c.name && c.name !== r.item.name);
   if (others.length) {
     rows.push(["Andra kandidater", others.map((c) => [c.name, c.article_number].filter(Boolean).join(" ")).join("; ")]);
@@ -254,6 +258,14 @@ function renderResult(data) {
       const price = document.createElement("span");
       price.textContent = (s.price_sek ? kr(s.price_sek) : "") + (s.sold ? "" : " · till salu");
       a.append(title, price);
+      li.append(a);
+      return li;
+    }),
+    // Geminis Google-källor för identifieringen.
+    ...(r.gemini?.sources ?? []).slice(0, 3).map((g) => {
+      const li = document.createElement("li");
+      const a = Object.assign(document.createElement("a"), { href: g.url, target: "_blank", rel: "noopener", className: "search-link" });
+      a.append(Object.assign(document.createElement("span"), { textContent: `📎 ${g.title || "Google-källa"}` }));
       li.append(a);
       return li;
     }),
@@ -420,6 +432,7 @@ function openSettings(message = "") {
   $("s-model-id").replaceChildren(...modelOptions(s.models.identify));
   $("s-model-search").replaceChildren(...modelOptions(s.models.search));
   $("s-vision").checked = s.vision;
+  $("s-gemini").checked = s.gemini;
   const month = store.get("costs", {})[new Date().toISOString().slice(0, 7)];
   $("s-costs").textContent = month
     ? `Den här månaden (denna telefon): ${month.scans} skanningar, ${month.sek.toFixed(2).replace(".", ",")} kr. Exakt kostnad per skanning loggas i Sheet.`
@@ -440,6 +453,7 @@ $("btn-settings-save").addEventListener("click", () => {
   for (const input of $("s-fx").querySelectorAll("input")) s.fx[input.dataset.fx] = Number(input.value) || 0;
   s.models = { identify: $("s-model-id").value, search: $("s-model-search").value };
   s.vision = $("s-vision").checked;
+  s.gemini = $("s-gemini").checked;
   store.set("settings", s);
   $("s-test").textContent = "Sparat.";
 });
@@ -456,6 +470,7 @@ $("btn-test").addEventListener("click", async () => {
     $("s-test").textContent =
       `✓ Ansluten. API-nyckel: ${data.api_key ? "ja" : "SAKNAS"}. ` +
       `Bildsök: ${data.vision ? "ja" : "inte konfigurerat"}. ` +
+      `Gemini: ${data.gemini ? `ja (${data.gemini_model})` : "inte konfigurerat"}. ` +
       `Google Sheet: ${data.storage ? "ja" : "inte konfigurerat"}. ` +
       `Standard: identifiering ${label(data.defaults.identify)}, prissök ${label(data.defaults.search)}.` +
       (data.mock ? " (testläge)" : "");

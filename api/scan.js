@@ -10,7 +10,8 @@ import { randomBytes } from "node:crypto";
 import { identify, priceSearch } from "../lib/claude.js";
 import { addUsage, costUsd, emptyUsage, finalizeResult } from "../lib/economics.js";
 import { checkAuth, json, parseDataUrl } from "../lib/http.js";
-import { mockIdentify, mockPrice, mockVision } from "../lib/mock.js";
+import { GEMINI_MODEL, geminiArticle, geminiConfigured, geminiIdentify, geminiText } from "../lib/gemini.js";
+import { mockGemini, mockIdentify, mockPrice, mockVision } from "../lib/mock.js";
 import { VISION_USD_PER_IMAGE } from "../lib/models.js";
 import { dropUnverifiedArticle, marketUrls, searchTerms } from "../lib/market.js";
 import { mergeSettings } from "../lib/settings.js";
@@ -57,20 +58,42 @@ export async function POST(request) {
       const flags = [];
 
       try {
-        // 1. Bildsök
-        let vision = null;
+        // 1. Bildsök (Cloud Vision) och Gemini med Google-sökning, parallellt
         const useVision = settings.vision && (MOCK || visionConfigured());
-        if (useVision) {
-          send({ type: "status", text: "Bildsök…", scan_id: scanId });
-          try {
-            vision = await (MOCK ? mockVision() : webDetect(images));
-            steps.push({ step: "Bildsök", model: "google-vision", images: images.length, usd: images.length * VISION_USD_PER_IMAGE });
-          } catch (err) {
-            console.warn("Vision misslyckades:", err.message);
-            flags.push(`Bildsöket misslyckades (${err.message}).`);
-          }
-        }
-        const hints = useVision ? visionText(vision) : "Bildsök: används inte.";
+        const useGemini = settings.gemini && (MOCK || geminiConfigured());
+        send({ type: "status", text: useGemini ? "Söker på Google…" : useVision ? "Bildsök…" : "Identifierar…", scan_id: scanId });
+
+        const visionJob = !useVision
+          ? null
+          : (MOCK ? mockVision() : webDetect(images))
+              .then((v) => {
+                steps.push({ step: "Bildsök", model: "google-vision", images: images.length, usd: images.length * VISION_USD_PER_IMAGE });
+                return v;
+              })
+              .catch((err) => {
+                console.warn("Vision misslyckades:", err.message);
+                flags.push(`Bildsöket misslyckades (${err.message}).`);
+                return null;
+              });
+        const geminiJob = !useGemini
+          ? null
+          : (MOCK ? mockGemini() : geminiIdentify(images))
+              .then((g) => {
+                steps.push({ step: "Gemini", model: GEMINI_MODEL, tokens_in: g.tokensIn, tokens_out: g.tokensOut, searches: g.queries.length, usd: g.usd });
+                const article = geminiArticle(g);
+                if (g.raw.name) send({ type: "prelim", item: { name: g.raw.name, brand: g.raw.brand, model: article || g.raw.model } });
+                return g;
+              })
+              .catch((err) => {
+                console.warn("Gemini misslyckades:", err.message);
+                flags.push(`Gemini-sökningen misslyckades (${err.message}).`);
+                return null;
+              });
+        const [vision, gemini] = await Promise.all([visionJob, geminiJob]);
+
+        // Ledtrådar till modellerna, och det som räknas som belagt för artikelnummer.
+        const hints = [useVision ? visionText(vision) : "Bildsök: används inte.", geminiText(gemini)].filter(Boolean).join("\n\n");
+        const evidence = [useVision ? visionText(vision) : "", geminiArticle(gemini)].join("\n");
 
         // 2. Identifiering
         send({ type: "status", text: images.length > 1 ? `Identifierar (${images.length} bilder)…` : "Identifierar…", scan_id: scanId });
@@ -79,8 +102,8 @@ export async function POST(request) {
         send({ type: "prelim", item: id.raw.item ?? {} });
 
         // 3. Prissökning – färdiga söksidor på artikelnummer/sökord
-        dropUnverifiedArticle(id.raw, hints);
-        const urls = marketUrls(searchTerms(id.raw, hints));
+        dropUnverifiedArticle(id.raw, evidence);
+        const urls = marketUrls(searchTerms(id.raw, evidence));
         send({ type: "status", text: "Hämtar sålda objekt…" });
         const price = await (MOCK ? mockPrice : priceSearch)(
           { identification: id.raw, vision: hints, urls, buyPrice, settings },
@@ -96,6 +119,14 @@ export async function POST(request) {
         result.search_urls = urls;
         result.flags.push(...flags);
         if (vision) result.vision = vision;
+        if (gemini) {
+          result.gemini = {
+            name: gemini.raw.name ?? "",
+            article_number: geminiArticle(gemini),
+            confidence: gemini.raw.confidence ?? "",
+            sources: gemini.sources,
+          };
+        }
 
         const totals = emptyUsage();
         for (const s of steps) for (const u of s.usages ?? []) addUsage(totals, u);
@@ -106,7 +137,7 @@ export async function POST(request) {
           ...totals,
           steps: steps.map(({ usages, ...s }) => ({ ...s, usd: round(s.usd, 4), sek: round(s.usd * settings.fx.USD, 2) })),
         };
-        const model = `ID ${id.model} · Sök ${price.model}${vision ? " · Vision" : ""}`;
+        const model = `ID ${id.model} · Sök ${price.model}${vision ? " · Vision" : ""}${gemini ? ` · ${GEMINI_MODEL}` : ""}`;
         const durationMs = Date.now() - started;
         send({ type: "result", scan_id: scanId, result, cost, model, images: images.length, duration_ms: durationMs });
 
