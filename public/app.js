@@ -239,7 +239,9 @@ function renderResult(data) {
     ["Inköpspris", `−${kr(e.buy_price)}`],
     ["Netto", kr(e.net_profit)],
   );
-  if (r.item.article_number) rows.unshift(["Artikelnr", r.item.article_number]);
+  if (r.article) {
+    rows.unshift(["Modellnummer", `${r.article.number} · ${r.article.source}${r.article.verified ? "" : " (obekräftat)"}`]);
+  }
   $("r-details").replaceChildren(
     ...rows.flatMap(([k, v]) => [
       Object.assign(document.createElement("dt"), { textContent: k }),

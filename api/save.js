@@ -1,5 +1,6 @@
 // POST /api/save  { scan_id, image_url, result }  – "Spara till lager"
 import { checkAuth, json } from "../lib/http.js";
+import { formatArticle } from "../lib/market.js";
 import { callAppsScript, storageConfigured } from "../lib/storage.js";
 
 export async function POST(request) {
@@ -18,7 +19,7 @@ export async function POST(request) {
   const res = await callAppsScript("saveInventory", {
     scan_id: String(body.scan_id),
     image_url: String(body.image_url ?? ""),
-    result: body.result,
+    result: { ...body.result, item: { ...body.result.item, article_number: formatArticle(body.result.article) || body.result.item?.article_number || "" } },
   }).catch((err) => ({ ok: false, error: err.message }));
   return json(res, res.ok ? 200 : 502);
 }

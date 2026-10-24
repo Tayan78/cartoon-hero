@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { dropUnverifiedArticle, marketUrls, searchTerms } from "../lib/market.js";
+import { dropUnverifiedArticle, formatArticle, marketUrls, pickArticle, searchTerms } from "../lib/market.js";
 
 test("söker på märke + artikelnummer när det är belagt", () => {
   const t = searchTerms({ item: { brand: "Schleich (trolig)", model: "Pinto föl", article_number: "13802", article_number_source: "föremålet" }, search_terms: { tradera: "schleich föl" } });
@@ -36,4 +36,19 @@ test("nummer ur minnet används inte, nummer från bildsöket eller föremålet 
 test("bara eBay-sidan hämtas av modellen; alla visas som länkar", () => {
   const urls = marketUrls({ tradera: "a", ebay: "b" });
   assert.deepEqual(urls.filter((u) => u.fetch).map((u) => u.label), ["eBay – sålda objekt"]);
+});
+
+test("modellnummer till kortet och Sheet: belagt först, annars Gemini/bildsök som obekräftat", () => {
+  const verified = pickArticle({ item: { article_number: "13695", article_number_source: "gemini" } });
+  assert.deepEqual(verified, { number: "13695", source: "Gemini", verified: true });
+  assert.equal(formatArticle(verified), "13695 (Gemini)");
+
+  const fromGemini = pickArticle({ item: { article_number: "" }, gemini: { grounded: false, raw: { article_number: "13695" } } });
+  assert.equal(formatArticle(fromGemini), "13695 (Gemini, obekräftat)");
+
+  const fromVision = pickArticle({ item: {}, vision: { numbers: [{ number: "13802", pages: 3 }] } });
+  assert.equal(formatArticle(fromVision), "13802 (bildsök)");
+
+  assert.equal(pickArticle({ item: {} }), null);
+  assert.equal(formatArticle(null), "");
 });

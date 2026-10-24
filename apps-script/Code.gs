@@ -21,7 +21,7 @@ var SCAN_HEADERS = [
 
 var INVENTORY_HEADERS = [
   'Sparad', 'Skannings-ID', 'Bild', 'Namn', 'Kategori', 'Märke', 'Modell', 'Skick', 'Inköpspris',
-  'Pris median', 'Netto', 'Köp-poäng', 'Bästa plattform', 'Status'
+  'Pris median', 'Netto', 'Köp-poäng', 'Bästa plattform', 'Status', 'Artikelnr'
 ];
 
 function doPost(e) {
@@ -77,7 +77,7 @@ function saveInventory(body) {
   sheet('Lager', INVENTORY_HEADERS).appendRow([
     new Date(), body.scan_id, url ? '=HYPERLINK("' + url + '","Bild")' : '', item.name, item.category,
     item.brand, item.model, item.condition, ec.buy_price, (r.price_sek || {}).median, ec.net_profit,
-    r.buy_score, r.best_platform, 'Ny'
+    r.buy_score, r.best_platform, 'Ny', item.article_number
   ]);
   return { ok: true };
 }
@@ -108,6 +108,14 @@ function sheet(name, headers) {
     sh.appendRow(headers);
     sh.setFrozenRows(1);
     sh.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+    return sh;
+  }
+  // Nya kolumner i senare versioner läggs till sist i en befintlig flik.
+  var existing = sh.getLastColumn();
+  if (existing < headers.length) {
+    sh.getRange(1, existing + 1, 1, headers.length - existing)
+      .setValues([headers.slice(existing)])
+      .setFontWeight('bold');
   }
   return sh;
 }

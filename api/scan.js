@@ -13,7 +13,7 @@ import { checkAuth, json, parseDataUrl } from "../lib/http.js";
 import { geminiArticle, geminiConfigured, geminiIdentify, geminiText } from "../lib/gemini.js";
 import { mockGemini, mockIdentify, mockPrice, mockVision } from "../lib/mock.js";
 import { VISION_USD_PER_IMAGE } from "../lib/models.js";
-import { dropUnverifiedArticle, marketUrls, searchTerms } from "../lib/market.js";
+import { dropUnverifiedArticle, formatArticle, marketUrls, pickArticle, searchTerms } from "../lib/market.js";
 import { mergeSettings } from "../lib/settings.js";
 import { callAppsScript } from "../lib/storage.js";
 import { visionConfigured, visionText, webDetect } from "../lib/vision.js";
@@ -118,6 +118,7 @@ export async function POST(request) {
           { buyPrice, settings },
         );
         result.search_urls = urls;
+        result.article = pickArticle({ item: id.raw.item, gemini, vision });
         result.flags.push(...flags);
         if (vision) result.vision = vision;
         if (gemini) {
@@ -146,7 +147,8 @@ export async function POST(request) {
         const logged = await callAppsScript("logScan", {
           scan_id: scanId,
           image: dataUrls[0],
-          result: { ...result, cost_steps: cost.steps },
+          // Modellnumret (med källa) i Sheets kolumn Artikelnr, även när det är obekräftat.
+          result: { ...result, item: { ...result.item, article_number: formatArticle(result.article) }, cost_steps: cost.steps },
           cost,
           model,
           duration_ms: durationMs,
