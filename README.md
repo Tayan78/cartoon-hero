@@ -8,7 +8,8 @@ Skanningen görs i tre steg, så att den dyra modellen bara tittar på bilderna 
 
 ```
 iPhone (PWA) ──1–4 bilder──▶ Vercel /api/scan
-                               1. Google Vision Web Detection  (bildsök, ~0,0035 $/bild, 1000 gratis/mån)
+                               1a. Google Vision Web Detection (bildsök, ~0,0035 $/bild, 1000 gratis/mån)
+                               1b. Gemini + Google-sökning     (hittar exakt modell/artikelnummer; parallellt med 1a)
                                2. Identifiering                (ser bilderna + bildsökets träffar; standard Opus 5.5)
                                3. Prissökning                  (bara text; läser färdiga söksidor för sålda objekt
                                                                 på artikelnumret, webbsökning som reserv; standard Haiku 5.5)
@@ -20,7 +21,7 @@ iPhone (PWA) ──1–4 bilder──▶ Vercel /api/scan
 - **Identifieringen syns direkt** efter steg 2; priser och källor fylls på när sökningen är klar.
 - **Modell per steg** väljs i appens inställningar (eller `ID_MODEL` / `SEARCH_MODEL` i Vercel). Bildsöket kan slås av där också. Jämför kostnad och träffsäkerhet i Sheet.
 - **Artikelnummer först:** nummer som återkommer i bildsökets träffar lyfts fram, identifieringen ger upp till 3 kandidater, och prissteget söker på märke + artikelnummer.
-- **Färdiga söksidor:** servern bygger adresser till Tradera avslutade objekt, eBay sålda objekt och Tradera till salu nu, som modellen läser direkt (web_fetch, max 4 sidor, `MAX_FETCHES`). Går de inte att läsa används webbsökning. Länkarna visas också på resultatkortet så att du kan kontrollera själv.
+- **Färdiga söksidor:** servern bygger adresser till Tradera avslutade objekt, eBay sålda objekt och Tradera till salu nu, som modellen läser direkt (web_fetch, bara eBay sålda eftersom Tradera blockerar hämtning; max 2 sidor à 4000 token, `MAX_FETCHES`). Går de inte att läsa används webbsökning. Länkarna visas också på resultatkortet så att du kan kontrollera själv.
 - **Till salu nu** visas som eget intervall men påverkar aldrig medianen.
 - **Bara två källor:** webbsökningen är låst till `tradera.com` och `ebay.*` (max 4 sökningar, `MAX_SEARCHES`). Bara sålda priser räknas. eBay-priser redovisas separat som internationellt pris.
 - **Ärlighet om osäkerhet:** servern räknar om ekonomin själv och tillämpar regler utöver modellens bedömning:
@@ -76,6 +77,13 @@ Skapa en nyckel på <https://console.anthropic.com> → API Keys. Lägg in lite 
 
 Utan nyckeln fungerar appen ändå, bara utan bildsök.
 
+### 2c. Gemini (Google-sökning för exakt modell)
+1. Gå till <https://aistudio.google.com> och logga in med ditt Google-konto.
+2. Tryck **Get API key → Create API key** (välj gärna samma Google Cloud-projekt som för Vision).
+3. Lägg in nyckeln som `GEMINI_API_KEY` i Vercel.
+
+Gemini söker på Google med bilden och föreslår modell och artikelnummer. Ett nummer från Gemini används i prissökningen bara om Gemini faktiskt sökte. Kan slås av i appens inställningar. Priserna för Gemini (token och sökningar) är satta efter tredjepartsuppgifter – kontrollera mot Googles prislista och justera `GEMINI_INPUT_USD`, `GEMINI_OUTPUT_USD`, `GEMINI_SEARCH_USD` vid behov.
+
 ### 3. Deploya till Vercel
 1. Skapa ett konto på <https://vercel.com> och välj **Add New → Project → Import** detta GitHub-repo.
    Framework Preset: *Other*. Inga build-inställningar behövs (`vercel.json` pekar ut `public/`).
@@ -88,6 +96,7 @@ Utan nyckeln fungerar appen ändå, bara utan bildsök.
    | `APPS_SCRIPT_URL` | webbappens URL från steg 2.5 |
    | `APPS_SCRIPT_SECRET` | samma värde som `SECRET` i steg 2.3 |
    | `GOOGLE_VISION_API_KEY` | nyckeln från steg 2b |
+   | `GEMINI_API_KEY` | nyckeln från steg 2c |
    | `ID_MODEL` | *(valfritt)* standard `claude-opus-5-5` |
    | `SEARCH_MODEL` | *(valfritt)* standard `claude-haiku-5-5` |
    | `MAX_SEARCHES` | *(valfritt)* standard `4` |
