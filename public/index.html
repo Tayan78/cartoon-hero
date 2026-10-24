@@ -105,6 +105,12 @@
         <ul id="r-sources" class="sources"></ul>
 
         <p id="r-cost" class="muted small"></p>
+
+        <details id="r-debug" class="debug" hidden>
+          <summary>Visa rådata (Google)</summary>
+          <button id="btn-copy-debug" type="button" class="secondary">Kopiera</button>
+          <pre id="r-debug-pre"></pre>
+        </details>
       </article>
 
       <div class="actions">
@@ -122,6 +128,16 @@
       </label>
       <button id="btn-test" class="secondary">Testa anslutning</button>
       <p id="s-test" class="hint"></p>
+
+      <h3>Läge</h3>
+      <label class="field">
+        <span>Hur skanningen görs</span>
+        <select id="s-mode">
+          <option value="simple">Enkelt – Vision + Gemini, annonser till salu i Sverige</option>
+          <option value="advanced">Avancerat – Claude, sålda priser</option>
+        </select>
+      </label>
+      <p class="hint">Modellvalen nedan gäller bara avancerat läge.</p>
 
       <h3>Modeller</h3>
       <label class="field">

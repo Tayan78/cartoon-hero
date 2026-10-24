@@ -4,19 +4,22 @@ Privat PWA för reselling. Fota ett föremål (1–4 vinklar) → (valfritt ink�
 
 ## Så fungerar det
 
-Skanningen görs i tre steg, så att den dyra modellen bara tittar på bilderna och den billiga gör det token-tunga sökandet:
+**Enkelt läge (standard)**: två steg, och priset bygger på annonser till salu just nu – inga sålda priser.
 
 ```
-iPhone (PWA) ──1–4 bilder──▶ Vercel /api/scan
-                               1a. Google Vision Web Detection (bildsök, ~0,0035 $/bild, 1000 gratis/mån)
-                               1b. Gemini + Google-sökning     (hittar exakt modell/artikelnummer; parallellt med 1a)
-                               2. Identifiering                (ser bilderna + bildsökets träffar; standard Opus 5.5)
-                               3. Prissökning                  (bara text; läser färdiga söksidor för sålda objekt
-                                                                på artikelnumret, webbsökning som reserv; standard Haiku 5.5)
-     ▲                         │
-     └── strömmat svar ◀───────┤
-                               └──▶ Apps Script ──▶ Drive (huvudbilden) + Sheet (rad)
+iPhone (PWA) ──1–4 bilder + ev. info──▶ Vercel /api/scan
+                               1. Google Vision Web Detection  (bildsök: sidtitlar, modellnummer – samma svar varje gång)
+                               2. Gemini + Google-sökning      (ett anrop, temperatur 0, sökning som i Sverige):
+                                    identifierar föremålet och hittar annonser till salu –
+                                    Tradera/eBay först, sedan Blocket, Vinted, Facebook, Sellpy
+                               3. Servern räknar utpris (lägsta Tradera/eBay-annons), netto och poäng
 ```
+
+- Ett modellnummer räknas som bekräftat bara om det står i din info, i bildsökets träffar eller i en textbit som Google kopplat till en källa (`groundingSupports`).
+- "Sverige": svenska sökord och sajter i prompten, plus Stockholms koordinater och `sv_SE` i `toolConfig.retrievalConfig` (dokumenterat för kartsökning; avvisas det körs anropet utan).
+- **Visa rådata** längst ned på kortet visar Googles svar (Vision och Gemini) med en kopieringsknapp. Rådatan sparas inte i Sheet.
+
+**Avancerat läge** (⚙︎ → Läge): den tidigare kedjan nedan, med Claude och försök att hitta sålda priser.
 
 - **Identifieringen syns direkt** efter steg 2; priser och källor fylls på när sökningen är klar.
 - **Prissökning med Gemini:** under ⚙︎ → Prissökning finns även *Gemini + Google-sökning*. Samma instruktioner som Claudes prissteg, men Googles index i stället för Claudes webbsökning (kan inte låsas till vissa sajter; prompten styr mot Tradera/eBay och andra källor filtreras bort).
