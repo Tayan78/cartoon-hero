@@ -121,6 +121,8 @@ function renderPhotos() {
     }),
   );
   $("add-angle").hidden = photos.length >= MAX_PHOTOS;
+  $("pick-gallery").hidden = photos.length >= MAX_PHOTOS;
+  $("pick-gallery-text").textContent = has ? "🖼 Lägg till från bilder" : "🖼 Välj från bilder";
   $("add-angle-text").textContent = `+ Vinkel (${photos.length}/${MAX_PHOTOS})`;
 
   $("btn-scan").disabled = !has;
@@ -138,6 +140,13 @@ $("photo-more").addEventListener("change", async (e) => {
   const file = e.target.files?.[0];
   e.target.value = "";
   if (file) await addPhoto(file, false);
+});
+
+// Bilder som redan finns i telefonen; första blir huvudbild om ingen finns.
+$("photo-gallery").addEventListener("change", async (e) => {
+  const files = [...(e.target.files ?? [])].slice(0, MAX_PHOTOS - photos.length);
+  e.target.value = "";
+  for (const file of files) await addPhoto(file, false);
 });
 
 function resetScan() {
