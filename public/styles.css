@@ -147,3 +147,8 @@ button:disabled { opacity: .4; }
 }
 .check { display: flex; align-items: center; gap: 10px; }
 .check input { width: 24px; height: 24px; }
+
+.pick {
+  display: block; text-align: center; padding: 14px; border-radius: var(--radius);
+  background: var(--surface-2); color: var(--text); font-weight: 600; cursor: pointer;
+}

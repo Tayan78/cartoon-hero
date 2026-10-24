@@ -1,6 +1,6 @@
 // Cachar appens skal så att den startar direkt från hemskärmen.
 // API-anrop går alltid mot nätet. Höj VERSION vid ändringar i appen.
-const VERSION = "v2";
+const VERSION = "v3";
 const SHELL = ["/", "/index.html", "/app.js", "/styles.css", "/manifest.webmanifest", "/icons/icon-192.png"];
 
 self.addEventListener("install", (event) => {
