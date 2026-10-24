@@ -82,7 +82,7 @@ Utan nyckeln fungerar appen ändå, bara utan bildsök.
 2. Tryck **Get API key → Create API key** (välj gärna samma Google Cloud-projekt som för Vision).
 3. Lägg in nyckeln som `GEMINI_API_KEY` i Vercel.
 
-Gemini söker på Google med bilden och föreslår modell och artikelnummer. Ett nummer från Gemini används i prissökningen bara om Gemini faktiskt sökte. Kan slås av i appens inställningar. Priserna för Gemini (token och sökningar) är satta efter tredjepartsuppgifter – kontrollera mot Googles prislista och justera `GEMINI_INPUT_USD`, `GEMINI_OUTPUT_USD`, `GEMINI_SEARCH_USD` vid behov.
+Gemini söker på Google med bilden och föreslår modell och artikelnummer. Ett nummer från Gemini används i prissökningen bara om Gemini faktiskt sökte. Saknar huvudmodellen kvot eller finns den inte för nyckeln provas reservmodeller (`GEMINI_FALLBACK_MODELS`, standard `gemini-3.5-flash,gemini-2.5-flash`). "Testa anslutning" visar per modell om den fungerar. Kan slås av i appens inställningar. Priserna för Gemini (token och sökningar) är satta efter tredjepartsuppgifter – kontrollera mot Googles prislista och justera `GEMINI_INPUT_USD`, `GEMINI_OUTPUT_USD`, `GEMINI_SEARCH_USD` vid behov.
 
 ### 3. Deploya till Vercel
 1. Skapa ett konto på <https://vercel.com> och välj **Add New → Project → Import** detta GitHub-repo.
