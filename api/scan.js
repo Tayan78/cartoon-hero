@@ -10,8 +10,9 @@ import { randomBytes } from "node:crypto";
 import { identify, priceSearch } from "../lib/claude.js";
 import { addUsage, costUsd, emptyUsage, finalizeResult } from "../lib/economics.js";
 import { checkAuth, json, parseDataUrl } from "../lib/http.js";
-import { geminiArticle, geminiConfigured, geminiIdentify, geminiText } from "../lib/gemini.js";
-import { mockGemini, mockIdentify, mockPrice, mockVision } from "../lib/mock.js";
+import { geminiArticle, geminiConfigured, geminiIdentify, geminiPriceSearch, geminiText } from "../lib/gemini.js";
+import { DEFAULT_SEARCH_MODEL } from "../lib/models.js";
+import { mockGemini, mockGeminiPrice, mockIdentify, mockPrice, mockVision } from "../lib/mock.js";
 import { VISION_USD_PER_IMAGE } from "../lib/models.js";
 import { dropUnverifiedArticle, formatArticle, marketUrls, pickArticle, searchTerms } from "../lib/market.js";
 import { mergeSettings } from "../lib/settings.js";
@@ -107,13 +108,25 @@ export async function POST(request) {
         // 3. Prissökning – färdiga söksidor på artikelnummer/sökord
         dropUnverifiedArticle(id.raw, evidence);
         const urls = marketUrls(searchTerms(id.raw, evidence));
-        send({ type: "status", text: "Hämtar sålda objekt…" });
-        const price = await (MOCK ? mockPrice : priceSearch)(
-          { identification: id.raw, vision: hints, urls, buyPrice, settings, note },
-          settings.models.search,
-          (text) => send({ type: "status", text }),
-        );
-        steps.push(stepCost("Prissök", price));
+        const priceInput = { identification: id.raw, vision: hints, urls, buyPrice, settings, note };
+        const onStatus = (text) => send({ type: "status", text });
+        let searchModel = settings.models.search;
+        if (searchModel === "gemini" && !(MOCK || geminiConfigured())) {
+          flags.push("Gemini är inte konfigurerat – prissökningen gjordes med Claude.");
+          searchModel = DEFAULT_SEARCH_MODEL;
+        }
+        let price;
+        if (searchModel === "gemini") {
+          // Gemini med Google-sökning
+          const g = await (MOCK ? mockGeminiPrice : geminiPriceSearch)(priceInput, onStatus);
+          price = { raw: g.raw, model: g.model, googleSources: g.sources };
+          steps.push({ step: "Prissök", model: g.model, tokens_in: g.tokensIn, tokens_out: g.tokensOut, searches: g.queries.length, usd: g.usd });
+          if (!g.grounded) flags.push("Gemini sökte inte på Google för priset – siffrorna är osäkra.");
+        } else {
+          send({ type: "status", text: "Hämtar sålda objekt…" });
+          price = await (MOCK ? mockPrice : priceSearch)(priceInput, searchModel, onStatus);
+          steps.push(stepCost("Prissök", price));
+        }
 
         const result = finalizeResult(
           { ...price.raw, item: id.raw.item, evidence: id.raw.evidence, candidates: id.raw.candidates },
@@ -121,6 +134,7 @@ export async function POST(request) {
         );
         result.search_urls = urls;
         result.note = note;
+        if (price.googleSources?.length) result.price_google_sources = price.googleSources;
         result.article = pickArticle({ item: id.raw.item, gemini, vision });
         result.flags.push(...flags);
         if (vision) result.vision = vision;
@@ -134,7 +148,15 @@ export async function POST(request) {
         }
 
         const totals = emptyUsage();
-        for (const s of steps) for (const u of s.usages ?? []) addUsage(totals, u);
+        for (const s of steps) {
+          if (s.usages) for (const u of s.usages) addUsage(totals, u);
+          // Gemini-steg har egna räknare i stället för Claude-usage.
+          else if (s.model?.startsWith("gemini")) {
+            totals.input_tokens += s.tokens_in ?? 0;
+            totals.output_tokens += s.tokens_out ?? 0;
+            totals.web_searches += s.searches ?? 0;
+          }
+        }
         const usd = steps.reduce((sum, s) => sum + s.usd, 0);
         const cost = {
           usd: round(usd, 4),

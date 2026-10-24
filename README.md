@@ -19,6 +19,7 @@ iPhone (PWA) ──1–4 bilder──▶ Vercel /api/scan
 ```
 
 - **Identifieringen syns direkt** efter steg 2; priser och källor fylls på när sökningen är klar.
+- **Prissökning med Gemini:** under ⚙︎ → Prissökning finns även *Gemini + Google-sökning*. Samma instruktioner som Claudes prissteg, men Googles index i stället för Claudes webbsökning (kan inte låsas till vissa sajter; prompten styr mot Tradera/eBay och andra källor filtreras bort).
 - **Modell per steg** väljs i appens inställningar (eller `ID_MODEL` / `SEARCH_MODEL` i Vercel). Bildsöket kan slås av där också. Jämför kostnad och träffsäkerhet i Sheet.
 - **Artikelnummer först:** nummer som återkommer i bildsökets träffar lyfts fram, identifieringen ger upp till 3 kandidater, och prissteget söker på märke + artikelnummer.
 - **Färdiga söksidor:** servern bygger adresser till Tradera avslutade objekt, eBay sålda objekt och Tradera till salu nu, som modellen läser direkt (web_fetch, bara eBay sålda eftersom Tradera blockerar hämtning; max 2 sidor à 4000 token, `MAX_FETCHES`). Går de inte att läsa används webbsökning. Länkarna visas också på resultatkortet så att du kan kontrollera själv.
