@@ -10,7 +10,7 @@ import { randomBytes } from "node:crypto";
 import { identify, priceSearch } from "../lib/claude.js";
 import { addUsage, costUsd, emptyUsage, finalizeResult } from "../lib/economics.js";
 import { checkAuth, json, parseDataUrl } from "../lib/http.js";
-import { GEMINI_MODEL, geminiArticle, geminiConfigured, geminiIdentify, geminiText } from "../lib/gemini.js";
+import { geminiArticle, geminiConfigured, geminiIdentify, geminiText } from "../lib/gemini.js";
 import { mockGemini, mockIdentify, mockPrice, mockVision } from "../lib/mock.js";
 import { VISION_USD_PER_IMAGE } from "../lib/models.js";
 import { dropUnverifiedArticle, marketUrls, searchTerms } from "../lib/market.js";
@@ -79,7 +79,7 @@ export async function POST(request) {
           ? null
           : (MOCK ? mockGemini() : geminiIdentify(images))
               .then((g) => {
-                steps.push({ step: "Gemini", model: GEMINI_MODEL, tokens_in: g.tokensIn, tokens_out: g.tokensOut, searches: g.queries.length, usd: g.usd });
+                steps.push({ step: "Gemini", model: g.model, tokens_in: g.tokensIn, tokens_out: g.tokensOut, searches: g.queries.length, usd: g.usd });
                 const article = geminiArticle(g);
                 if (g.raw.name) send({ type: "prelim", item: { name: g.raw.name, brand: g.raw.brand, model: article || g.raw.model } });
                 return g;
@@ -137,7 +137,7 @@ export async function POST(request) {
           ...totals,
           steps: steps.map(({ usages, ...s }) => ({ ...s, usd: round(s.usd, 4), sek: round(s.usd * settings.fx.USD, 2) })),
         };
-        const model = `ID ${id.model} · Sök ${price.model}${vision ? " · Vision" : ""}${gemini ? ` · ${GEMINI_MODEL}` : ""}`;
+        const model = `ID ${id.model} · Sök ${price.model}${vision ? " · Vision" : ""}${gemini ? ` · ${gemini.model}` : ""}`;
         const durationMs = Date.now() - started;
         send({ type: "result", scan_id: scanId, result, cost, model, images: images.length, duration_ms: durationMs });
 
