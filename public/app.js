@@ -281,7 +281,11 @@ function renderResult(data) {
 
   const secs = (data.duration_ms / 1000).toFixed(1);
   const sek = (n) => `${n.toFixed(2).replace(".", ",")} kr`;
-  const short = (m) => (m?.match(/opus|sonnet|haiku/i)?.[0] ?? "").replace(/^./, (c) => c.toUpperCase());
+  const short = (m) => {
+    const flash = m?.match(/gemini-([\d.]+)-flash/);
+    if (flash) return `Flash ${flash[1]}`;
+    return (m?.match(/opus|sonnet|haiku/i)?.[0] ?? "").replace(/^./, (c) => c.toUpperCase());
+  };
   const parts = data.cost.steps
     .map((st) => `${st.step}${short(st.model) ? ` (${short(st.model)})` : ""} ${sek(st.sek)}`)
     .join(" · ");
