@@ -112,3 +112,17 @@ test("kostnad räknas med rätt modellpris", () => {
   assert.equal(costUsd("claude-haiku-5-5", u), 0.1);
   assert.equal(costUsd("claude-sonnet-5-5", u), 2);
 });
+
+test("annonser till salu visas separat och räknas inte som sålda", () => {
+  const r = finalizeResult(
+    {
+      price_sek: { low: 60, median: 90, high: 120, comparables: 3, confidence: "medium" },
+      sources: [sold("Tradera", 90), { ...sold("eBay", 488), sold: false }, { ...sold("Tradera", 150), sold: false }],
+      buy_score: 50,
+    },
+    { buyPrice: 0, settings },
+  );
+  assert.deepEqual(r.for_sale, { low: 150, high: 488, count: 2 });
+  assert.equal(r.economics.sale_price, 90);
+  assert.equal(r.price_sek.no_tradera_data, false);
+});

@@ -12,6 +12,7 @@ import { addUsage, costUsd, emptyUsage, finalizeResult } from "../lib/economics.
 import { checkAuth, json, parseDataUrl } from "../lib/http.js";
 import { mockIdentify, mockPrice, mockVision } from "../lib/mock.js";
 import { VISION_USD_PER_IMAGE } from "../lib/models.js";
+import { marketUrls, searchTerms } from "../lib/market.js";
 import { mergeSettings } from "../lib/settings.js";
 import { callAppsScript } from "../lib/storage.js";
 import { visionConfigured, visionText, webDetect } from "../lib/vision.js";
@@ -77,16 +78,21 @@ export async function POST(request) {
         steps.push(stepCost("Identifiering", id));
         send({ type: "prelim", item: id.raw.item ?? {} });
 
-        // 3. Prissökning
-        send({ type: "status", text: "Söker sålda objekt…" });
+        // 3. Prissökning – färdiga söksidor på artikelnummer/sökord
+        const urls = marketUrls(searchTerms(id.raw));
+        send({ type: "status", text: "Hämtar sålda objekt…" });
         const price = await (MOCK ? mockPrice : priceSearch)(
-          { identification: id.raw, vision: hints, buyPrice, settings },
+          { identification: id.raw, vision: hints, urls, buyPrice, settings },
           settings.models.search,
           (text) => send({ type: "status", text }),
         );
         steps.push(stepCost("Prissök", price));
 
-        const result = finalizeResult({ ...price.raw, item: id.raw.item, evidence: id.raw.evidence }, { buyPrice, settings });
+        const result = finalizeResult(
+          { ...price.raw, item: id.raw.item, evidence: id.raw.evidence, candidates: id.raw.candidates },
+          { buyPrice, settings },
+        );
+        result.search_urls = urls;
         result.flags.push(...flags);
         if (vision) result.vision = vision;
 
@@ -131,7 +137,16 @@ export async function POST(request) {
 function stepCost(step, { usages, model }) {
   const usage = emptyUsage();
   for (const u of usages) addUsage(usage, u);
-  return { step, model, usages, tokens_in: usage.input_tokens, tokens_out: usage.output_tokens, searches: usage.web_searches, usd: costUsd(model, usage) };
+  return {
+    step,
+    model,
+    usages,
+    tokens_in: usage.input_tokens,
+    tokens_out: usage.output_tokens,
+    searches: usage.web_searches,
+    fetches: usage.web_fetches,
+    usd: costUsd(model, usage),
+  };
 }
 
 function friendlyError(err) {

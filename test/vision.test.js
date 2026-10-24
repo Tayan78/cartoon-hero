@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { summarize, visionText } from "../lib/vision.js";
+import { recurringNumbers, summarize, visionText } from "../lib/vision.js";
 
 test("slår ihop bildsöksträffar från flera bilder", () => {
   const s = summarize([
@@ -32,4 +32,10 @@ test("slår ihop bildsöksträffar från flera bilder", () => {
 test("inga träffar → null", () => {
   assert.equal(summarize([{}, { webDetection: {} }]), null);
   assert.equal(visionText(null), "Bildsök: inga träffar.");
+});
+
+test("artikelnummer som återkommer i träffarna, utan årtal", () => {
+  const nums = recurringNumbers(["Schleich 13802 Pinto", "SCHLEICH 13802 föl 2018", "Schleich 13617", "Pinto 13802"]);
+  assert.deepEqual(nums[0], { number: "13802", pages: 3 });
+  assert.ok(!nums.some((n) => n.number === "2018"));
 });

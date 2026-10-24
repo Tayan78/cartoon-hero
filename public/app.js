@@ -215,6 +215,15 @@ function renderResult(data) {
     ["Jämförelser", `${p.comparables} sålda · säkerhet ${confText[p.confidence]}`],
     ["Identifiering", `säkerhet ${confText[r.item.confidence_id]}`],
   ];
+  const fs = r.for_sale;
+  if (fs?.count > 0) {
+    const range = fs.low && fs.high && fs.low !== fs.high ? `${kr(fs.low)}–${kr(fs.high)}` : kr(fs.high || fs.low);
+    rows.splice(1, 0, ["Till salu nu", `${range} (${fs.count} annonser)`]);
+  }
+  const others = (r.candidates ?? []).filter((c) => c.name && c.name !== r.item.name);
+  if (others.length) {
+    rows.push(["Andra kandidater", others.map((c) => [c.name, c.article_number].filter(Boolean).join(" ")).join("; ")]);
+  }
   if (p.international.median > 0) {
     rows.push(["Internationellt (eBay)", `${kr(p.international.median)} (${kr(p.international.low)}–${kr(p.international.high)})`]);
   }
@@ -235,16 +244,24 @@ function renderResult(data) {
   );
   $("r-details").hidden = false;
 
-  $("r-sources-title").hidden = r.sources.length === 0;
+  $("r-sources-title").hidden = r.sources.length === 0 && !r.search_urls?.length;
   $("r-sources").replaceChildren(
-    ...r.sources.map((s) => {
+    ...[...r.sources].sort((a, b) => Number(b.sold) - Number(a.sold)).map((s) => {
       const li = document.createElement("li");
       const a = Object.assign(document.createElement("a"), { href: s.url, target: "_blank", rel: "noopener" });
       const title = document.createElement("span");
       title.append(Object.assign(document.createElement("span"), { className: "tag", textContent: s.platform }), s.title || s.url);
       const price = document.createElement("span");
-      price.textContent = (s.price_sek ? kr(s.price_sek) : "") + (s.sold ? "" : " · ej såld");
+      price.textContent = (s.price_sek ? kr(s.price_sek) : "") + (s.sold ? "" : " · till salu");
       a.append(title, price);
+      li.append(a);
+      return li;
+    }),
+    // Söksidorna, så att du själv kan kontrollera på Tradera/eBay.
+    ...(r.search_urls ?? []).map((u) => {
+      const li = document.createElement("li");
+      const a = Object.assign(document.createElement("a"), { href: u.url, target: "_blank", rel: "noopener", className: "search-link" });
+      a.append(Object.assign(document.createElement("span"), { textContent: `🔎 ${u.label}` }));
       li.append(a);
       return li;
     }),
@@ -254,7 +271,7 @@ function renderResult(data) {
   const sek = (n) => `${n.toFixed(2).replace(".", ",")} kr`;
   const parts = data.cost.steps.map((st) => `${st.step} ${sek(st.sek)}`).join(" · ");
   $("r-cost").textContent =
-    `Kostnad ${sek(data.cost.sek)} (${parts}) · ${data.cost.web_searches} sökningar · ${data.images} bild${data.images === 1 ? "" : "er"} · ${secs} s`;
+    `Kostnad ${sek(data.cost.sek)} (${parts}) · ${data.cost.web_fetches ?? 0} sidor lästa · ${data.cost.web_searches} sökningar · ${data.images} bild${data.images === 1 ? "" : "er"} · ${secs} s`;
   $("btn-save").hidden = false;
   trackCost(data.cost.sek);
 }
