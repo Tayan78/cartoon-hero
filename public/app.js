@@ -49,6 +49,7 @@ const getSettings = () => {
     models: { identify: s?.models?.identify ?? "", search: s?.models?.search ?? "" },
     vision: s?.vision ?? true,
     gemini: s?.gemini ?? true,
+    mode: s?.mode ?? "simple",
   };
 };
 
@@ -171,7 +172,7 @@ function resetCard() {
   $("card-img").src = photos[0];
   $("r-name").textContent = "Identifierar…";
   $("r-sub").textContent = "";
-  for (const id of ["r-price", "r-verdict-row", "r-article", "r-details", "r-sources-title", "btn-save"]) $(id).hidden = true;
+  for (const id of ["r-price", "r-verdict-row", "r-article", "r-details", "r-sources-title", "r-debug", "btn-save"]) $(id).hidden = true;
   for (const id of ["r-reason", "r-evidence", "r-cost"]) $(id).textContent = "";
   $("r-flags").replaceChildren();
   $("r-sources").replaceChildren();
@@ -195,16 +196,21 @@ function renderPrice(r) {
   const p = r.price_sek;
   const e = r.economics;
   const fs = r.for_sale ?? { low: 0, high: 0, count: 0 };
-  const hasSold = p.comparables > 0 && e.bid_floor > 0;
+  const listings = r.mode === "listings";
+  const hasSold = !listings && p.comparables > 0 && e.bid_floor > 0;
   const asks = r.sources.filter((s) => !s.sold && s.price_sek > 0).map((s) => s.price_sek);
 
   $("r-price").hidden = false;
   $("r-list").textContent = e.list_price > 0 ? kr(e.list_price) : "–";
-  $("r-floor-label").textContent = hasSold ? "Bud ned till" : "Sålt (median)";
-  $("r-floor").textContent = hasSold ? kr(e.bid_floor) : "–";
-  $("r-floor").className = `floor ${hasSold ? "has" : "none"}`;
+  $("r-floor-label").textContent = listings ? "Mittpris annonser" : hasSold ? "Bud ned till" : "Sålt (median)";
+  $("r-floor").textContent = hasSold ? kr(e.bid_floor) : listings && p.median > 0 ? kr(p.median) : "–";
+  $("r-floor").className = `floor ${hasSold ? "has" : listings && p.median > 0 ? "" : "none"}`;
   $("r-basis").textContent =
-    e.list_basis === "lägsta till salu"
+    e.list_basis === "lägsta Tradera/eBay"
+      ? "Lägsta pris på Tradera/eBay just nu. Bud under det kan accepteras."
+      : listings && e.list_basis === "lägsta till salu"
+        ? "Lägsta pris till salu just nu (inga Tradera/eBay-annonser hittades)."
+        : e.list_basis === "lägsta till salu"
       ? hasSold
         ? `Lägsta till salu just nu. Säljs oftast för ${kr(p.median)} – bud ned dit är rimliga.`
         : "Lägsta till salu just nu. Bud under det kan accepteras."
@@ -241,7 +247,7 @@ function renderPrice(r) {
     if (fs.low > 0 && fs.high > fs.low) parts.push(span("ask-range", pos(fs.low), `calc(${pos(fs.high)} - ${pos(fs.low)})`));
     if (p.median > 0) parts.push(span(hasSold ? "median" : "estimate", pos(p.median)));
     for (const a of asks) parts.push(span("dot", pos(a)));
-    if (e.list_basis === "lägsta till salu") parts.push(span("list-dot", pos(e.list_price)));
+    if (e.list_basis.startsWith("lägsta")) parts.push(span("list-dot", pos(e.list_price)));
     bar.replaceChildren(...parts);
 
     const label = (html) => Object.assign(document.createElement("span"), { innerHTML: html });
@@ -251,13 +257,20 @@ function renderPrice(r) {
         ? [label(`<span class="sold">sålt ${kr(p.low)}–${kr(p.high)}</span>`), fs.count ? label(`<b>${range}</b> till salu`) : label("")]
         : [
             fs.low ? label(`<b>${kr(fs.low)}</b> lägst`) : label(""),
-            p.median > 0 ? label(`<span class="est">uppskattat ${kr(p.median)}</span>`) : label(""),
+            p.median > 0 ? label(`<span class="est">${listings ? "mittpris" : "uppskattat"} ${kr(p.median)}</span>`) : label(""),
             fs.high && fs.high !== fs.low ? label(`<b>${kr(fs.high)}</b> högst`) : label(""),
           ]),
     );
   }
-  const where = [...new Set(r.sources.filter((s) => !s.sold).map((s) => s.platform))].join(", ");
-  $("r-counts").textContent = `${fs.count} annonser till salu${where ? ` (${where})` : ""} · ${p.comparables} sålda`;
+  const perSite = {};
+  for (const s of r.sources.filter((x) => !x.sold)) perSite[s.platform] = (perSite[s.platform] ?? 0) + 1;
+  const where = Object.entries(perSite).map(([k, n]) => `${k} ${n}`).join(" · ");
+  $("r-counts").textContent = listings
+    ? `${fs.count} annonser till salu${where ? `: ${where}` : ""}`
+    : `${fs.count} annonser till salu${where ? ` (${where})` : ""} · ${p.comparables} sålda`;
+  $("r-nosold").textContent = listings
+    ? "Priset bygger på annonser till salu just nu – inte på sålda priser."
+    : "Inga bekräftade försäljningar – priset följer marknaden just nu.";
   $("r-nosold").hidden = hasSold;
 
   const color = colorFor(r.buy_score);
@@ -368,6 +381,9 @@ function renderResult(data) {
   $("r-cost").textContent =
     `Kostnad ${sek(data.cost.sek)} (${parts}) · ${data.cost.web_fetches ?? 0} sidor lästa · ${data.cost.web_searches} sökningar · ${data.images} bild${data.images === 1 ? "" : "er"} · ${secs} s`;
   $("btn-save").hidden = false;
+  $("r-debug").hidden = !r.debug;
+  $("r-debug").open = false;
+  $("r-debug-pre").textContent = r.debug ? JSON.stringify(r.debug, null, 2) : "";
   trackCost(data.cost.sek);
 }
 
@@ -469,6 +485,15 @@ $("btn-save").addEventListener("click", async () => {
 
 $("btn-new").addEventListener("click", resetScan);
 
+$("btn-copy-debug").addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText($("r-debug-pre").textContent);
+    $("btn-copy-debug").textContent = "✓ Kopierat";
+  } catch {
+    $("btn-copy-debug").textContent = "Markera texten och kopiera";
+  }
+});
+
 // ---------- inställningar ----------
 let viewBeforeSettings = "scan";
 
@@ -520,6 +545,7 @@ function openSettings(message = "") {
   );
   $("s-vision").checked = s.vision;
   $("s-gemini").checked = s.gemini;
+  $("s-mode").value = s.mode;
   const month = store.get("costs", {})[new Date().toISOString().slice(0, 7)];
   $("s-costs").textContent = month
     ? `Den här månaden (denna telefon): ${month.scans} skanningar, ${month.sek.toFixed(2).replace(".", ",")} kr. Exakt kostnad per skanning loggas i Sheet.`
@@ -541,6 +567,7 @@ $("btn-settings-save").addEventListener("click", () => {
   s.models = { identify: $("s-model-id").value, search: $("s-model-search").value };
   s.vision = $("s-vision").checked;
   s.gemini = $("s-gemini").checked;
+  s.mode = $("s-mode").value;
   store.set("settings", s);
   $("s-test").textContent = "Sparat.";
 });

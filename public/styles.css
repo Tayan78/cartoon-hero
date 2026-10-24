@@ -185,3 +185,7 @@ button:disabled { opacity: .4; }
 .verdict-row .score { width: 64px; height: 64px; font-size: 22px; }
 .verdict-row .score small { font-size: 12px; }
 .verdict-text { font-size: 22px; font-weight: 800; }
+
+.debug summary { cursor: pointer; color: var(--muted); font-size: 14px; padding: 8px 0; }
+.debug pre { white-space: pre-wrap; word-break: break-word; font-size: 11px; max-height: 360px; overflow: auto; background: var(--bg); border-radius: 10px; padding: 10px; }
+.debug button { margin: 4px 0 8px; }
