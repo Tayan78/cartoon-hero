@@ -20,7 +20,7 @@ iPhone (PWA) ──1–4 bilder──▶ Vercel /api/scan
 - **Identifieringen syns direkt** efter steg 2; priser och källor fylls på när sökningen är klar.
 - **Modell per steg** väljs i appens inställningar (eller `ID_MODEL` / `SEARCH_MODEL` i Vercel). Bildsöket kan slås av där också. Jämför kostnad och träffsäkerhet i Sheet.
 - **Artikelnummer först:** nummer som återkommer i bildsökets träffar lyfts fram, identifieringen ger upp till 3 kandidater, och prissteget söker på märke + artikelnummer.
-- **Färdiga söksidor:** servern bygger adresser till Tradera avslutade objekt, eBay sålda objekt och Tradera till salu nu, som modellen läser direkt (web_fetch, max 4 sidor, `MAX_FETCHES`). Går de inte att läsa används webbsökning. Länkarna visas också på resultatkortet så att du kan kontrollera själv.
+- **Färdiga söksidor:** servern bygger adresser till Tradera avslutade objekt, eBay sålda objekt och Tradera till salu nu, som modellen läser direkt (web_fetch, bara eBay sålda eftersom Tradera blockerar hämtning; max 2 sidor à 4000 token, `MAX_FETCHES`). Går de inte att läsa används webbsökning. Länkarna visas också på resultatkortet så att du kan kontrollera själv.
 - **Till salu nu** visas som eget intervall men påverkar aldrig medianen.
 - **Bara två källor:** webbsökningen är låst till `tradera.com` och `ebay.*` (max 4 sökningar, `MAX_SEARCHES`). Bara sålda priser räknas. eBay-priser redovisas separat som internationellt pris.
 - **Ärlighet om osäkerhet:** servern räknar om ekonomin själv och tillämpar regler utöver modellens bedömning:

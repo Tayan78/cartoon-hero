@@ -269,7 +269,10 @@ function renderResult(data) {
 
   const secs = (data.duration_ms / 1000).toFixed(1);
   const sek = (n) => `${n.toFixed(2).replace(".", ",")} kr`;
-  const parts = data.cost.steps.map((st) => `${st.step} ${sek(st.sek)}`).join(" · ");
+  const short = (m) => (m?.match(/opus|sonnet|haiku/i)?.[0] ?? "").replace(/^./, (c) => c.toUpperCase());
+  const parts = data.cost.steps
+    .map((st) => `${st.step}${short(st.model) ? ` (${short(st.model)})` : ""} ${sek(st.sek)}`)
+    .join(" · ");
   $("r-cost").textContent =
     `Kostnad ${sek(data.cost.sek)} (${parts}) · ${data.cost.web_fetches ?? 0} sidor lästa · ${data.cost.web_searches} sökningar · ${data.images} bild${data.images === 1 ? "" : "er"} · ${secs} s`;
   $("btn-save").hidden = false;

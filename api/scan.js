@@ -12,7 +12,7 @@ import { addUsage, costUsd, emptyUsage, finalizeResult } from "../lib/economics.
 import { checkAuth, json, parseDataUrl } from "../lib/http.js";
 import { mockIdentify, mockPrice, mockVision } from "../lib/mock.js";
 import { VISION_USD_PER_IMAGE } from "../lib/models.js";
-import { marketUrls, searchTerms } from "../lib/market.js";
+import { dropUnverifiedArticle, marketUrls, searchTerms } from "../lib/market.js";
 import { mergeSettings } from "../lib/settings.js";
 import { callAppsScript } from "../lib/storage.js";
 import { visionConfigured, visionText, webDetect } from "../lib/vision.js";
@@ -79,7 +79,8 @@ export async function POST(request) {
         send({ type: "prelim", item: id.raw.item ?? {} });
 
         // 3. Prissökning – färdiga söksidor på artikelnummer/sökord
-        const urls = marketUrls(searchTerms(id.raw));
+        dropUnverifiedArticle(id.raw, hints);
+        const urls = marketUrls(searchTerms(id.raw, hints));
         send({ type: "status", text: "Hämtar sålda objekt…" });
         const price = await (MOCK ? mockPrice : priceSearch)(
           { identification: id.raw, vision: hints, urls, buyPrice, settings },
