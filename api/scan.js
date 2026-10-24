@@ -80,6 +80,7 @@ export async function POST(request) {
           : (MOCK ? mockGemini() : geminiIdentify(images))
               .then((g) => {
                 steps.push({ step: "Gemini", model: g.model, tokens_in: g.tokensIn, tokens_out: g.tokensOut, searches: g.queries.length, usd: g.usd });
+                if (!g.grounded) flags.push("Gemini sökte inte på Google trots två försök – dess förslag användes bara som ledtråd.");
                 const article = geminiArticle(g);
                 if (g.raw.name) send({ type: "prelim", item: { name: g.raw.name, brand: g.raw.brand, model: article || g.raw.model } });
                 return g;

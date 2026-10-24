@@ -62,3 +62,36 @@ test("felmeddelandet listar alla modeller när ingen har kvot", async () => {
     globalThis.fetch = realFetch;
   }
 });
+
+test("frågar igen med uttrycklig sökning när Gemini svarade utan att söka", async () => {
+  const { geminiIdentify } = await import("../lib/gemini.js");
+  const prompts = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const body = JSON.parse(init.body);
+    prompts.push(body.contents[0].parts.at(-1).text);
+    const grounded = prompts.length === 2;
+    return new Response(
+      JSON.stringify({
+        candidates: [
+          {
+            content: { parts: [{ text: JSON.stringify({ name: "Schleich Pinto föl", brand: "Schleich", article_number: grounded ? "13695" : "13803" }) }] },
+            groundingMetadata: grounded ? { webSearchQueries: ["Schleich Pinto föl 13803"] } : {},
+          },
+        ],
+        usageMetadata: { promptTokenCount: 1000, candidatesTokenCount: 100 },
+      }),
+      { status: 200 },
+    );
+  };
+  try {
+    const r = await geminiIdentify([{ mediaType: "image/jpeg", data: "AAAA" }]);
+    assert.equal(prompts.length, 2);
+    assert.match(prompts[1], /Du svarade utan att söka/);
+    assert.equal(r.attempts, 2);
+    assert.equal(geminiArticle(r), "13695");
+    assert.equal(r.tokensIn, 2000);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
