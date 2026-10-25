@@ -16,7 +16,7 @@ import { DEFAULT_SEARCH_MODEL } from "../lib/models.js";
 import { mockGemini, mockGeminiPrice, mockIdentify, mockLens, mockPrice, mockSentence, mockSimple, mockTradera, mockVision, mockVisionRaw } from "../lib/mock.js";
 import { checkExplanation, explainPrompt } from "../lib/decision.js";
 import { debugData, geminiScan, simpleLinks, toPriceRaw, verifyArticle } from "../lib/simple.js";
-import { lensTraderaIds, mergeListings, traderaConfigured, traderaItems, traderaQuery, traderaSearch } from "../lib/tradera.js";
+import { findOnTradera, mergeListings, traderaConfigured } from "../lib/tradera.js";
 import { LENS_USD, lensConfigured, lensListings, lensRetail, lensSearch, lensText } from "../lib/lens.js";
 import { VISION_USD_PER_IMAGE } from "../lib/models.js";
 import { dropUnverifiedArticle, formatArticle, marketUrls, pickArticle, searchTerms } from "../lib/market.js";
@@ -267,21 +267,14 @@ async function runSimple({ images, note, buyPrice, settings, send, steps, flags,
   // 3. Traderas egna sökning: riktiga aktiva annonser (gratis, bara appnycklar).
   let tradera = null;
   if (settings.tradera && (MOCK || traderaConfigured())) {
-    const q = traderaQuery({ item: priceRaw.item, article });
     send({ type: "status", text: "Söker på Tradera…" });
     try {
-      tradera = await (MOCK ? mockTradera(q) : traderaSearch(q));
-      // Lens-träffarnas Tradera-annonser (samma föremål enligt bilden) får pris via API:t.
-      const known = new Set(tradera.listings.map((l) => l.url.replace(/^https?:\/\/(www\.)?/, "").replace(/[?#].*$/, "")));
-      const ids = lens && !MOCK ? lensTraderaIds(lens.matches, q.article).filter((x) => !known.has(x.link.replace(/^https?:\/\/(www\.)?/, "").replace(/[?#].*$/, ""))) : [];
-      if (ids.length) {
-        const extra = await traderaItems(ids);
-        tradera.listings = mergeListings(tradera.listings, extra.listings);
-        tradera.tried.push(...extra.tried);
-      }
+      tradera = MOCK
+        ? await findOnTradera({ item: priceRaw.item, article, lens: null }, mockTradera)
+        : await findOnTradera({ item: priceRaw.item, article, lens });
       priceRaw.sources = mergeListings(tradera.listings, priceRaw.sources);
       steps.push({ step: "Tradera", model: "tradera-api", searches: 0, usd: 0 });
-      if (!tradera.listings.length) flags.push(`Inga aktiva Tradera-annonser för ${q.queries.map((x) => `"${x}"`).join(" eller ")}.`);
+      if (!tradera.listings.length) flags.push(`Inga aktiva Tradera-annonser för ${tradera.queries.map((x) => `"${x}"`).join(" eller ")}.`);
     } catch (err) {
       flags.push(`Tradera-sökningen misslyckades (${err.message}).`);
     }

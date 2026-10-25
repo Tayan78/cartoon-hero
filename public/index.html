@@ -102,11 +102,68 @@
         <button id="g-none" type="button" class="chip">Avmarkera alla</button>
       </div>
       <ul id="g-list" class="hist-list"></ul>
-      <p id="g-empty" class="hint" hidden>Inga annonser fotade ännu.</p>
+      <p id="g-empty" class="hint" hidden>Inga annonser att skicka.</p>
       <button id="g-send" class="primary big" disabled>Skicka till AI</button>
       <p id="g-hint" class="hint"></p>
       <button id="g-capture" class="secondary big">📷 Fota fler</button>
+
+      <div class="hist-head">
+        <h3>Skickade</h3>
+        <button id="g-refresh" type="button" class="chip">↻ Uppdatera</button>
+      </div>
+      <p id="g-sent-hint" class="hint">AI:n arbetar i bakgrunden – du kan stänga appen.</p>
+      <ul id="g-sent" class="hist-list"></ul>
       <button id="g-close" class="secondary big">Tillbaka</button>
+    </section>
+
+    <!-- Granska en berikad annons -->
+    <section id="view-review" class="view" hidden>
+      <div class="hist-head">
+        <h2>Granska annons</h2>
+        <span id="v-status" class="muted small"></span>
+      </div>
+      <div id="v-images" class="c-photos"></div>
+      <p id="v-note" class="hint"></p>
+      <div class="field">
+        <span>Modellnummer – tryck på rätt</span>
+        <div id="v-candidates" class="chips wrap"></div>
+        <div class="inline-field">
+          <input id="v-other" type="text" inputmode="numeric" placeholder="Annat nummer" autocomplete="off">
+          <button id="v-other-use" type="button" class="secondary">Använd</button>
+        </div>
+        <p id="v-cand-hint" class="hint"></p>
+      </div>
+      <label class="field">
+        <span>Rubrik <small id="v-title-count"></small></span>
+        <input id="v-title" type="text" maxlength="80">
+      </label>
+      <label class="field">
+        <span>Beskrivning</span>
+        <textarea id="v-desc" rows="12"></textarea>
+      </label>
+      <label class="field">
+        <span>Fast pris (kr)</span>
+        <input id="v-price" type="number" inputmode="numeric" min="0">
+      </label>
+      <p id="v-price-basis" class="hint"></p>
+      <div class="field">
+        <span>Kanal</span>
+        <div id="v-channel" class="chips">
+          <button type="button" class="chip" data-channel="Tradera">Tradera</button>
+          <button type="button" class="chip" data-channel="Vinted">Vinted</button>
+        </div>
+      </div>
+      <ul id="v-flags" class="flags"></ul>
+      <h3 id="v-sources-title">Jämförelser</h3>
+      <ul id="v-sources" class="sources"></ul>
+      <p id="v-hint" class="hint"></p>
+      <div class="actions">
+        <button id="v-approve" class="primary big">Godkänn</button>
+        <button id="v-retry" class="primary big" hidden>Försök igen</button>
+        <button id="v-save" class="secondary big">Spara ändringar</button>
+        <button id="v-back" class="secondary big">Tillbaka</button>
+        <button id="v-delete" class="secondary big danger">Ta bort annonsen</button>
+      </div>
     </section>
 
     <!-- Historik (sparas i telefonen) -->

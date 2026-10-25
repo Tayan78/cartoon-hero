@@ -8,7 +8,14 @@
  *  4. Driftsätt → Ny driftsättning → Webbapp. Kör som: Jag. Åtkomst: Alla.
  *     Kopiera URL:en (slutar på /exec) till APPS_SCRIPT_URL i Vercel.
  *
- * Skriptet skapar själv flikarna "Skanningar" och "Lager" och Drive-mappen "Loppisskannern/Skanningar".
+ * Skriptet skapar själv flikarna "Skanningar", "Lager" och "Annonser" och Drive-mapparna
+ * "Loppisskannern/Skanningar" och "Loppisskannern/Annonser".
+ *
+ * Annonsläget: appen laddar upp bilderna (addListing) och annonsen hamnar i kön.
+ * En timer kör processQueue varje minut medan något väntar och anropar Vercel
+ * (/api/listing-process) en annons i taget – appen kan vara stängd under tiden.
+ * Efter att du klistrat in en ny version: kör funktionen setup en gång från
+ * editorn, så att skriptet får lov att dela bilder, starta timern och anropa Vercel.
  */
 
 var SCAN_HEADERS = [
@@ -26,6 +33,12 @@ var INVENTORY_HEADERS = [
   'Pris median', 'Netto', 'Köp-poäng', 'Bästa plattform', 'Status', 'Artikelnr',
   'Lägg ut för', 'Bud ned till', 'Info',
   'Beslut', 'Färg', 'Vinst', 'Multipel'
+];
+
+var LISTING_HEADERS = [
+  'Skapad', 'Annons-ID', 'Status', 'Huvudbild', 'Bilder', 'Anteckning', 'Rubrik', 'Beskrivning', 'Pris', 'Kanal',
+  'Modellnummer', 'Bekräftat', 'Namn', 'Märke', 'Kategori', 'Prisgrund', 'Kostnad SEK', 'Fel', 'Uppdaterad',
+  'I lager', 'Bild-ID', 'Inställningar', 'JSON'
 ];
 
 var COLORS = { green: 'Grön', yellow: 'Gul', red: 'Röd', none: '–' };
@@ -52,6 +65,11 @@ function doPost(e) {
     try {
       if (body.action === 'logScan') return reply(logScan(body));
       if (body.action === 'saveInventory') return reply(saveInventory(body));
+      if (body.action === 'addListing') return reply(addListing(body));
+      if (body.action === 'listListings') return reply(listListings());
+      if (body.action === 'updateListing') return reply(updateListing(body));
+      if (body.action === 'requeueListing') return reply(requeueListing(body));
+      if (body.action === 'deleteListing') return reply(deleteListing(body));
       return reply({ ok: false, error: 'Okänd action' });
     } finally {
       lock.releaseLock();
@@ -104,6 +122,274 @@ function saveInventory(body) {
   return { ok: true };
 }
 
+// ---------- Annonsläget ----------
+
+function listingSheet() {
+  return sheet('Annonser', LISTING_HEADERS);
+}
+
+// Kolumnnummer (1-baserat) per rubrik, så att ordningen kan ändras utan att något går sönder.
+function cols(sh) {
+  var head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+  var map = {};
+  head.forEach(function (h, i) { map[h] = i + 1; });
+  return map;
+}
+
+function rowById(sh, id) {
+  var last = sh.getLastRow();
+  if (last < 2) return 0;
+  var ids = sh.getRange(2, cols(sh)['Annons-ID'], last - 1, 1).getValues();
+  for (var i = 0; i < ids.length; i++) if (String(ids[i][0]) === String(id)) return i + 2;
+  return 0;
+}
+
+function setCells(sh, row, values) {
+  var c = cols(sh);
+  values['Uppdaterad'] = new Date();
+  Object.keys(values).forEach(function (k) {
+    if (c[k]) sh.getRange(row, c[k]).setValue(values[k]);
+  });
+}
+
+// Publik bildadress (ProLister kräver bilder som går att nå utan inloggning).
+function imageUrl(fileId) {
+  return 'https://lh3.googleusercontent.com/d/' + fileId;
+}
+
+function addListing(body) {
+  if (body.process_url) PropertiesService.getScriptProperties().setProperty('PROCESS_URL', body.process_url);
+  var sh = listingSheet();
+  if (rowById(sh, body.id)) return { ok: true, duplicate: true };
+  var root = getOrCreateFolder(getOrCreateFolder(DriveApp.getRootFolder(), 'Loppisskannern'), 'Annonser');
+  var dir = getOrCreateFolder(root, body.id);
+  var ids = [];
+  (body.images || []).slice(0, 3).forEach(function (dataUrl, i) {
+    var m = /^data:(image\/[a-z]+);base64,(.+)$/.exec(dataUrl);
+    if (!m) return;
+    var file = dir.createFile(Utilities.newBlob(Utilities.base64Decode(m[2]), m[1], body.id + '-' + (i + 1) + '.jpg'));
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    ids.push(file.getId());
+  });
+  if (!ids.length) return { ok: false, error: 'Inga bilder' };
+  var urls = ids.map(imageUrl);
+  var row = {};
+  LISTING_HEADERS.forEach(function (h) { row[h] = ''; });
+  row['Skapad'] = new Date();
+  row['Annons-ID'] = body.id;
+  row['Status'] = 'Väntar';
+  row['Huvudbild'] = '=IMAGE("' + urls[0] + '")';
+  row['Bilder'] = urls.join(',');
+  row['Anteckning'] = body.note || '';
+  row['Uppdaterad'] = new Date();
+  row['Bild-ID'] = ids.join(',');
+  row['Inställningar'] = JSON.stringify(body.settings || {});
+  sh.appendRow(LISTING_HEADERS.map(function (h) { return row[h]; }));
+  ensureQueueTrigger();
+  return { ok: true, image_urls: urls };
+}
+
+function listListings() {
+  var sh = listingSheet();
+  var last = sh.getLastRow();
+  if (last < 2) return { ok: true, listings: [] };
+  var c = cols(sh);
+  var rows = sh.getRange(2, 1, last - 1, sh.getLastColumn()).getValues();
+  var get = function (r, h) { return c[h] ? r[c[h] - 1] : ''; };
+  var listings = rows.map(function (r) {
+    var data = null;
+    try { data = JSON.parse(get(r, 'JSON') || 'null'); } catch (e) {}
+    return {
+      id: String(get(r, 'Annons-ID')),
+      created: get(r, 'Skapad'),
+      status: get(r, 'Status'),
+      note: get(r, 'Anteckning'),
+      image_urls: String(get(r, 'Bilder') || '').split(',').filter(String),
+      title: get(r, 'Rubrik'),
+      description: get(r, 'Beskrivning'),
+      price: get(r, 'Pris'),
+      channel: get(r, 'Kanal'),
+      confirmed: String(get(r, 'Bekräftat') || ''),
+      error: get(r, 'Fel'),
+      in_inventory: get(r, 'I lager') === 'Ja',
+      listing: data
+    };
+  });
+  return { ok: true, listings: listings.reverse().slice(0, 200) };
+}
+
+function updateListing(body) {
+  var sh = listingSheet();
+  var row = rowById(sh, body.id);
+  if (!row) return { ok: false, error: 'Annonsen finns inte' };
+  var f = body.fields || {};
+  var values = {};
+  if (f.title !== undefined) values['Rubrik'] = f.title;
+  if (f.description !== undefined) values['Beskrivning'] = f.description;
+  if (f.price !== undefined) values['Pris'] = f.price;
+  if (f.channel !== undefined) values['Kanal'] = f.channel;
+  if (f.confirmed !== undefined) values['Bekräftat'] = f.confirmed;
+  if (f.status !== undefined) values['Status'] = f.status;
+  setCells(sh, row, values);
+  if (f.status === 'Godkänd') addListingToInventory(sh, row);
+  return { ok: true };
+}
+
+// Godkända annonser blir en rad i Lager (en gång per annons).
+function addListingToInventory(sh, row) {
+  var c = cols(sh);
+  var r = sh.getRange(row, 1, 1, sh.getLastColumn()).getValues()[0];
+  var get = function (h) { return c[h] ? r[c[h] - 1] : ''; };
+  if (get('I lager') === 'Ja') return;
+  var data = {};
+  try { data = JSON.parse(get('JSON') || '{}'); } catch (e) {}
+  var item = data.item || {};
+  var url = String(get('Bilder') || '').split(',')[0];
+  sheet('Lager', INVENTORY_HEADERS).appendRow([
+    new Date(), get('Annons-ID'), url ? '=HYPERLINK("' + url + '","Bild")' : '', get('Rubrik') || item.name, item.category,
+    item.brand, item.model, item.condition, '', '', '', '', get('Kanal'), 'Annons godkänd', get('Bekräftat') || get('Modellnummer'),
+    get('Pris'), '', get('Anteckning'), '', '', '', ''
+  ]);
+  setCells(sh, row, { 'I lager': 'Ja' });
+}
+
+function requeueListing(body) {
+  var sh = listingSheet();
+  var row = rowById(sh, body.id);
+  if (!row) return { ok: false, error: 'Annonsen finns inte' };
+  setCells(sh, row, { 'Status': 'Väntar', 'Bekräftat': body.confirmed || '', 'Fel': '' });
+  ensureQueueTrigger();
+  return { ok: true };
+}
+
+function deleteListing(body) {
+  var sh = listingSheet();
+  var row = rowById(sh, body.id);
+  if (!row) return { ok: true };
+  var ids = String(sh.getRange(row, cols(sh)['Bild-ID']).getValue() || '').split(',').filter(String);
+  ids.forEach(function (id) { try { DriveApp.getFileById(id).setTrashed(true); } catch (e) {} });
+  sh.deleteRow(row);
+  return { ok: true };
+}
+
+// ---------- Kön ----------
+
+function ensureQueueTrigger() {
+  var has = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'processQueue'; });
+  if (!has) ScriptApp.newTrigger('processQueue').timeBased().everyMinutes(1).create();
+}
+
+function removeQueueTrigger() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'processQueue') ScriptApp.deleteTrigger(t);
+  });
+}
+
+// Körs av timern varje minut medan något väntar. Tar en annons i taget i upp
+// till 4 minuter, och stänger av timern när kön är tom.
+function processQueue() {
+  var props = PropertiesService.getScriptProperties();
+  if (Number(props.getProperty('QUEUE_BUSY_UNTIL') || 0) > Date.now()) return;
+  var started = Date.now();
+  props.setProperty('QUEUE_BUSY_UNTIL', String(started + 6 * 60 * 1000));
+  try {
+    while (Date.now() - started < 4 * 60 * 1000) {
+      var job = claimNext();
+      if (!job) { removeQueueTrigger(); break; }
+      runJob(job);
+    }
+  } finally {
+    props.deleteProperty('QUEUE_BUSY_UNTIL');
+  }
+}
+
+// Nästa annons med status Väntar (eller som fastnat i Bearbetas i över 10 minuter).
+function claimNext() {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var sh = listingSheet();
+    var last = sh.getLastRow();
+    if (last < 2) return null;
+    var c = cols(sh);
+    var rows = sh.getRange(2, 1, last - 1, sh.getLastColumn()).getValues();
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      var status = r[c['Status'] - 1];
+      var updated = new Date(r[c['Uppdaterad'] - 1]).getTime() || 0;
+      if (status === 'Väntar' || (status === 'Bearbetas' && Date.now() - updated > 10 * 60 * 1000)) {
+        setCells(sh, i + 2, { 'Status': 'Bearbetas' });
+        var settings = {};
+        try { settings = JSON.parse(r[c['Inställningar'] - 1] || '{}'); } catch (e) {}
+        return {
+          id: String(r[c['Annons-ID'] - 1]),
+          note: r[c['Anteckning'] - 1],
+          confirmed: String(r[c['Bekräftat'] - 1] || ''),
+          fileIds: String(r[c['Bild-ID'] - 1] || '').split(',').filter(String),
+          settings: settings
+        };
+      }
+    }
+    return null;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function runJob(job) {
+  var props = PropertiesService.getScriptProperties();
+  var url = props.getProperty('PROCESS_URL');
+  var result;
+  try {
+    if (!url) throw new Error('PROCESS_URL saknas – skicka en annons från appen först');
+    var images = job.fileIds.map(function (id) {
+      return Utilities.base64Encode(DriveApp.getFileById(id).getBlob().getBytes());
+    });
+    var res = UrlFetchApp.fetch(url, {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { 'x-script-secret': props.getProperty('SECRET') },
+      payload: JSON.stringify({ id: job.id, images: images, note: job.note, confirmed: job.confirmed, settings: job.settings }),
+      muteHttpExceptions: true
+    });
+    result = JSON.parse(res.getContentText());
+    if (!result.ok) throw new Error(result.error || ('Vercel svarade ' + res.getResponseCode()));
+  } catch (err) {
+    result = { ok: false, error: String(err.message || err) };
+  }
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var sh = listingSheet();
+    var row = rowById(sh, job.id);
+    if (!row) return; // borttagen under tiden
+    if (!result.ok) {
+      setCells(sh, row, { 'Status': 'Fel', 'Fel': result.error });
+      return;
+    }
+    var l = result.listing;
+    var item = l.item || {};
+    setCells(sh, row, {
+      'Status': 'Klar',
+      'Rubrik': l.title,
+      'Beskrivning': l.description,
+      'Pris': l.price || '',
+      'Kanal': l.channel,
+      'Modellnummer': l.article && l.article.number ? l.article.number : '',
+      'Namn': item.name,
+      'Märke': item.brand,
+      'Kategori': item.category,
+      'Prisgrund': l.list_basis,
+      'Kostnad SEK': (l.cost || {}).sek,
+      'Fel': '',
+      'JSON': JSON.stringify(l)
+    });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function saveImage(dataUrl, scanId) {
   var m = /^data:(image\/[a-z]+);base64,(.+)$/.exec(dataUrl);
   if (!m) return '';
@@ -150,5 +436,9 @@ function reply(obj) {
 function setup() {
   sheet('Skanningar', SCAN_HEADERS);
   sheet('Lager', INVENTORY_HEADERS);
+  listingSheet();
   folder();
+  // Behörigheter för annonsläget: dela bilder, timer och anrop till Vercel.
+  ScriptApp.getProjectTriggers();
+  UrlFetchApp.getRequest('https://example.com');
 }

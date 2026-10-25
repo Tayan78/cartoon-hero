@@ -251,3 +251,15 @@ button:disabled { opacity: .4; }
 .g-row .name { font-weight: 600; }
 .g-row .line { color: var(--muted); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .g-row .del { flex: none; background: none; color: var(--muted); font-size: 22px; padding: 4px 8px; }
+
+/* Skickade annonser och granskning */
+.g-row .status { flex: none; }
+.pill.wait { background: var(--surface-2); color: var(--text); }
+.pill.done { background: var(--accent); color: #fff; }
+.pill.ok { background: var(--green); }
+.pill.err { background: var(--red); }
+.chips.wrap { flex-wrap: wrap; overflow: visible; }
+.chip small { color: inherit; opacity: .75; font-size: 12px; }
+.chip.on small { opacity: .9; }
+.inline-field { display: flex; gap: 8px; }
+.inline-field input { flex: 1; min-width: 0; }
