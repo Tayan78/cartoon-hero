@@ -1,6 +1,6 @@
 // Loppisskannern – fas 1: fota (1–4 vinklar) → (inköpspris) → skanna → resultatkort.
 
-import { allGroups, allScans, askPersistent, deleteGroup, deleteScan, filterScans, getScan, putGroup, putScan, thumbnail, updateScan } from "./history.js";
+import { allGroups, allScans, askPersistent, deleteGroup, deleteScan, filterScans, getGroup, getScan, putGroup, putScan, thumbnail, updateScan } from "./history.js";
 
 // Samma standardvärden som lib/settings.js på servern.
 const DEFAULT_SETTINGS = {
@@ -822,9 +822,10 @@ for (const id of ["c-gallery", "c-native"]) {
 // Nästa: bilderna och anteckningen blir en annons, och nästa börjar tomt.
 $("c-next").addEventListener("click", async () => {
   if (!groupPhotos.length) return;
+  // version ökar vid varje ändring, så att en ändrad annons laddas upp på nytt.
   const group = editingGroup
-    ? { ...editingGroup, photos: groupPhotos, note: $("c-note").value.trim() }
-    : { id: `G${Date.now()}`, ts: Date.now(), photos: groupPhotos, note: $("c-note").value.trim(), selected: true, status: "ny" };
+    ? { ...editingGroup, photos: groupPhotos, note: $("c-note").value.trim(), upload: "ny", version: (editingGroup.version ?? 0) + 1 }
+    : { id: `G${Date.now()}`, ts: Date.now(), photos: groupPhotos, note: $("c-note").value.trim(), selected: true, upload: "ny", version: 1 };
   delete group.number;
   try {
     await putGroup(group);
@@ -833,6 +834,7 @@ $("c-next").addEventListener("click", async () => {
     $("c-hint").textContent = `⚠️ Kunde inte spara: ${err.message}`;
     return;
   }
+  runUploads();
   if (editingGroup) return openGroups();
   groupPhotos = [];
   $("c-note").value = "";
@@ -881,7 +883,7 @@ async function renderGroups() {
       const info = Object.assign(document.createElement("div"), { className: "info" });
       info.append(
         Object.assign(document.createElement("div"), { className: "name", textContent: `Annons ${i + 1} · ${g.photos.length} ${g.photos.length === 1 ? "bild" : "bilder"}` }),
-        Object.assign(document.createElement("div"), { className: "line", textContent: g.note || "Ingen anteckning" }),
+        Object.assign(document.createElement("div"), { className: "line", textContent: [uploadText(g), g.note || "Ingen anteckning"].filter(Boolean).join(" · ") }),
       );
       open.append(Object.assign(document.createElement("img"), { src: g.photos[0], alt: "" }), info);
       open.addEventListener("click", () => openCapture({ ...g, number: i + 1 }));
@@ -889,6 +891,8 @@ async function renderGroups() {
       del.addEventListener("click", async () => {
         if (!confirm(`Ta bort annons ${i + 1}?`)) return;
         await deleteGroup(g.id).catch(() => {});
+        // Redan uppladdade bilder tas bort i Drive också.
+        if (g.upload && g.upload !== "ny") listingsApi({ action: "delete", id: g.id }).catch(() => {});
         renderGroups();
       });
       li.append(check, open, del);
@@ -907,8 +911,10 @@ $("g-all").addEventListener("click", () => selectAll(true));
 $("g-none").addEventListener("click", () => selectAll(false));
 $("g-capture").addEventListener("click", () => openCapture());
 $("g-close").addEventListener("click", resetScan);
-// Skicka till AI: bilderna laddas upp till Drive och annonsen hamnar i kön.
-// Uppladdade annonser tas bort ur telefonen; resten ligger kvar om något går fel.
+// Uppladdningen sker i bakgrunden medan du fotar: varje annons laddas upp när
+// du trycker Nästa. "Skicka till AI" lägger bara de uppladdade annonserna i kön.
+// Avbryts något (skärmen släcks, täckningen försvinner) fortsätter det av sig
+// självt nästa gång appen är öppen.
 async function listingsApi(body) {
   const res = await fetch("/api/listings", {
     method: "POST",
@@ -920,32 +926,130 @@ async function listingsApi(body) {
   return data;
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const isNetworkError = (err) => err instanceof TypeError || /load failed|network|failed to fetch/i.test(err?.message ?? "");
+
+// Nätverksfel provas igen några gånger; fel från servern direkt.
+async function withRetry(fn, tries = 3) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (attempt >= tries || !isNetworkError(err)) throw err;
+      await sleep(1500 * attempt);
+    }
+  }
+}
+
+// Håller skärmen tänd medan något laddas upp (där telefonen stöder det).
+let wakeLock = null;
+async function keepAwake(on) {
+  try {
+    if (on && !wakeLock && "wakeLock" in navigator && document.visibilityState === "visible") {
+      wakeLock = await navigator.wakeLock.request("screen");
+      wakeLock.addEventListener("release", () => (wakeLock = null));
+    } else if (!on && wakeLock) {
+      await wakeLock.release();
+      wakeLock = null;
+    }
+  } catch {}
+}
+
+function uploadText(g) {
+  if (g.send) return g.upload === "fel" ? "⏳ skickas när nätet är tillbaka" : "📤 skickas…";
+  return { ny: "⏫ väntar på uppladdning", pågår: "⏫ laddar upp…", klar: "☁︎ uppladdad", fel: "⏳ laddas upp när nätet är tillbaka" }[g.upload] ?? "";
+}
+
+async function uploadGroup(g) {
+  // En bild per anrop, så att även 8 bilder ryms.
+  await withRetry(() => listingsApi({ action: "submit", id: g.id, note: g.note, settings: getSettings() }));
+  for (const image of g.photos) await withRetry(() => listingsApi({ action: "image", id: g.id, image }));
+  // Ändrades annonsen under tiden laddas den upp igen i nästa varv.
+  const now = await getGroup(g.id);
+  if (now && (now.version ?? 0) === (g.version ?? 0)) await putGroup({ ...now, upload: "klar", uploadError: "" });
+}
+
+let uploading = false;
+let uploadRetry = null;
+async function runUploads() {
+  if (uploading || !getToken() || !navigator.onLine) return;
+  uploading = true;
+  clearTimeout(uploadRetry);
+  try {
+    for (;;) {
+      const groups = await allGroups().catch(() => []);
+      // Annonser som ska skickas först, sedan resten i fotoordning.
+      const next =
+        groups.find((g) => g.send && g.upload !== "fel") ??
+        groups.find((g) => g.upload !== "klar" && g.upload !== "fel") ??
+        groups.find((g) => g.upload === "fel");
+      if (!next || (next.upload === "fel" && !next.retryNow)) break;
+      keepAwake(true);
+      try {
+        if (next.upload !== "klar") {
+          await putGroup({ ...next, upload: "pågår", retryNow: false });
+          refreshUploads();
+          await uploadGroup(next);
+        } else {
+          await withRetry(() => listingsApi({ action: "commit", id: next.id }));
+          await deleteGroup(next.id);
+          refreshUploads(true);
+        }
+      } catch (err) {
+        const cur = await getGroup(next.id);
+        if (cur) {
+          // Misslyckades uppladdningen: nytt försök senare. Gick inte att lägga i kön
+          // av annat skäl än nätet (t.ex. raden saknas i Sheet): ladda upp på nytt.
+          const upload = cur.upload !== "klar" ? "fel" : isNetworkError(err) ? "klar" : "ny";
+          await putGroup({ ...cur, upload, uploadError: err.message, retryNow: false });
+        }
+        // Nytt försök om en halv minut (eller när appen öppnas / nätet kommer tillbaka).
+        uploadRetry = setTimeout(retryFailed, 30000);
+        break;
+      }
+    }
+  } finally {
+    uploading = false;
+    keepAwake(false);
+    refreshUploads();
+  }
+}
+
+async function retryFailed() {
+  const groups = await allGroups().catch(() => []);
+  await Promise.all(groups.filter((g) => g.upload === "fel").map((g) => putGroup({ ...g, retryNow: true })));
+  runUploads();
+}
+
+async function refreshUploads(sent = false) {
+  const groups = await allGroups().catch(() => []);
+  const busy = groups.filter((g) => g.upload !== "klar").length;
+  const sending = groups.filter((g) => g.send).length;
+  const failed = groups.find((g) => g.uploadError);
+  $("c-upload").textContent = busy ? `⏫ ${busy} ${busy === 1 ? "annons laddas" : "annonser laddas"} upp i bakgrunden` : groups.length ? "☁︎ Alla annonser uppladdade" : "";
+  if (!$("view-groups").hidden) {
+    renderGroups();
+    if (sending) $("g-hint").textContent = `📤 Skickar ${sending} till AI… du kan fortsätta fota. Stängs appen fortsätter det nästa gång den öppnas.`;
+    else if (failed) $("g-hint").textContent = `⚠️ ${failed.uploadError} – försöker igen automatiskt.`;
+    else if (sent) $("g-hint").textContent = "✓ Skickade till AI. AI:n arbetar i bakgrunden – du kan stänga appen.";
+    if (sent) renderSent();
+  }
+}
+
 $("g-send").addEventListener("click", async () => {
   if (!getToken()) return openSettings("Ange lösenordet först.");
   const groups = (await allGroups().catch(() => [])).filter((g) => g.selected);
   if (!groups.length) return;
-  const btn = $("g-send");
-  btn.disabled = true;
-  let done = 0;
-  try {
-    for (const g of groups) {
-      // En bild per anrop, så att även 8 bilder ryms.
-      await listingsApi({ action: "submit", id: g.id, note: g.note, settings: getSettings() });
-      for (const [i, image] of g.photos.entries()) {
-        $("g-hint").textContent = `Laddar upp annons ${done + 1} av ${groups.length} – bild ${i + 1} av ${g.photos.length}…`;
-        await listingsApi({ action: "image", id: g.id, image });
-      }
-      await listingsApi({ action: "commit", id: g.id });
-      await deleteGroup(g.id);
-      done++;
-    }
-    $("g-hint").textContent = `✓ ${done} ${done === 1 ? "annons skickad" : "annonser skickade"}. AI:n arbetar i bakgrunden – du kan stänga appen.`;
-  } catch (err) {
-    $("g-hint").textContent = `⚠️ ${done} av ${groups.length} skickade. ${err.message} – försök igen.`;
-  }
-  renderGroups();
-  renderSent();
+  await Promise.all(groups.map((g) => putGroup({ ...g, send: true, retryNow: true })));
+  await refreshUploads();
+  runUploads();
 });
+
+// Fortsätt där det slutade när appen öppnas igen eller nätet kommer tillbaka.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") retryFailed();
+});
+window.addEventListener("online", retryFailed);
 
 // ---------- annonsläge: skickade och granskning ----------
 const STATUS_PILL = { "Laddar upp": "wait", Väntar: "wait", Bearbetas: "wait", Klar: "done", Godkänd: "ok", Fel: "err" };
@@ -955,7 +1059,8 @@ let sentTimer = null;
 async function renderSent() {
   clearTimeout(sentTimer);
   try {
-    sentListings = (await listingsApi({ action: "list" })).listings ?? [];
+    // Annonser som fortfarande laddas upp visas i listan ovanför.
+    sentListings = ((await listingsApi({ action: "list" })).listings ?? []).filter((l) => l.status !== "Laddar upp");
   } catch (err) {
     $("g-sent-hint").textContent = `⚠️ Kunde inte hämta skickade annonser: ${err.message}`;
     return;
@@ -1281,3 +1386,4 @@ $("btn-test").addEventListener("click", async () => {
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 if (!getToken()) openSettings("Välkommen! Ange ditt lösenord (APP_TOKEN) och tryck Spara.");
+else retryFailed();
