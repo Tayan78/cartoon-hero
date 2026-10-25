@@ -5,7 +5,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { json } from "../lib/http.js";
 import { researchListing } from "../lib/listing.js";
-import { mockLens, mockListingText, mockSimple, mockTradera } from "../lib/mock.js";
+import { mockDefect, mockLens, mockListingText, mockSimple, mockTradera } from "../lib/mock.js";
 import { findOnTradera } from "../lib/tradera.js";
 
 const MOCK = process.env.MOCK === "1";
@@ -41,6 +41,7 @@ export async function POST(request) {
         gemini: (input) => mockSimple(input, () => {}),
         tradera: (input) => findOnTradera({ ...input, lens: null }, mockTradera),
         write: mockListingText,
+        defect: mockDefect,
       }
     : {};
   try {

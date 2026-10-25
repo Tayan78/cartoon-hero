@@ -1,7 +1,7 @@
 // Telefonens egen lagring (IndexedDB), fungerar utan nät:
 //  - scans: historiken – varje skanning med hela kortet, miniatyr, tid och inköpspris.
 //    Sheet-loggningen är oförändrad; det här är telefonens egen kopia.
-//  - groups: annonsgrupper – bilderna (max 3) och anteckningen för varje artikel
+//  - groups: annonsgrupper – bilderna (max 8) och anteckningen för varje artikel
 //    som fotas i annonsläget, tills de skickas vidare.
 const DB_NAME = "loppisskannern";
 const SCANS = "scans";

@@ -81,7 +81,7 @@
           <input id="c-native" type="file" accept="image/*" capture="environment" hidden>📷
         </label>
       </div>
-      <div id="c-photos" class="c-photos"></div>
+      <div id="c-photos" class="c-photos eight"></div>
       <label class="field">
         <span>Anteckning (valfritt)</span>
         <textarea id="c-note" rows="2" maxlength="300" placeholder="Skick, märke, något som saknas …"></textarea>
@@ -122,7 +122,7 @@
         <h2>Granska annons</h2>
         <span id="v-status" class="muted small"></span>
       </div>
-      <div id="v-images" class="c-photos"></div>
+      <div id="v-images" class="c-photos eight"></div>
       <p id="v-note" class="hint"></p>
       <div class="field">
         <span>Modellnummer – tryck på rätt</span>
@@ -305,6 +305,13 @@
         <input id="s-gemini" type="checkbox">
         <span>Använd Gemini med Google-sökning</span>
       </label>
+
+      <h3>Annonser</h3>
+      <label class="field">
+        <span>Fast avslutning sist i varje annons</span>
+        <textarea id="s-closing" rows="4" maxlength="1000"></textarea>
+      </label>
+      <p class="hint">Läggs till exakt så här i varje annons (Schleich och övrigt).</p>
 
       <h3>Köpregler</h3>
       <p class="hint">Vinst = netto efter avgift och frakt − inköp. Multipel = netto / inköp. Grön kräver vinst ≥ minsta vinst och (multipel ≥ minsta multipel eller inköp ≥ stort köp). Osäkert pris ger högst gul.</p>

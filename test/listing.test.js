@@ -1,20 +1,25 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { BACKGROUND_LINE, candidateNumbers, channelFor, checkListingText, researchListing } from "../lib/listing.js";
-import { mockLens, mockListingText, mockSimple, mockTradera } from "../lib/mock.js";
+import { candidateNumbers, channelFor, checkListingText, formatYears, researchListing, schleichTitle } from "../lib/listing.js";
+import { mockDefect, mockLens, mockListingText, mockSimple, mockTradera } from "../lib/mock.js";
+import { DEFAULT_CLOSING } from "../lib/settings.js";
+
+const CLOSING = "Samfraktar gärna. Titta på mina andra annonser!";
 import { findOnTradera } from "../lib/tradera.js";
 
-test("annonstext: förbjuden formulering bort, bakgrundsraden exakt sist", () => {
+test("annonstext: egen samling och rökfritt/djurfritt hem bort, din avslutning exakt sist", () => {
   const r = checkListingText({
     title: "Schleich 13279 Tinker sto häst 2003!",
-    description: "Fin häst. Den kommer från min egen samling och är välvårdad.\n\nSkick: Gott.\n\nKommer från ett rökfritt och djurfritt hem!\nTack för titten.",
+    description: `Fin häst. Den kommer från min egen samling och är välvårdad.\n\nSkick: Gott.\n\nKommer från ett rökfritt och djurfritt hem!\n${CLOSING}\nTack för titten.`,
+    closing: CLOSING,
   });
   assert.equal(r.title, "Schleich 13279 Tinker sto häst 2003");
-  assert.doesNotMatch(r.description, /samling/i);
+  assert.doesNotMatch(r.description, /samling|rökfri|djurfri/i);
   assert.match(r.description, /Fin häst\./);
-  assert.ok(r.description.endsWith(`\n\n${BACKGROUND_LINE}`));
-  assert.equal(r.description.split(BACKGROUND_LINE).length, 2, "raden finns exakt en gång");
-  assert.ok(r.fixes.length >= 1);
+  assert.match(r.description, /Tack för titten\./);
+  assert.ok(r.description.endsWith(`\n\n${CLOSING}`));
+  assert.equal(r.description.split(CLOSING).length, 2, "avslutningen finns exakt en gång");
+  assert.equal(r.fixes.length, 2);
   for (const phrase of ["ur vår samling", "från min samling", "Privat samling.", "mina egna samlingar"]) {
     assert.doesNotMatch(checkListingText({ title: "x", description: `Häst ${phrase}` }).description, /samling/i, phrase);
   }
@@ -22,11 +27,23 @@ test("annonstext: förbjuden formulering bort, bakgrundsraden exakt sist", () =>
   assert.match(checkListingText({ title: "x", description: "Passar i samlingen." }).description, /samlingen/);
 });
 
-test("annonstext: saknad bakgrundsrad läggs till, rubriken kortas vid ordgräns", () => {
-  const r = checkListingText({ title: "Ett ".repeat(30) + "slut", description: "" });
+test("annonstext: avslutningen läggs till, rubriken kortas vid ordgräns", () => {
+  const r = checkListingText({ title: "Ett ".repeat(30) + "slut", description: "", closing: CLOSING });
   assert.ok(r.title.length <= 80);
   assert.doesNotMatch(r.title, /\s$/);
-  assert.equal(r.description, BACKGROUND_LINE);
+  assert.equal(r.description, CLOSING);
+  assert.equal(checkListingText({ title: "x", description: "Text." }).description, "Text.");
+});
+
+test("Schleich: rubrik = märke + ras + djurtyp + nummer + (årtal)", () => {
+  assert.equal(schleichTitle({ name: "Tinker sto", number: "13279", years: "2003-2008" }), "Schleich Tinker sto 13279 (2003-08)");
+  assert.equal(schleichTitle({ name: "Schleich Siberian Husky hund (16372)", number: "16372", years: "2008-2013" }), "Schleich Siberian Husky hund 16372 (2008-13)");
+  assert.equal(schleichTitle({ name: "Knabstrupper föl", number: "13910", years: "" }), "Schleich Knabstrupper föl 13910");
+  assert.equal(formatYears("2003"), "2003");
+  assert.equal(formatYears("1998–2004"), "1998-2004");
+  assert.equal(formatYears("2003-08"), "2003-08");
+  assert.equal(formatYears("ca 2010"), "");
+  assert.equal(formatYears("2010-2004"), "");
 });
 
 test("kanal: Tradera som standard, Vinted för kläder, skor och väskor", () => {
@@ -52,9 +69,10 @@ const deps = {
   gemini: (input) => mockSimple(input, () => {}),
   tradera: (input) => findOnTradera({ ...input, lens: null }, mockTradera),
   write: mockListingText,
+  defect: mockDefect,
 };
 
-test("berikning: identifiering, pris från Tradera, kanal och kontrollerad text", async () => {
+test("berikning Schleich: fast mall med lekt skick, brist från anteckningen och din avslutning", async () => {
   const l = await researchListing({ images: [{ mediaType: "image/jpeg", data: "" }], note: "saknar svans" }, deps);
   assert.equal(l.article.number, "13695");
   assert.equal(l.article.verified, true);
@@ -62,10 +80,25 @@ test("berikning: identifiering, pris från Tradera, kanal och kontrollerad text"
   assert.ok(l.candidates.some((c) => c.number === "13695"));
   assert.equal(l.channel, "Tradera");
   assert.ok(l.price > 0);
-  assert.match(l.title, /13695/);
-  assert.doesNotMatch(l.description, /samling/i);
-  assert.ok(l.description.endsWith(BACKGROUND_LINE));
+  assert.equal(l.title, "Schleich Pinto ettåring häst 13695 (2010-14)");
+  assert.equal(l.description, `Schleich Pinto ettåring häst 13695 (2010-14) i lekt men bra skick enligt bild. Saknar svans.\n\n${DEFAULT_CLOSING}`);
+  assert.doesNotMatch(l.description, /rökfri|djurfri|swish/i);
   assert.ok(l.cost.usd > 0);
+
+  const custom = await researchListing({ images: [{ mediaType: "image/jpeg", data: "" }], settings: { listing: { closing: CLOSING } } }, deps);
+  assert.equal(custom.description, `Schleich Pinto ettåring häst 13695 (2010-14) i lekt men bra skick enligt bild.\n\n${CLOSING}`);
+});
+
+test("berikning övrigt: AI:n skriver enligt prompten, servern rensar och avslutar", async () => {
+  const porslin = async (input) => {
+    const g = await mockSimple(input, () => {});
+    g.raw = { ...g.raw, item: { ...g.raw.item, name: "Rörstrand Mon Amie kopp", brand: "Rörstrand", category: "Porslin" } };
+    return g;
+  };
+  const l = await researchListing({ images: [{ mediaType: "image/jpeg", data: "" }] }, { ...deps, gemini: porslin });
+  assert.doesNotMatch(l.description, /samling|rökfri|djurfri/i);
+  assert.ok(l.description.endsWith(DEFAULT_CLOSING));
+  assert.ok(l.fixes.length >= 2);
 });
 
 test("berikning med valt modellnummer: numret räknas som bekräftat av dig", async () => {
@@ -87,4 +120,36 @@ test("kön: /api/listing-process kräver hemligheten och svarar med annonsen", a
   assert.equal(data.ok, true);
   assert.equal(data.id, "G1");
   assert.ok(data.listing.title);
+});
+
+test("bilder: Gemini tittar först bara på huvudbilden, upp till 3 om modellen är oklar", async () => {
+  const eight = Array.from({ length: 8 }, (_, i) => ({ mediaType: "image/jpeg", data: String(i) }));
+  const calls = [];
+  const gemini = (unclear) => async (input) => {
+    calls.push(input.images.map((img) => img.data));
+    const g = await mockSimple(input, () => {});
+    if (unclear && calls.length === 1) g.raw = { ...g.raw, item: { ...g.raw.item, article_number: "", confidence_id: "low" } };
+    return g;
+  };
+  let written = [];
+  const write = (imgs, prompt) => ((written = imgs.map((img) => img.data)), mockListingText(imgs, prompt));
+  let lensImage;
+  const lens = (img, fx) => ((lensImage = img.data), mockLens(fx));
+
+  await researchListing({ images: eight }, { ...deps, lens, gemini: gemini(false), write });
+  assert.deepEqual(calls, [["0"]], "tydlig modell: bara huvudbilden");
+  assert.equal(lensImage, "0", "Lens bara på huvudbilden");
+  // Annonstexten (utom Schleich, som har fast mall) ser högst 3 bilder.
+  const porslin = async (input) => {
+    const g = await mockSimple(input, () => {});
+    g.raw = { ...g.raw, item: { ...g.raw.item, brand: "Rörstrand", name: "Kopp" } };
+    return g;
+  };
+  await researchListing({ images: eight }, { ...deps, gemini: porslin, write });
+  assert.deepEqual(written, ["0", "1", "2"], "annonstexten ser högst 3 bilder");
+
+  calls.length = 0;
+  const l = await researchListing({ images: eight }, { ...deps, lens, gemini: gemini(true), write });
+  assert.deepEqual(calls, [["0"], ["0", "1", "2"]], "oklar modell: upp till 3 bilder");
+  assert.match(l.flags.join(" "), /3 bilder användes/);
 });
