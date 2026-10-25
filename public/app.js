@@ -1052,7 +1052,7 @@ document.addEventListener("visibilitychange", () => {
 window.addEventListener("online", retryFailed);
 
 // ---------- annonsläge: skickade och granskning ----------
-const STATUS_PILL = { "Laddar upp": "wait", Väntar: "wait", Bearbetas: "wait", Klar: "done", Godkänd: "ok", Fel: "err" };
+const STATUS_PILL = { "Laddar upp": "wait", Väntar: "wait", Bearbetas: "wait", Klar: "done", Godkänd: "ok", Exporterad: "ok", Fel: "err" };
 let sentListings = [];
 let sentTimer = null;
 
@@ -1087,11 +1087,16 @@ async function renderSent() {
       );
       open.append(Object.assign(document.createElement("img"), { src: l.image_urls?.[0] ?? "", alt: "" }), info);
       const pill = Object.assign(document.createElement("span"), { className: `pill status ${STATUS_PILL[l.status] ?? "wait"}`, textContent: l.status });
-      if (["Klar", "Godkänd", "Fel"].includes(l.status)) open.addEventListener("click", () => openReview(l.id));
+      if (["Klar", "Godkänd", "Exporterad", "Fel"].includes(l.status)) open.addEventListener("click", () => openReview(l.id));
       li.append(open, pill);
       return li;
     }),
   );
+  const approved = sentListings.filter((l) => l.status === "Godkänd" && (l.channel || "Tradera") === "Tradera").length;
+  const exported = sentListings.some((l) => l.status === "Exporterad");
+  $("g-export").hidden = !approved && !exported;
+  $("g-export-all-label").hidden = !exported;
+  $("g-export").textContent = approved ? `📄 Exportera till ProLister (${approved})` : "📄 Exportera till ProLister";
   // Uppdatera av sig själv medan AI:n arbetar och listan visas.
   if (working && !$("view-groups").hidden) sentTimer = setTimeout(renderSent, 15000);
 }
@@ -1249,6 +1254,65 @@ $("v-delete").addEventListener("click", async () => {
   }
 });
 $("g-refresh").addEventListener("click", renderSent);
+
+// ---------- export till ProLister ----------
+let exportFile = null;
+$("g-export").addEventListener("click", async () => {
+  const btn = $("g-export");
+  btn.disabled = true;
+  $("g-export-hint").textContent = "Skapar filen…";
+  $("g-export-links").hidden = true;
+  $("g-export-skipped").replaceChildren();
+  try {
+    const res = await fetch("/api/listings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-app-token": getToken() },
+      body: JSON.stringify({ action: "export", include_exported: $("g-export-all").checked }),
+    });
+    const data = await res.json().catch(() => ({}));
+    showSkipped(data.skipped);
+    if (!res.ok || !data.ok) throw new Error(data.error || `Fel ${res.status}`);
+    exportFile = new File([data.csv], data.name, { type: "text/csv" });
+    $("g-export-hint").textContent = `✓ ${data.count} ${data.count === 1 ? "annons" : "annonser"} i ${data.name}. Filen ligger i Drive under Loppisskannern/Export – importera den i ProLister.`;
+    $("g-export-links").hidden = false;
+    $("g-export-drive").hidden = !data.url;
+    if (data.url) $("g-export-drive").href = data.url;
+    renderSent();
+  } catch (err) {
+    $("g-export-hint").textContent = `⚠️ ${err.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+function showSkipped(skipped = []) {
+  $("g-export-skipped").replaceChildren(
+    ...skipped.map((s) => Object.assign(document.createElement("li"), { textContent: `Togs inte med: ${s.title || s.id} – ${s.reason}` })),
+  );
+}
+
+// Dela-menyn på iPhone: spara i Filer, AirDrop till datorn, mejla …
+$("g-export-save").addEventListener("click", async () => {
+  if (!exportFile) return;
+  try {
+    if (navigator.canShare?.({ files: [exportFile] })) return await navigator.share({ files: [exportFile] });
+  } catch (err) {
+    if (err.name === "AbortError") return;
+  }
+  const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(exportFile), download: exportFile.name });
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+});
+
+// Kopiera rubrik och text (t.ex. till Vinted, som saknar import).
+$("v-copy").addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(`${$("v-title").value}\n\n${$("v-desc").value}`);
+    $("v-hint").textContent = "✓ Kopierat.";
+  } catch {
+    $("v-hint").textContent = "Markera texten och kopiera.";
+  }
+});
 $("btn-groups").addEventListener("click", openGroups);
 $("btn-open-capture").addEventListener("click", () => openCapture());
 

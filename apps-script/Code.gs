@@ -73,6 +73,7 @@ function doPost(e) {
       if (body.action === 'updateListing') return reply(updateListing(body));
       if (body.action === 'requeueListing') return reply(requeueListing(body));
       if (body.action === 'deleteListing') return reply(deleteListing(body));
+      if (body.action === 'saveExport') return reply(saveExport(body));
       return reply({ ok: false, error: 'Okänd action' });
     } finally {
       lock.releaseLock();
@@ -308,6 +309,18 @@ function deleteListing(body) {
   trashImages(sh, row);
   sh.deleteRow(row);
   return { ok: true };
+}
+
+// CSV till ProLister: sparas i Loppisskannern/Export och annonserna markeras Exporterad.
+function saveExport(body) {
+  var root = getOrCreateFolder(DriveApp.getRootFolder(), 'Loppisskannern');
+  var file = getOrCreateFolder(root, 'Export').createFile(Utilities.newBlob(body.csv, 'text/csv', body.name));
+  var sh = listingSheet();
+  (body.ids || []).forEach(function (id) {
+    var row = rowById(sh, id);
+    if (row) setCells(sh, row, { 'Status': 'Exporterad' });
+  });
+  return { ok: true, url: file.getUrl() };
 }
 
 // ---------- Kön ----------

@@ -114,6 +114,17 @@
       </div>
       <p id="g-sent-hint" class="hint">AI:n arbetar i bakgrunden – du kan stänga appen.</p>
       <ul id="g-sent" class="hist-list"></ul>
+      <button id="g-export" class="primary big" hidden>📄 Exportera till ProLister</button>
+      <label id="g-export-all-label" class="check" hidden>
+        <input id="g-export-all" type="checkbox">
+        <span>Ta med redan exporterade</span>
+      </label>
+      <p id="g-export-hint" class="hint"></p>
+      <ul id="g-export-skipped" class="flags"></ul>
+      <div id="g-export-links" class="actions" hidden>
+        <button id="g-export-save" type="button" class="secondary big">💾 Spara / dela filen</button>
+        <a id="g-export-drive" class="secondary big link-btn" target="_blank" rel="noopener">Öppna i Drive</a>
+      </div>
       <button id="g-close" class="secondary big">Tillbaka</button>
     </section>
 
@@ -162,6 +173,7 @@
         <button id="v-approve" class="primary big">Godkänn</button>
         <button id="v-retry" class="primary big" hidden>Försök igen</button>
         <button id="v-save" class="secondary big">Spara ändringar</button>
+        <button id="v-copy" class="secondary big">📋 Kopiera rubrik och text</button>
         <button id="v-back" class="secondary big">Tillbaka</button>
         <button id="v-delete" class="secondary big danger">Ta bort annonsen</button>
       </div>
