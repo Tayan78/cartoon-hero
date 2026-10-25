@@ -114,7 +114,7 @@ async function exportProLister(includeExported, settings, origin) {
     origin,
     schleich: {
       category: settings.listing.schleich_category,
-      attributes: settings.listing.schleich_attributes,
+      condition: settings.listing.schleich_condition,
       shipping: settings.listing.schleich_shipping,
     },
   });

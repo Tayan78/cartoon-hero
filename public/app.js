@@ -14,7 +14,7 @@ const DEFAULT_SETTINGS = {
   listing: {
     closing: "Samfraktar gärna om du köper flera eller vinner flera auktioner. Packas väl i bubbelkuvert eller spårbart brevlådepaket. Titta gärna på mina andra annonser!",
     schleich_category: "1000532 : Miniatyrer & leksaksfigurer",
-    schleich_attributes: "121:Gott skick",
+    schleich_condition: "Gott skick",
     schleich_shipping: "0.5:2:101:49,0.5:19:100:49,0.5:12:22:59,0.5:12:33:59,0.5:7:1:49,0.5:19:101:49",
   },
   decision: { min_profit: 100, min_multiple: 2, big_buy: 200, small_green: 2, small_yellow: 1.3, small_price: 100, small_brands: ["Schleich"] },
@@ -1385,7 +1385,7 @@ function openSettings(message = "") {
   );
   $("s-closing").value = s.listing.closing;
   $("s-schleich-category").value = s.listing.schleich_category;
-  $("s-schleich-attributes").value = s.listing.schleich_attributes;
+  $("s-schleich-condition").value = s.listing.schleich_condition ?? s.listing.schleich_attributes?.replace(/^\s*\d+\s*:\s*/, "") ?? "";
   $("s-schleich-shipping").value = s.listing.schleich_shipping;
   $("s-vision").checked = s.vision;
   $("s-gemini").checked = s.gemini;
@@ -1422,7 +1422,8 @@ $("btn-settings-save").addEventListener("click", () => {
   }
   s.listing.closing = $("s-closing").value.trim();
   s.listing.schleich_category = $("s-schleich-category").value.trim();
-  s.listing.schleich_attributes = $("s-schleich-attributes").value.trim();
+  s.listing.schleich_condition = $("s-schleich-condition").value.trim();
+  delete s.listing.schleich_attributes;
   s.listing.schleich_shipping = $("s-schleich-shipping").value.replace(/\s+/g, "");
   s.decision.small_brands = $("s-small-brands").value.split(",").map((b) => b.trim()).filter(Boolean);
   store.set("settings", s);

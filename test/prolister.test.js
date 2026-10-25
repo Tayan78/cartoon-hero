@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { PROLISTER_COLUMNS, SCHLEICH_DEFAULTS, buildProListerCsv, exportImageUrl, listingProblem, toHtmlText } from "../lib/prolister.js";
+import { PROLISTER_COLUMNS, SCHLEICH_DEFAULTS, buildProListerCsv, exportImageUrl, listingProblem, toHtmlText, todayInSweden } from "../lib/prolister.js";
 
 const ORIGIN = "https://loppis.vercel.app";
 // Din ProLister-export (rubrikraden och en rad med dina standardvärden, anonymiserad).
@@ -44,8 +44,11 @@ const asObjects = (csv) => {
 test("exporten har exakt samma rubrikrad och format som ProListers egen export", () => {
   const { csv } = buildProListerCsv([ok()], { origin: ORIGIN });
   assert.ok(csv.startsWith("﻿"));
-  assert.equal(csv.split("\r\n")[0], reference.split(/\r?\n/)[0], "samma 31 kolumner i samma ordning, inom citattecken");
-  assert.deepEqual(parse(reference.slice(1))[0], PROLISTER_COLUMNS);
+  // Samma kolumner i samma ordning – utom attributes, som heter skick (mappas rätt vid
+  // import) – plus Mapp sist.
+  const theirs = reference.split(/\r?\n/)[0].replace('"attributes"', '"skick"') + ';"Mapp"';
+  assert.equal(csv.split("\r\n")[0], theirs, "samma 31 kolumner i samma ordning, inom citattecken");
+  assert.deepEqual([...parse(reference.slice(1))[0].map((k) => (k === "attributes" ? "skick" : k)), "Mapp"], PROLISTER_COLUMNS);
 });
 
 test("Schleich får samma värden som dina publicerade annonser, inklusive frakt", () => {
@@ -53,13 +56,14 @@ test("Schleich får samma värden som dina publicerade annonser, inklusive frakt
   const yours = asObjects(reference)[0];
   // Allt som ProLister själv sätter (id, listId, latestObjectId, latestUploadDate) lämnas tomt;
   // annonsens eget innehåll kommer från appen; resten ska vara identiskt med din export.
-  const own = ["id", "listId", "latestObjectId", "latestUploadDate", "imageUrls", "header", "description", "buyNowPrice", "reference", "uploadOrder"];
+  const own = ["id", "listId", "latestObjectId", "latestUploadDate", "imageUrls", "header", "description", "buyNowPrice", "reference", "uploadOrder", "skick", "Mapp"];
   for (const key of PROLISTER_COLUMNS.filter((k) => !own.includes(k))) {
     assert.equal(ours[key], yours[key], key);
   }
   assert.equal(ours.shipping, SCHLEICH_DEFAULTS.shipping);
   assert.equal(ours.category, "1000532 : Miniatyrer & leksaksfigurer");
-  assert.equal(ours.attributes, "121:Gott skick");
+  assert.equal(ours.skick, "Gott skick");
+  assert.equal(yours.attributes, "121:Gott skick", "samma skick som i din export, i importens format");
   assert.deepEqual([ours.id, ours.listId, ours.latestObjectId], ["", "", ""]);
   assert.equal(ours.header, "Schleich Tinker sto 13279 (2003-08)");
   assert.equal(ours.description, 'Schleich Tinker sto 13279 (2003-08) i lekt men bra skick enligt bild. "Saknar svans"; lite slitage.<br><br>Samfraktar gärna.');
@@ -68,13 +72,28 @@ test("Schleich får samma värden som dina publicerade annonser, inklusive frakt
 });
 
 test("egna värden från inställningarna; övriga föremål får tom kategori och frakt", () => {
-  const schleich = { category: "1000532", attributes: "121:Bra skick", shipping: "0.5:2:101:39" };
+  const schleich = { category: "1000532", condition: "Bra skick", shipping: "0.5:2:101:39" };
   const [a, b] = asObjects(
     buildProListerCsv([ok(), ok({ id: "G2", title: "Rörstrand Mon Amie kopp" })], { origin: ORIGIN, schleich }).csv,
   );
-  assert.deepEqual([a.category, a.attributes, a.shipping], ["1000532", "121:Bra skick", "0.5:2:101:39"]);
-  assert.deepEqual([b.category, b.attributes, b.shipping], ["", "", ""]);
+  assert.deepEqual([a.category, a.skick, a.shipping], ["1000532", "Bra skick", "0.5:2:101:39"]);
+  assert.deepEqual([b.category, b.skick, b.shipping], ["", "", ""]);
   assert.equal(b.uploadOrder, "2");
+});
+
+test("äldre inställning '121:Gott skick' blir 'Gott skick'", async () => {
+  const { mergeSettings } = await import("../lib/settings.js");
+  assert.equal(mergeSettings({ listing: { schleich_attributes: "121:Mycket gott skick" } }).listing.schleich_condition, "Mycket gott skick");
+  assert.equal(mergeSettings({}).listing.schleich_condition, "Gott skick");
+});
+
+test("mapp per import: datum + Schleich eller Övrigt", () => {
+  const rows = asObjects(
+    buildProListerCsv([ok(), ok({ id: "G2", title: "Rörstrand Mon Amie kopp" })], { origin: ORIGIN, date: "2026-10-25" }).csv,
+  );
+  assert.deepEqual(rows.map((r) => r.Mapp), ["2026-10-25 Schleich", "2026-10-25 Övrigt"]);
+  // Svensk tid: kvart över midnatt 26 oktober är fortfarande 25 oktober i UTC.
+  assert.equal(todayInSweden(new Date("2026-10-25T23:15:00Z")), "2026-10-26");
 });
 
 test("bildadresser och HTML-text", () => {
