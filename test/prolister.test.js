@@ -1,8 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { PROLISTER_COLUMNS, buildProListerCsv, exportImageUrl, listingProblem, toHtmlText } from "../lib/prolister.js";
+import { readFileSync } from "node:fs";
+import { PROLISTER_COLUMNS, SCHLEICH_DEFAULTS, buildProListerCsv, exportImageUrl, listingProblem, toHtmlText } from "../lib/prolister.js";
 
 const ORIGIN = "https://loppis.vercel.app";
+// Din ProLister-export (rubrikraden och en rad med dina standardvärden, anonymiserad).
+const reference = readFileSync(new URL("./fixtures/prolister-export.csv", import.meta.url), "utf8");
+
 const ok = (o = {}) => ({
   id: "G1729860000000",
   title: "Schleich Tinker sto 13279 (2003-08)",
@@ -11,9 +15,8 @@ const ok = (o = {}) => ({
   image_urls: ["https://lh3.googleusercontent.com/d/1AbCdEfGhIjKlMnOpQrStUvWxYz012345", "https://lh3.googleusercontent.com/d/1ZyXwVuTsRqPoNmLkJiHgFeDcBa98765"],
   ...o,
 });
-const defaults = { origin: ORIGIN, schleichCategory: "1000532", schleichAttributes: "121:Gott skick" };
 
-// Enkel CSV-läsare med semikolon (som ProListers egen export).
+// CSV-läsare med semikolon och citattecken (som ProListers export).
 function parse(csv) {
   const rows = [];
   let row = [];
@@ -33,27 +36,45 @@ function parse(csv) {
   }
   return rows;
 }
+const asObjects = (csv) => {
+  const [head, ...rows] = parse(csv.replace(/^﻿/, ""));
+  return rows.map((r) => Object.fromEntries(head.map((k, i) => [k, r[i]])));
+};
 
-test("ProLister-CSV: samma format som ProListers egen export (BOM, semikolon, <br>)", () => {
-  const { csv, included, skipped } = buildProListerCsv([ok(), ok({ id: "G2", title: "Rörstrand Mon Amie kopp", price: 79, image_urls: ["https://lh3.googleusercontent.com/d/1QqQqQqQqQqQqQqQqQqQqQq"] })], defaults);
+test("exporten har exakt samma rubrikrad och format som ProListers egen export", () => {
+  const { csv } = buildProListerCsv([ok()], { origin: ORIGIN });
   assert.ok(csv.startsWith("﻿"));
-  const rows = parse(csv.slice(1));
-  assert.deepEqual(rows[0], PROLISTER_COLUMNS);
-  assert.equal(rows.length, 3);
-  const r = Object.fromEntries(PROLISTER_COLUMNS.map((k, i) => [k, rows[1][i]]));
-  assert.equal(r.Header, "Schleich Tinker sto 13279 (2003-08)");
-  assert.equal(r.Description, 'Schleich Tinker sto 13279 (2003-08) i lekt men bra skick enligt bild. "Saknar svans"; lite slitage.<br><br>Samfraktar gärna.');
-  assert.equal(
-    r.ImageUrls,
-    `${ORIGIN}/bild/1AbCdEfGhIjKlMnOpQrStUvWxYz012345.jpg,${ORIGIN}/bild/1ZyXwVuTsRqPoNmLkJiHgFeDcBa98765.jpg`,
-    "bilderna som .jpg-adresser, kommaseparerade, huvudbilden först",
+  assert.equal(csv.split("\r\n")[0], reference.split("\r\n")[0], "samma 31 kolumner i samma ordning, inom citattecken");
+  assert.deepEqual(parse(reference.slice(1))[0], PROLISTER_COLUMNS);
+});
+
+test("Schleich får samma värden som dina publicerade annonser, inklusive frakt", () => {
+  const ours = asObjects(buildProListerCsv([ok()], { origin: ORIGIN }).csv)[0];
+  const yours = asObjects(reference)[0];
+  // Allt som ProLister själv sätter (id, listId, latestObjectId, latestUploadDate) lämnas tomt;
+  // annonsens eget innehåll kommer från appen; resten ska vara identiskt med din export.
+  const own = ["id", "listId", "latestObjectId", "latestUploadDate", "imageUrls", "header", "description", "buyNowPrice", "reference", "uploadOrder"];
+  for (const key of PROLISTER_COLUMNS.filter((k) => !own.includes(k))) {
+    assert.equal(ours[key], yours[key], key);
+  }
+  assert.equal(ours.shipping, SCHLEICH_DEFAULTS.shipping);
+  assert.equal(ours.category, "1000532 : Miniatyrer & leksaksfigurer");
+  assert.equal(ours.attributes, "121:Gott skick");
+  assert.deepEqual([ours.id, ours.listId, ours.latestObjectId], ["", "", ""]);
+  assert.equal(ours.header, "Schleich Tinker sto 13279 (2003-08)");
+  assert.equal(ours.description, 'Schleich Tinker sto 13279 (2003-08) i lekt men bra skick enligt bild. "Saknar svans"; lite slitage.<br><br>Samfraktar gärna.');
+  assert.equal(ours.imageUrls, `${ORIGIN}/bild/1AbCdEfGhIjKlMnOpQrStUvWxYz012345.jpg,${ORIGIN}/bild/1ZyXwVuTsRqPoNmLkJiHgFeDcBa98765.jpg`);
+  assert.deepEqual([ours.buyNowPrice, ours.reference, ours.uploadOrder, ours.itemType], ["129", "G1729860000000", "1", "FixedPrice"]);
+});
+
+test("egna värden från inställningarna; övriga föremål får tom kategori och frakt", () => {
+  const schleich = { category: "1000532", attributes: "121:Bra skick", shipping: "0.5:2:101:39" };
+  const [a, b] = asObjects(
+    buildProListerCsv([ok(), ok({ id: "G2", title: "Rörstrand Mon Amie kopp" })], { origin: ORIGIN, schleich }).csv,
   );
-  assert.deepEqual([r.BuyNowPrice, r.ItemType, r.Condition, r.quantity, r.Reference], ["129", "FixedPrice", "Used", "1", "G1729860000000"]);
-  assert.deepEqual([r.Category, r.Attributes], ["1000532", "121:Gott skick"], "Schleich får din kategori och ditt attribut");
-  const other = Object.fromEntries(PROLISTER_COLUMNS.map((k, i) => [k, rows[2][i]]));
-  assert.deepEqual([other.Category, other.Attributes], ["", ""], "övrigt sätts i ProLister");
-  assert.deepEqual(included, ["G1729860000000", "G2"]);
-  assert.deepEqual(skipped, []);
+  assert.deepEqual([a.category, a.attributes, a.shipping], ["1000532", "121:Bra skick", "0.5:2:101:39"]);
+  assert.deepEqual([b.category, b.attributes, b.shipping], ["", "", ""]);
+  assert.equal(b.uploadOrder, "2");
 });
 
 test("bildadresser och HTML-text", () => {
@@ -62,7 +83,7 @@ test("bildadresser och HTML-text", () => {
   assert.equal(toHtmlText("Rad 1\r\nRad 2 <b>"), "Rad 1<br>Rad 2 &lt;b&gt;");
 });
 
-test("ProLister-CSV: obligatoriska fält och förbjudna formuleringar kontrolleras", () => {
+test("obligatoriska fält och förbjudna formuleringar kontrolleras", () => {
   assert.equal(listingProblem(ok()), "");
   assert.equal(listingProblem(ok({ title: "" })), "rubrik saknas");
   assert.equal(listingProblem(ok({ title: "x".repeat(81) })), "rubriken är längre än 80 tecken");
@@ -72,11 +93,9 @@ test("ProLister-CSV: obligatoriska fält och förbjudna formuleringar kontroller
   assert.equal(listingProblem(ok({ image_urls: [] })), "bilder saknas");
   assert.equal(listingProblem(ok({ description: "Från min egen samling." })), "texten innehåller en förbjuden formulering");
   assert.equal(listingProblem(ok({ description: "Kommer från rökfritt hem." })), "texten innehåller en förbjuden formulering");
-
-  const { csv, included, skipped } = buildProListerCsv([ok(), ok({ id: "G3", price: 0 })], defaults);
+  const { included, skipped } = buildProListerCsv([ok(), ok({ id: "G3", price: 0 })], { origin: ORIGIN });
   assert.deepEqual(included, ["G1729860000000"]);
   assert.deepEqual(skipped, [{ id: "G3", title: ok().title, reason: "pris saknas" }]);
-  assert.equal(parse(csv.slice(1)).length, 2);
 });
 
 test("bildproxyn: bara giltiga Drive-id, bara bilder", async () => {

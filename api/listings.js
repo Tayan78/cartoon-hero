@@ -112,8 +112,11 @@ async function exportProLister(includeExported, settings, origin) {
   if (!wanted.length) return { ok: false, error: "Inga godkända Tradera-annonser att exportera." };
   const { csv, included, skipped } = buildProListerCsv(wanted, {
     origin,
-    schleichCategory: settings.listing.schleich_category,
-    schleichAttributes: settings.listing.schleich_attributes,
+    schleich: {
+      category: settings.listing.schleich_category,
+      attributes: settings.listing.schleich_attributes,
+      shipping: settings.listing.schleich_shipping,
+    },
   });
   if (!included.length) return { ok: false, error: "Ingen annons klarade kontrollen.", skipped };
   const stamp = new Date().toLocaleString("sv-SE", { timeZone: "Europe/Stockholm" }).replace(/[-:]/g, "").replace(" ", "-").slice(0, 13);
