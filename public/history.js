@@ -45,6 +45,7 @@ export const allScans = async () => ((await run(SCANS, "readonly", (s) => s.getA
 
 // Annonsgrupper, i den ordning de fotades.
 export const putGroup = (group) => run(GROUPS, "readwrite", (s) => s.put(group));
+export const getGroup = (id) => run(GROUPS, "readonly", (s) => s.get(id));
 export const deleteGroup = (id) => run(GROUPS, "readwrite", (s) => s.delete(id));
 export const allGroups = async () => ((await run(GROUPS, "readonly", (s) => s.getAll())) ?? []).sort((a, b) => a.ts - b.ts);
 
