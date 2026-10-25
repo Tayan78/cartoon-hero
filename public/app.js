@@ -20,6 +20,7 @@ const MODEL_OPTIONS = [
 const MAX_PHOTOS = 4;
 const MAX_SIDE = 1500;
 const JPEG_QUALITY = 0.82;
+const MAX_BYTES = 480 * 1024;
 
 const $ = (id) => document.getElementById(id);
 const kr = (n) => `${Math.round(n).toLocaleString("sv-SE")} kr`;
@@ -50,6 +51,7 @@ const getSettings = () => {
     vision: s?.vision ?? true,
     gemini: s?.gemini ?? true,
     mode: s?.mode ?? "simple",
+    lens: s?.lens ?? true,
   };
 };
 
@@ -73,14 +75,20 @@ async function compress(file) {
       i.src = url;
     });
     // iOS roterar enligt EXIF när bilden ritas, så naturalWidth/Height stämmer.
-    const scale = Math.min(1, MAX_SIDE / Math.max(img.naturalWidth, img.naturalHeight));
-    const w = Math.round(img.naturalWidth * scale);
-    const h = Math.round(img.naturalHeight * scale);
-    const canvas = document.createElement("canvas");
-    canvas.width = w;
-    canvas.height = h;
-    canvas.getContext("2d").drawImage(img, 0, 0, w, h);
-    return canvas.toDataURL("image/jpeg", JPEG_QUALITY);
+    // Google Lens (SerpApi) tar max 500 kB: krymp kvalitet och storlek tills bilden ryms.
+    let dataUrl = "";
+    for (const [side, quality] of [[MAX_SIDE, JPEG_QUALITY], [MAX_SIDE, 0.7], [1200, 0.7], [1000, 0.65]]) {
+      const scale = Math.min(1, side / Math.max(img.naturalWidth, img.naturalHeight));
+      const w = Math.round(img.naturalWidth * scale);
+      const h = Math.round(img.naturalHeight * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+      dataUrl = canvas.toDataURL("image/jpeg", quality);
+      if (dataUrl.length * 0.75 <= MAX_BYTES) break;
+    }
+    return dataUrl;
   } finally {
     URL.revokeObjectURL(url);
   }
@@ -89,14 +97,17 @@ async function compress(file) {
 async function addPhoto(file, replaceMain) {
   $("btn-scan").disabled = true;
   $("scan-hint").textContent = "Förbereder bild…";
+  let error = "";
   try {
     const url = await compress(file);
     if (replaceMain && photos.length) photos[0] = url;
     else photos.push(url);
   } catch (err) {
-    $("scan-hint").textContent = err.message;
+    error = err.message;
   }
   renderPhotos();
+  // Visa felet efter renderPhotos, som annars skriver över det.
+  if (error) $("scan-hint").textContent = `⚠️ ${error}`;
 }
 
 function renderPhotos() {
@@ -371,6 +382,7 @@ function renderResult(data) {
   const secs = (data.duration_ms / 1000).toFixed(1);
   const sek = (n) => `${n.toFixed(2).replace(".", ",")} kr`;
   const short = (m) => {
+    if (m === "serpapi-google-lens") return "";
     const flash = m?.match(/gemini-([\d.]+)-flash/);
     if (flash) return `Flash ${flash[1]}`;
     return (m?.match(/opus|sonnet|haiku/i)?.[0] ?? "").replace(/^./, (c) => c.toUpperCase());
@@ -546,6 +558,7 @@ function openSettings(message = "") {
   $("s-vision").checked = s.vision;
   $("s-gemini").checked = s.gemini;
   $("s-mode").value = s.mode;
+  $("s-lens").checked = s.lens;
   const month = store.get("costs", {})[new Date().toISOString().slice(0, 7)];
   $("s-costs").textContent = month
     ? `Den här månaden (denna telefon): ${month.scans} skanningar, ${month.sek.toFixed(2).replace(".", ",")} kr. Exakt kostnad per skanning loggas i Sheet.`
@@ -568,6 +581,7 @@ $("btn-settings-save").addEventListener("click", () => {
   s.vision = $("s-vision").checked;
   s.gemini = $("s-gemini").checked;
   s.mode = $("s-mode").value;
+  s.lens = $("s-lens").checked;
   store.set("settings", s);
   $("s-test").textContent = "Sparat.";
 });
@@ -588,6 +602,7 @@ $("btn-test").addEventListener("click", async () => {
       "✓ Lösenordet stämmer.",
       line("Claude", c?.claude, data.api_key),
       line(`Gemini (${data.gemini_model})`, c?.gemini, data.gemini),
+      line("Google Lens (SerpApi)", c?.lens, data.lens),
       line("Bildsök (Cloud Vision)", c?.vision, data.vision),
       line("Google Sheet", c?.sheet, data.storage),
       `Standard: identifiering ${label(data.defaults.identify)}, prissök ${label(data.defaults.search)}.` +

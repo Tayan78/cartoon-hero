@@ -8,14 +8,17 @@ Privat PWA för reselling. Fota ett föremål (1–4 vinklar) → (valfritt ink�
 
 ```
 iPhone (PWA) ──1–4 bilder + ev. info──▶ Vercel /api/scan
-                               1. Google Vision Web Detection  (bildsök: sidtitlar, modellnummer – samma svar varje gång)
-                               2. Gemini + Google-sökning      (ett anrop, temperatur 0, sökning som i Sverige):
-                                    identifierar föremålet och hittar annonser till salu –
-                                    Tradera/eBay först, sedan Blocket, Vinted, Facebook, Sellpy
+                               1. Google Lens via SerpApi      (huvudbilden: riktiga träffar med titel, länk och ofta pris,
+                                                                sökt som i Sverige: hl=sv, country=se)
+                                  – reserv utan SerpApi-nyckel: Cloud Vision Web Detection
+                               2. Gemini                        (ett anrop, temperatur 0): identifierar föremålet utifrån
+                                                                bilderna och Lens-träffarna. Annonserna = Lens-träffar med
+                                                                pris (Gemini hittar inte på egna). Utan Lens söker Gemini själv.
                                3. Servern räknar utpris (lägsta Tradera/eBay-annons), netto och poäng
 ```
 
-- Ett modellnummer räknas som bekräftat bara om det står i din info, i bildsökets träffar eller i en textbit som Google kopplat till en källa (`groundingSupports`).
+- Ett modellnummer räknas som bekräftat bara om det står i din info, i Google Lens-titlarna eller i bildsökets träffar. Geminis källstöd (`groundingSupports`) räcker inte – i testet gav det fel nummer med "stöd".
+- Google Lens tar max 500 kB per bild; appen krymper huvudbilden tills den ryms.
 - "Sverige": svenska sökord och sajter i prompten, plus Stockholms koordinater och `sv_SE` i `toolConfig.retrievalConfig` (dokumenterat för kartsökning; avvisas det körs anropet utan).
 - **Visa rådata** längst ned på kortet visar Googles svar (Vision och Gemini) med en kopieringsknapp. Rådatan sparas inte i Sheet.
 
@@ -82,6 +85,11 @@ Skapa en nyckel på <https://console.anthropic.com> → API Keys. Lägg in lite 
 6. Kopiera nyckeln (börjar med `AIza`) till `GOOGLE_VISION_API_KEY` i Vercel.
 
 Utan nyckeln fungerar appen ändå, bara utan bildsök.
+
+### 2b+. Google Lens (SerpApi)
+1. Skapa ett konto på <https://serpapi.com> och kopiera din API-nyckel från Dashboard.
+2. Lägg in den som `SERPAPI_API_KEY` i Vercel. Ange gärna `SERPAPI_USD_PER_SEARCH` efter din plan (standard 0,015 $), så att kostnadsraden stämmer.
+3. "Testa anslutning" visar hur många sökningar du har kvar.
 
 ### 2c. Gemini (Google-sökning för exakt modell)
 1. Gå till <https://aistudio.google.com> och logga in med ditt Google-konto.
