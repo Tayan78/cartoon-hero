@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { PROLISTER_COLUMNS, SCHLEICH_DEFAULTS, buildProListerCsv, exportImageUrl, listingProblem, toHtmlText } from "../lib/prolister.js";
+import { PROLISTER_COLUMNS, SCHLEICH_DEFAULTS, buildProListerCsv, exportImageUrl, listingProblem, toHtmlText, todayInSweden } from "../lib/prolister.js";
 
 const ORIGIN = "https://loppis.vercel.app";
 // Din ProLister-export (rubrikraden och en rad med dina standardvärden, anonymiserad).
@@ -44,10 +44,11 @@ const asObjects = (csv) => {
 test("exporten har exakt samma rubrikrad och format som ProListers egen export", () => {
   const { csv } = buildProListerCsv([ok()], { origin: ORIGIN });
   assert.ok(csv.startsWith("﻿"));
-  // Samma kolumner i samma ordning – utom attributes, som heter skick (mappas rätt vid import).
-  const theirs = reference.split(/\r?\n/)[0].replace('"attributes"', '"skick"');
+  // Samma kolumner i samma ordning – utom attributes, som heter skick (mappas rätt vid
+  // import) – plus Mapp sist.
+  const theirs = reference.split(/\r?\n/)[0].replace('"attributes"', '"skick"') + ';"Mapp"';
   assert.equal(csv.split("\r\n")[0], theirs, "samma 31 kolumner i samma ordning, inom citattecken");
-  assert.deepEqual(parse(reference.slice(1))[0].map((k) => (k === "attributes" ? "skick" : k)), PROLISTER_COLUMNS);
+  assert.deepEqual([...parse(reference.slice(1))[0].map((k) => (k === "attributes" ? "skick" : k)), "Mapp"], PROLISTER_COLUMNS);
 });
 
 test("Schleich får samma värden som dina publicerade annonser, inklusive frakt", () => {
@@ -55,7 +56,7 @@ test("Schleich får samma värden som dina publicerade annonser, inklusive frakt
   const yours = asObjects(reference)[0];
   // Allt som ProLister själv sätter (id, listId, latestObjectId, latestUploadDate) lämnas tomt;
   // annonsens eget innehåll kommer från appen; resten ska vara identiskt med din export.
-  const own = ["id", "listId", "latestObjectId", "latestUploadDate", "imageUrls", "header", "description", "buyNowPrice", "reference", "uploadOrder", "skick"];
+  const own = ["id", "listId", "latestObjectId", "latestUploadDate", "imageUrls", "header", "description", "buyNowPrice", "reference", "uploadOrder", "skick", "Mapp"];
   for (const key of PROLISTER_COLUMNS.filter((k) => !own.includes(k))) {
     assert.equal(ours[key], yours[key], key);
   }
@@ -84,6 +85,15 @@ test("äldre inställning '121:Gott skick' blir 'Gott skick'", async () => {
   const { mergeSettings } = await import("../lib/settings.js");
   assert.equal(mergeSettings({ listing: { schleich_attributes: "121:Mycket gott skick" } }).listing.schleich_condition, "Mycket gott skick");
   assert.equal(mergeSettings({}).listing.schleich_condition, "Gott skick");
+});
+
+test("mapp per import: datum + Schleich eller Övrigt", () => {
+  const rows = asObjects(
+    buildProListerCsv([ok(), ok({ id: "G2", title: "Rörstrand Mon Amie kopp" })], { origin: ORIGIN, date: "2026-10-25" }).csv,
+  );
+  assert.deepEqual(rows.map((r) => r.Mapp), ["2026-10-25 Schleich", "2026-10-25 Övrigt"]);
+  // Svensk tid: kvart över midnatt 26 oktober är fortfarande 25 oktober i UTC.
+  assert.equal(todayInSweden(new Date("2026-10-25T23:15:00Z")), "2026-10-26");
 });
 
 test("bildadresser och HTML-text", () => {
