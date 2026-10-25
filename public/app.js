@@ -1,6 +1,6 @@
 // Loppisskannern – fas 1: fota (1–4 vinklar) → (inköpspris) → skanna → resultatkort.
 
-import { allScans, askPersistent, deleteScan, filterScans, getScan, putScan, thumbnail, updateScan } from "./history.js";
+import { allGroups, allScans, askPersistent, deleteGroup, deleteScan, filterScans, getScan, putGroup, putScan, thumbnail, updateScan } from "./history.js";
 
 // Samma standardvärden som lib/settings.js på servern.
 const DEFAULT_SETTINGS = {
@@ -69,8 +69,9 @@ const getSettings = () => {
 };
 
 // ---------- vyer ----------
-const views = ["scan", "result", "history", "settings"];
+const views = ["scan", "result", "history", "capture", "groups", "settings"];
 function show(name) {
+  if (name !== "capture") stopCamera();
   for (const v of views) $(`view-${v}`).hidden = v !== name;
   window.scrollTo(0, 0);
 }
@@ -88,23 +89,28 @@ async function compress(file) {
       i.src = url;
     });
     // iOS roterar enligt EXIF när bilden ritas, så naturalWidth/Height stämmer.
-    // Google Lens (SerpApi) tar max 500 kB: krymp kvalitet och storlek tills bilden ryms.
-    let dataUrl = "";
-    for (const [side, quality] of [[MAX_SIDE, JPEG_QUALITY], [MAX_SIDE, 0.7], [1200, 0.7], [1000, 0.65]]) {
-      const scale = Math.min(1, side / Math.max(img.naturalWidth, img.naturalHeight));
-      const w = Math.round(img.naturalWidth * scale);
-      const h = Math.round(img.naturalHeight * scale);
-      const canvas = document.createElement("canvas");
-      canvas.width = w;
-      canvas.height = h;
-      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
-      dataUrl = canvas.toDataURL("image/jpeg", quality);
-      if (dataUrl.length * 0.75 <= MAX_BYTES) break;
-    }
-    return dataUrl;
+    return toJpeg(img, img.naturalWidth, img.naturalHeight);
   } finally {
     URL.revokeObjectURL(url);
   }
+}
+
+// Bild eller videobild → JPEG. Google Lens (SerpApi) tar max 500 kB: krymp
+// kvalitet och storlek tills bilden ryms.
+function toJpeg(source, width, height) {
+  let dataUrl = "";
+  for (const [side, quality] of [[MAX_SIDE, JPEG_QUALITY], [MAX_SIDE, 0.7], [1200, 0.7], [1000, 0.65]]) {
+    const scale = Math.min(1, side / Math.max(width, height));
+    const w = Math.round(width * scale);
+    const h = Math.round(height * scale);
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    canvas.getContext("2d").drawImage(source, 0, 0, w, h);
+    dataUrl = canvas.toDataURL("image/jpeg", quality);
+    if (dataUrl.length * 0.75 <= MAX_BYTES) break;
+  }
+  return dataUrl;
 }
 
 async function addPhoto(file, replaceMain) {
@@ -704,6 +710,204 @@ $("btn-copy-debug").addEventListener("click", async () => {
     $("btn-copy-debug").textContent = "Markera texten och kopiera";
   }
 });
+
+// ---------- annonsläge: fota (max 3 bilder per annons) ----------
+const GROUP_PHOTOS = 3;
+let groupPhotos = []; // första = huvudbild
+let editingGroup = null; // gruppen som redigeras från listan, annars null (ny annons)
+let stream = null;
+
+async function startCamera() {
+  const msg = $("c-cam-msg");
+  if (stream) return;
+  if (!navigator.mediaDevices?.getUserMedia) {
+    msg.hidden = false;
+    msg.textContent = "Kameran i appen stöds inte här – använd 📷 eller 🖼 nedan.";
+    return;
+  }
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1440 } },
+      audio: false,
+    });
+    // Vyn kan ha lämnats medan telefonen frågade om lov.
+    if ($("view-capture").hidden) return stopCamera();
+    $("c-video").srcObject = stream;
+    msg.hidden = true;
+  } catch (err) {
+    stream = null;
+    msg.hidden = false;
+    msg.textContent = `Kameran gick inte att starta (${err.name === "NotAllowedError" ? "ingen behörighet" : err.message}) – använd 📷 eller 🖼 nedan.`;
+  }
+}
+
+function stopCamera() {
+  if (!stream) return;
+  for (const track of stream.getTracks()) track.stop();
+  stream = null;
+  $("c-video").srcObject = null;
+}
+
+async function renderCapture() {
+  const n = groupPhotos.length;
+  $("c-photos").replaceChildren(
+    ...Array.from({ length: GROUP_PHOTOS }, (_, i) => {
+      const slot = Object.assign(document.createElement("div"), { className: "c-slot" });
+      if (i < n) {
+        const del = Object.assign(document.createElement("button"), { type: "button", textContent: "×", ariaLabel: "Ta bort bild" });
+        del.addEventListener("click", () => {
+          groupPhotos.splice(i, 1);
+          renderCapture();
+        });
+        slot.append(Object.assign(document.createElement("img"), { src: groupPhotos[i], alt: "" }), del);
+        if (i === 0) slot.append(Object.assign(document.createElement("span"), { className: "tag", textContent: "Huvudbild" }));
+      } else {
+        slot.textContent = i === 0 ? "Huvudbild" : `Bild ${i + 1}`;
+      }
+      return slot;
+    }),
+  );
+  const full = n >= GROUP_PHOTOS;
+  $("c-shutter").disabled = full;
+  $("c-next").disabled = n === 0;
+  $("c-next").textContent = editingGroup ? "Spara ändringar" : "Nästa annons →";
+  $("c-title").textContent = editingGroup ? "Ändra annons" : "Fota annonser";
+  const count = (await allGroups().catch(() => [])).length;
+  const number = editingGroup ? editingGroup.number : count + 1;
+  $("c-count").textContent = `Annons ${number} · ${n}/${GROUP_PHOTOS} bilder`;
+  $("c-list").textContent = count ? `Visa lista (${count})` : "Visa lista";
+}
+
+function addGroupPhoto(dataUrl) {
+  if (groupPhotos.length >= GROUP_PHOTOS) return;
+  groupPhotos.push(dataUrl);
+  $("c-hint").textContent = "";
+  renderCapture();
+}
+
+async function openCapture(group = null) {
+  editingGroup = group;
+  groupPhotos = group ? [...group.photos] : [];
+  $("c-note").value = group?.note ?? "";
+  $("c-hint").textContent = "";
+  show("capture");
+  renderCapture();
+  startCamera();
+}
+
+$("c-shutter").addEventListener("click", () => {
+  const video = $("c-video");
+  if (!stream || !video.videoWidth) return;
+  addGroupPhoto(toJpeg(video, video.videoWidth, video.videoHeight));
+});
+
+for (const id of ["c-gallery", "c-native"]) {
+  $(id).addEventListener("change", async (e) => {
+    const files = [...(e.target.files ?? [])].slice(0, GROUP_PHOTOS - groupPhotos.length);
+    e.target.value = "";
+    for (const file of files) {
+      try {
+        addGroupPhoto(await compress(file));
+      } catch (err) {
+        $("c-hint").textContent = `⚠️ ${err.message}`;
+      }
+    }
+  });
+}
+
+// Nästa: bilderna och anteckningen blir en annons, och nästa börjar tomt.
+$("c-next").addEventListener("click", async () => {
+  if (!groupPhotos.length) return;
+  const group = editingGroup
+    ? { ...editingGroup, photos: groupPhotos, note: $("c-note").value.trim() }
+    : { id: `G${Date.now()}`, ts: Date.now(), photos: groupPhotos, note: $("c-note").value.trim(), selected: true, status: "ny" };
+  delete group.number;
+  try {
+    await putGroup(group);
+    askPersistent();
+  } catch (err) {
+    $("c-hint").textContent = `⚠️ Kunde inte spara: ${err.message}`;
+    return;
+  }
+  if (editingGroup) return openGroups();
+  groupPhotos = [];
+  $("c-note").value = "";
+  const saved = (await allGroups().catch(() => [])).length;
+  await renderCapture();
+  $("c-hint").textContent = `✓ Annons ${saved} sparad – fota nästa.`;
+});
+
+$("c-list").addEventListener("click", () => {
+  // Påbörjade bilder sparas inte automatiskt: fråga hellre än att tappa dem.
+  if (groupPhotos.length && !editingGroup && !confirm("Bilderna för den här annonsen är inte sparade. Lämna ändå?")) return;
+  openGroups();
+});
+
+// ---------- annonsläge: lista ----------
+async function openGroups() {
+  editingGroup = null;
+  show("groups");
+  renderGroups();
+}
+
+async function renderGroups() {
+  let groups = [];
+  try {
+    groups = await allGroups();
+  } catch (err) {
+    $("g-empty").hidden = false;
+    $("g-empty").textContent = `⚠️ ${err.message}`;
+    return;
+  }
+  const selected = groups.filter((g) => g.selected).length;
+  $("g-count").textContent = groups.length ? `${selected} av ${groups.length} markerade` : "";
+  $("g-empty").hidden = groups.length > 0;
+  $("g-send").disabled = selected === 0;
+  $("g-send").textContent = selected ? `Skicka till AI (${selected})` : "Skicka till AI";
+  $("g-list").replaceChildren(
+    ...groups.map((g, i) => {
+      const li = Object.assign(document.createElement("li"), { className: "g-row" });
+      const check = Object.assign(document.createElement("input"), { type: "checkbox", checked: g.selected, ariaLabel: "Markera" });
+      check.addEventListener("change", async () => {
+        await putGroup({ ...g, selected: check.checked });
+        renderGroups();
+      });
+      const open = Object.assign(document.createElement("button"), { type: "button", className: "open" });
+      const info = Object.assign(document.createElement("div"), { className: "info" });
+      info.append(
+        Object.assign(document.createElement("div"), { className: "name", textContent: `Annons ${i + 1} · ${g.photos.length} ${g.photos.length === 1 ? "bild" : "bilder"}` }),
+        Object.assign(document.createElement("div"), { className: "line", textContent: g.note || "Ingen anteckning" }),
+      );
+      open.append(Object.assign(document.createElement("img"), { src: g.photos[0], alt: "" }), info);
+      open.addEventListener("click", () => openCapture({ ...g, number: i + 1 }));
+      const del = Object.assign(document.createElement("button"), { type: "button", className: "del", textContent: "🗑", ariaLabel: "Ta bort annons" });
+      del.addEventListener("click", async () => {
+        if (!confirm(`Ta bort annons ${i + 1}?`)) return;
+        await deleteGroup(g.id).catch(() => {});
+        renderGroups();
+      });
+      li.append(check, open, del);
+      return li;
+    }),
+  );
+}
+
+async function selectAll(selected) {
+  const groups = await allGroups().catch(() => []);
+  await Promise.all(groups.map((g) => putGroup({ ...g, selected })));
+  renderGroups();
+}
+
+$("g-all").addEventListener("click", () => selectAll(true));
+$("g-none").addEventListener("click", () => selectAll(false));
+$("g-capture").addEventListener("click", () => openCapture());
+$("g-close").addEventListener("click", resetScan);
+$("g-send").addEventListener("click", () => {
+  // Kopplas till AI-berikningen i nästa steg (C2).
+  $("g-hint").textContent = "AI-berikningen byggs i nästa steg – annonserna ligger kvar här i telefonen tills dess.";
+});
+$("btn-groups").addEventListener("click", openGroups);
+$("btn-open-capture").addEventListener("click", () => openCapture());
 
 // ---------- inställningar ----------
 let viewBeforeSettings = "scan";

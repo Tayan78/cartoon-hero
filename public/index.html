@@ -18,6 +18,7 @@
   <header class="top">
     <h1>Loppisskannern</h1>
     <div class="top-buttons">
+      <button id="btn-groups" class="icon-btn" aria-label="Annonser">📦</button>
       <button id="btn-history" class="icon-btn" aria-label="Historik">🕘</button>
       <button id="btn-settings" class="icon-btn" aria-label="Inställningar">⚙︎</button>
     </div>
@@ -58,6 +59,54 @@
       <button id="btn-scan" class="primary big" disabled>Skanna</button>
       <p id="scan-hint" class="hint"></p>
       <button id="btn-open-history" class="secondary big">🕘 Historik</button>
+      <button id="btn-open-capture" class="secondary big">📦 Fota annonser</button>
+    </section>
+
+    <!-- Annonsläge: fota en artikel i taget (max 3 bilder, första = huvudbild) -->
+    <section id="view-capture" class="view" hidden>
+      <div class="hist-head">
+        <h2 id="c-title">Fota annonser</h2>
+        <span id="c-count" class="muted small"></span>
+      </div>
+      <div class="cam">
+        <video id="c-video" playsinline muted autoplay></video>
+        <p id="c-cam-msg" class="cam-msg" hidden></p>
+      </div>
+      <div class="cam-row">
+        <label class="cam-side" aria-label="Välj från bilder">
+          <input id="c-gallery" type="file" accept="image/*" multiple hidden>🖼
+        </label>
+        <button id="c-shutter" type="button" class="shutter" aria-label="Ta bild"></button>
+        <label class="cam-side" aria-label="Telefonens kamera">
+          <input id="c-native" type="file" accept="image/*" capture="environment" hidden>📷
+        </label>
+      </div>
+      <div id="c-photos" class="c-photos"></div>
+      <label class="field">
+        <span>Anteckning (valfritt)</span>
+        <textarea id="c-note" rows="2" maxlength="300" placeholder="Skick, märke, något som saknas …"></textarea>
+      </label>
+      <button id="c-next" class="primary big" disabled>Nästa annons →</button>
+      <p id="c-hint" class="hint"></p>
+      <button id="c-list" class="secondary big">Visa lista</button>
+    </section>
+
+    <!-- Annonsgrupper att skicka vidare -->
+    <section id="view-groups" class="view" hidden>
+      <div class="hist-head">
+        <h2>Annonser</h2>
+        <span id="g-count" class="muted small"></span>
+      </div>
+      <div class="chips">
+        <button id="g-all" type="button" class="chip">Markera alla</button>
+        <button id="g-none" type="button" class="chip">Avmarkera alla</button>
+      </div>
+      <ul id="g-list" class="hist-list"></ul>
+      <p id="g-empty" class="hint" hidden>Inga annonser fotade ännu.</p>
+      <button id="g-send" class="primary big" disabled>Skicka till AI</button>
+      <p id="g-hint" class="hint"></p>
+      <button id="g-capture" class="secondary big">📷 Fota fler</button>
+      <button id="g-close" class="secondary big">Tillbaka</button>
     </section>
 
     <!-- Historik (sparas i telefonen) -->

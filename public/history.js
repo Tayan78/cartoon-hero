@@ -1,16 +1,23 @@
-// Historik: varje skanning sparas i telefonen (IndexedDB) med hela kortet, en
-// liten miniatyrbild, tid och inköpspris – fungerar utan nät. Sheet-loggningen
-// är oförändrad; det här är telefonens egen kopia.
+// Telefonens egen lagring (IndexedDB), fungerar utan nät:
+//  - scans: historiken – varje skanning med hela kortet, miniatyr, tid och inköpspris.
+//    Sheet-loggningen är oförändrad; det här är telefonens egen kopia.
+//  - groups: annonsgrupper – bilderna (max 3) och anteckningen för varje artikel
+//    som fotas i annonsläget, tills de skickas vidare.
 const DB_NAME = "loppisskannern";
-const STORE = "scans";
+const SCANS = "scans";
+const GROUPS = "groups";
 
 let dbPromise = null;
 function db() {
   if (!dbPromise) {
     dbPromise = new Promise((resolve, reject) => {
       if (!("indexedDB" in self)) return reject(new Error("Telefonen saknar lagring för historik"));
-      const req = indexedDB.open(DB_NAME, 1);
-      req.onupgradeneeded = () => req.result.createObjectStore(STORE, { keyPath: "id" }).createIndex("ts", "ts");
+      const req = indexedDB.open(DB_NAME, 2);
+      req.onupgradeneeded = () => {
+        const d = req.result;
+        if (!d.objectStoreNames.contains(SCANS)) d.createObjectStore(SCANS, { keyPath: "id" }).createIndex("ts", "ts");
+        if (!d.objectStoreNames.contains(GROUPS)) d.createObjectStore(GROUPS, { keyPath: "id" });
+      };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error ?? new Error("Kunde inte öppna historiken"));
     });
@@ -19,22 +26,27 @@ function db() {
   return dbPromise;
 }
 
-async function run(mode, fn) {
+async function run(store, mode, fn) {
   const d = await db();
   return new Promise((resolve, reject) => {
-    const tx = d.transaction(STORE, mode);
-    const req = fn(tx.objectStore(STORE));
+    const tx = d.transaction(store, mode);
+    const req = fn(tx.objectStore(store));
     tx.oncomplete = () => resolve(req?.result);
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(tx.error ?? new Error("Avbrutet"));
   });
 }
 
-export const putScan = (record) => run("readwrite", (s) => s.put(record));
-export const getScan = (id) => run("readonly", (s) => s.get(id));
-export const deleteScan = (id) => run("readwrite", (s) => s.delete(id));
+export const putScan = (record) => run(SCANS, "readwrite", (s) => s.put(record));
+export const getScan = (id) => run(SCANS, "readonly", (s) => s.get(id));
+export const deleteScan = (id) => run(SCANS, "readwrite", (s) => s.delete(id));
 // Nyast först.
-export const allScans = async () => ((await run("readonly", (s) => s.getAll())) ?? []).sort((a, b) => b.ts - a.ts);
+export const allScans = async () => ((await run(SCANS, "readonly", (s) => s.getAll())) ?? []).sort((a, b) => b.ts - a.ts);
+
+// Annonsgrupper, i den ordning de fotades.
+export const putGroup = (group) => run(GROUPS, "readwrite", (s) => s.put(group));
+export const deleteGroup = (id) => run(GROUPS, "readwrite", (s) => s.delete(id));
+export const allGroups = async () => ((await run(GROUPS, "readonly", (s) => s.getAll())) ?? []).sort((a, b) => a.ts - b.ts);
 
 // Uppdaterar några fält i en sparad skanning (t.ex. bildlänk eller "sparad i lager").
 export async function updateScan(id, fields) {
