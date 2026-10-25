@@ -9,7 +9,16 @@ const DEFAULT_SETTINGS = {
     Annan: { fee_percent: 0, fee_fixed: 0, shipping: 59 },
   },
   fx: { USD: 10.5, EUR: 11.5, GBP: 13.5 },
+  decision: { min_profit: 100, min_multiple: 2, big_buy: 200, small_green: 2, small_yellow: 1.3, small_price: 100, small_brands: ["Schleich"] },
 };
+const RULE_FIELDS = [
+  ["min_profit", "Minsta vinst för grön (kr)"],
+  ["min_multiple", "Minsta multipel för grön"],
+  ["big_buy", "Stort köp: inköp från (kr), multipel krävs inte"],
+  ["small_green", "Småfigur: grön från multipel"],
+  ["small_yellow", "Småfigur: gul från multipel"],
+  ["small_price", "Småfigur: utpris under (kr)"],
+];
 // Tomt värde = serverns standard (ID_MODEL / SEARCH_MODEL i Vercel).
 const MODEL_OPTIONS = [
   ["", "Standard (servern)"],
@@ -52,6 +61,7 @@ const getSettings = () => {
     gemini: s?.gemini ?? true,
     mode: s?.mode ?? "simple",
     lens: s?.lens ?? true,
+    decision: { ...DEFAULT_SETTINGS.decision, ...(s?.decision ?? {}) },
   };
 };
 
@@ -198,7 +208,7 @@ function renderPrelim(item) {
   $("r-sub").textContent = [item.brand, item.model, item.category].filter(Boolean).join(" · ");
 }
 
-const colorFor = (score) => (score >= 70 ? "green" : score >= 40 ? "yellow" : "red");
+const multiple = (m) => `${(Math.floor(m * 10 + 1e-9) / 10).toFixed(1).replace(".", ",")}×`;
 const confText = { high: "hög", medium: "medel", low: "låg" };
 
 // Prispanelen: utpris (lägsta till salu), budgräns (sålt median) och en
@@ -284,14 +294,23 @@ function renderPrice(r) {
     : "Inga bekräftade försäljningar – priset följer marknaden just nu.";
   $("r-nosold").hidden = hasSold;
 
-  const color = colorFor(r.buy_score);
+  renderDecision(r.decision);
+}
+
+// Beslutet kommer färdigt från servern (lib/decision.js) – appen visar det bara.
+function renderDecision(d) {
   $("r-verdict-row").hidden = false;
-  $("r-score").className = `score ${color}`;
-  $("r-score-num").textContent = r.buy_score;
-  $("r-verdict").textContent = r.verdict;
-  $("r-net").textContent = hasSold && e.net_at_floor !== null && e.bid_floor !== e.list_price
-    ? `Netto vid ${kr(e.list_price)}: ${kr(e.net_profit)} · vid ${kr(e.bid_floor)}: ${kr(e.net_at_floor)}`
-    : `Netto ca ${kr(e.net_profit)} vid ${kr(e.list_price)}`;
+  $("r-verdict-row").className = `decision ${d.color}`;
+  $("r-verdict").textContent = d.verdict;
+  $("r-net").textContent = d.known
+    ? `${d.profit > 0 ? "Vinst" : "Förlust"} ${kr(Math.abs(d.profit))} · ${multiple(d.multiple)}`
+    : d.max_buy.yellow > 0
+      ? `Grön upp till ${kr(d.max_buy.green)} · vinst upp till ${kr(d.max_buy.yellow)}`
+      : "Ingen marginal efter avgift och frakt";
+  const tags = [];
+  if (d.uncertain) tags.push(d.capped ? "Osäkert pris – sänkt från grön" : "Osäkert pris");
+  if (d.small) tags.push("Bulkaffär – räkna på hela lotten");
+  $("r-tags").replaceChildren(...tags.map((t) => Object.assign(document.createElement("span"), { className: "tag", textContent: t })));
 }
 
 function renderResult(data) {
@@ -306,6 +325,7 @@ function renderResult(data) {
 
   renderPrice(r);
   $("r-reason").textContent = r.reason;
+  $("r-reason").title = r.reason_source === "ai" ? "Motivering av Gemini utifrån beslutet" : "Regelstyrd motivering";
   $("r-evidence").textContent = [r.note && `Din info: ${r.note}`, r.evidence && `Identifiering: ${r.evidence}`]
     .filter(Boolean)
     .join(" · ");
@@ -337,9 +357,10 @@ function renderResult(data) {
     ["Utpris", kr(e.list_price)],
     ["Avgift", `−${kr(e.fees)}`],
     ["Frakt", `−${kr(e.shipping)}`],
-    ["Inköpspris", `−${kr(e.buy_price)}`],
-    ["Netto", kr(e.net_profit)],
+    ["Netto före inköp", kr(e.net_before_buy ?? e.net_profit + e.buy_price)],
   );
+  if (e.buy_price > 0) rows.push(["Inköpspris", `−${kr(e.buy_price)}`], ["Vinst", kr(e.net_profit)]);
+  if (r.decision?.known && r.decision.pay_max > 0) rows.push(["Betala inte mer än", kr(r.decision.pay_max)]);
   $("r-details").replaceChildren(
     ...rows.flatMap(([k, v]) => [
       Object.assign(document.createElement("dt"), { textContent: k }),
@@ -555,6 +576,21 @@ function openSettings(message = "") {
   $("s-model-search").replaceChildren(
     ...modelOptions(s.models.search, [["gemini", "Gemini + Google-sökning"]]),
   );
+  $("s-rules").replaceChildren(
+    ...RULE_FIELDS.map(([key, text]) => {
+      const label = Object.assign(document.createElement("label"), { className: "field" });
+      const input = numberInput(s.decision[key]);
+      input.dataset.rule = key;
+      label.append(Object.assign(document.createElement("span"), { textContent: text }), input);
+      return label;
+    }),
+    (() => {
+      const label = Object.assign(document.createElement("label"), { className: "field" });
+      const input = Object.assign(document.createElement("input"), { type: "text", value: s.decision.small_brands.join(", "), id: "s-small-brands" });
+      label.append(Object.assign(document.createElement("span"), { textContent: "Småfigurer: märken (kommaseparerade)" }), input);
+      return label;
+    })(),
+  );
   $("s-vision").checked = s.vision;
   $("s-gemini").checked = s.gemini;
   $("s-mode").value = s.mode;
@@ -582,6 +618,11 @@ $("btn-settings-save").addEventListener("click", () => {
   s.gemini = $("s-gemini").checked;
   s.mode = $("s-mode").value;
   s.lens = $("s-lens").checked;
+  for (const input of $("s-rules").querySelectorAll("input[data-rule]")) {
+    const n = Number(input.value);
+    if (input.value !== "" && Number.isFinite(n) && n >= 0) s.decision[input.dataset.rule] = n;
+  }
+  s.decision.small_brands = $("s-small-brands").value.split(",").map((b) => b.trim()).filter(Boolean);
   store.set("settings", s);
   $("s-test").textContent = "Sparat.";
 });

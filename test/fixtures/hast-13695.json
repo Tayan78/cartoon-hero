@@ -1,0 +1,19 @@
+{
+  "_om": "Schleich-hästen (13695) som fick '25 % – Låt bli' medan texten sa att det var en bra affär. Geminis gamla buy_score och reason finns kvar för att visa att servern ignorerar dem. Lens-annonserna motsvarar det du hittade själv (eBay 488 kr, flera 100–200 kr).",
+  "gemini": {
+    "item": { "name": "Schleich Pinto Ettåring", "category": "Leksaksfigurer / Samlarfigurer", "brand": "Schleich", "model": "Pinto Jährling", "article_number": "13695", "condition": "Gott begagnat skick", "confidence_id": "high" },
+    "candidates": [{ "name": "Schleich Pintoföl", "article_number": "13803" }],
+    "evidence": "Google Lens-träffarna visar samma figur med nummer 13695.",
+    "price_sek": { "low": 120, "median": 175, "high": 488, "confidence": "medium" },
+    "market_note": "Utgången modell som samlare söker.",
+    "buy_score": 25,
+    "reason": "Bra affär – köp den, lättsåld och god marginal.",
+    "best_platform": "Tradera"
+  },
+  "lens": [
+    { "title": "Schleich 13695 Pinto Yearling retired", "url": "https://www.ebay.com/itm/13695a", "platform": "eBay", "price": 46.5, "currency": "USD", "price_sek": 488, "sold": false, "via": "lens" },
+    { "title": "Schleich Pinto Jährling 13695", "url": "https://www.ebay.de/itm/13695b", "platform": "eBay", "price": 12.95, "currency": "EUR", "price_sek": 149, "sold": false, "via": "lens" },
+    { "title": "Schleich 13695 Pinto", "url": "https://www.ebay.de/itm/13695c", "platform": "eBay", "price": 17.3, "currency": "EUR", "price_sek": 199, "sold": false, "via": "lens" },
+    { "title": "Schleich häst pinto", "url": "https://www.blocket.se/annons/13695", "platform": "Blocket", "price": 120, "currency": "SEK", "price_sek": 120, "sold": false, "via": "lens" }
+  ]
+}

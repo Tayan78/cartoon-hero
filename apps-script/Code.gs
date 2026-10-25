@@ -17,14 +17,29 @@ var SCAN_HEADERS = [
   'Intl median (SEK)', 'Inköpspris', 'Avgift', 'Frakt', 'Netto', 'Köp-poäng', 'Verdict', 'Motivering',
   'Bästa plattform', 'Flaggor', 'Källor', 'Modell (AI)', 'Input-token', 'Output-token', 'Sökningar',
   'Kostnad USD', 'Kostnad SEK', 'Tid (ms)', 'JSON',
-  'Lägg ut för', 'Bud ned till', 'Lägst till salu', 'Högst till salu', 'Antal till salu', 'Info'
+  'Lägg ut för', 'Bud ned till', 'Lägst till salu', 'Högst till salu', 'Antal till salu', 'Info',
+  'Färg', 'Vinst', 'Multipel', 'Betala max', 'Osäkert pris', 'Småfigur'
 ];
 
 var INVENTORY_HEADERS = [
   'Sparad', 'Skannings-ID', 'Bild', 'Namn', 'Kategori', 'Märke', 'Modell', 'Skick', 'Inköpspris',
   'Pris median', 'Netto', 'Köp-poäng', 'Bästa plattform', 'Status', 'Artikelnr',
-  'Lägg ut för', 'Bud ned till', 'Info'
+  'Lägg ut för', 'Bud ned till', 'Info',
+  'Beslut', 'Färg', 'Vinst', 'Multipel'
 ];
+
+var COLORS = { green: 'Grön', yellow: 'Gul', red: 'Röd', none: '–' };
+
+// Köpbeslutet från servern (kolumnen Köp-poäng används inte längre).
+function decisionCells(d) {
+  d = d || {};
+  return [
+    COLORS[d.color] || '',
+    d.known ? d.profit : '',
+    d.known ? Math.floor(d.multiple * 10 + 1e-9) / 10 : '',
+    d.pay_max || ''
+  ];
+}
 
 function doPost(e) {
   try {
@@ -65,11 +80,13 @@ function logScan(body) {
     new Date(), body.scan_id, imageUrl ? '=HYPERLINK("' + imageUrl + '","Bild")' : '',
     item.name, item.category, item.brand, item.model, item.article_number, item.age, item.condition,
     item.confidence_id, p.low, p.median, p.high, p.comparables, p.confidence, p.no_tradera_data ? 'Ja' : '',
-    (p.international || {}).median, ec.buy_price, ec.fees, ec.shipping, ec.net_profit, r.buy_score, r.verdict,
+    (p.international || {}).median, ec.buy_price, ec.fees, ec.shipping, ec.net_profit, '', r.verdict,
     r.reason, r.best_platform, (r.flags || []).join(' '), sources, body.model, cost.input_tokens,
     cost.output_tokens, cost.web_searches, cost.usd, cost.sek, body.duration_ms, JSON.stringify(r),
     ec.list_price, ec.bid_floor || '', fs.low || '', fs.high || '', fs.count || 0, r.note || ''
-  ]);
+  ].concat(decisionCells(r.decision), [
+    (r.decision || {}).uncertain ? 'Ja' : '', (r.decision || {}).small ? 'Ja' : ''
+  ]));
   return { ok: true, image_url: imageUrl };
 }
 
@@ -81,9 +98,9 @@ function saveInventory(body) {
   sheet('Lager', INVENTORY_HEADERS).appendRow([
     new Date(), body.scan_id, url ? '=HYPERLINK("' + url + '","Bild")' : '', item.name, item.category,
     item.brand, item.model, item.condition, ec.buy_price, (r.price_sek || {}).median, ec.net_profit,
-    r.buy_score, r.best_platform, 'Ny', item.article_number,
+    '', r.best_platform, 'Ny', item.article_number,
     ec.list_price, ec.bid_floor || '', r.note || ''
-  ]);
+  ].concat([r.verdict || ''], decisionCells(r.decision).slice(0, 3)));
   return { ok: true };
 }
 

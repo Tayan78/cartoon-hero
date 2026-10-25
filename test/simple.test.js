@@ -38,10 +38,10 @@ test("annonser: utpris = lägsta Tradera/eBay även om Blocket är billigare", (
   assert.equal(r.economics.bid_floor, 0);
   assert.equal(r.price_sek.confidence, "high");
   assert.ok(!r.flags.some((f) => f.includes("sålda")), "inga flaggor om sålda i annonsläget");
-  assert.equal(r.buy_score, 60);
+  assert.equal(r.decision.uncertain, false);
 });
 
-test("annonser utan Tradera/eBay: utpris = lägsta annons; inga annonser: uppskattning och låg poäng", () => {
+test("annonser utan Tradera/eBay: utpris = lägsta annons; inga annonser: uppskattning och osäkert pris", () => {
   const onlyBlocket = finalizeResult(toPriceRaw({ price_sek: { median: 60 }, listings: [listing("Blocket", 50, "blocket.se")], buy_score: 50 }), { buyPrice: 0, settings, mode: "listings" });
   assert.equal(onlyBlocket.economics.list_price, 50);
   assert.equal(onlyBlocket.economics.list_basis, "lägsta till salu");
@@ -49,7 +49,7 @@ test("annonser utan Tradera/eBay: utpris = lägsta annons; inga annonser: uppska
   const none = finalizeResult(toPriceRaw({ price_sek: { median: 60, confidence: "high" }, listings: [], buy_score: 80 }), { buyPrice: 0, settings, mode: "listings" });
   assert.equal(none.economics.list_basis, "uppskattat");
   assert.equal(none.price_sek.confidence, "low");
-  assert.ok(none.buy_score <= 25);
+  assert.equal(none.decision.uncertain, true);
   assert.match(none.flags.join(" "), /Inga annonser till salu/);
 });
 

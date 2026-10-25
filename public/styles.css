@@ -181,10 +181,15 @@ button:disabled { opacity: .4; }
 .bar-labels .sold { color: var(--green); }
 .bar-labels .est { color: var(--yellow); }
 .nosold { background: rgba(242, 182, 50, .14); color: var(--yellow); border-radius: 10px; padding: 8px 10px; font-size: 14px; }
-.verdict-row { display: flex; align-items: center; gap: 12px; }
-.verdict-row .score { width: 64px; height: 64px; font-size: 22px; }
-.verdict-row .score small { font-size: 12px; }
-.verdict-text { font-size: 22px; font-weight: 800; }
+.decision { border-radius: 12px; padding: 12px 14px; border: 2px solid var(--line, #333); }
+.decision.green { background: var(--green); color: #111; border-color: var(--green); }
+.decision.yellow { background: var(--yellow); color: #111; border-color: var(--yellow); }
+.decision.red { background: var(--red); color: #111; border-color: var(--red); }
+.decision .verdict-text { font-size: 22px; font-weight: 800; }
+.decision-numbers { font-size: 16px; font-weight: 600; margin-top: 2px; }
+.decision-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.decision-tags:empty { display: none; }
+.decision-tags .tag { background: rgba(0, 0, 0, 0.18); color: inherit; font-size: 13px; padding: 2px 8px; border-radius: 999px; }
 
 .debug summary { cursor: pointer; color: var(--muted); font-size: 14px; padding: 8px 0; }
 .debug pre { white-space: pre-wrap; word-break: break-word; font-size: 11px; max-height: 360px; overflow: auto; background: var(--bg); border-radius: 10px; padding: 10px; }
