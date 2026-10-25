@@ -214,7 +214,7 @@ async function runAdvanced({ images, note, buyPrice, settings, send, steps, flag
 async function runSimple({ images, note, buyPrice, settings, send, steps, flags, scanId }) {
   // 1. Google Lens (SerpApi) – annars Cloud Vision som reserv.
   const useLens = settings.lens && (MOCK || lensConfigured());
-  const useVision = !useLens && settings.vision && (MOCK || visionConfigured());
+  let useVision = !useLens && settings.vision && (MOCK || visionConfigured());
   let lens = null;
   let lensRaw = null;
   let vision = null;
@@ -227,7 +227,9 @@ async function runSimple({ images, note, buyPrice, settings, send, steps, flags,
       lensRaw = l.raw;
       steps.push({ step: "Google Lens", model: "serpapi-google-lens", searches: 1, usd: LENS_USD });
     } catch (err) {
-      flags.push(`Google Lens misslyckades (${err.message}).`);
+      // T.ex. slut på månadens gratissökningar: bildsöket (Cloud Vision) tar över.
+      useVision = settings.vision && (MOCK || visionConfigured());
+      flags.push(`Google Lens misslyckades (${err.message})${useVision ? " – bildsöket användes i stället" : ""}.`);
     }
   }
   if (useVision) {
