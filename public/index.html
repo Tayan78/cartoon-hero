@@ -17,7 +17,10 @@
 <body>
   <header class="top">
     <h1>Loppisskannern</h1>
-    <button id="btn-settings" class="icon-btn" aria-label="Inställningar">⚙︎</button>
+    <div class="top-buttons">
+      <button id="btn-history" class="icon-btn" aria-label="Historik">🕘</button>
+      <button id="btn-settings" class="icon-btn" aria-label="Inställningar">⚙︎</button>
+    </div>
   </header>
 
   <main>
@@ -54,10 +57,40 @@
 
       <button id="btn-scan" class="primary big" disabled>Skanna</button>
       <p id="scan-hint" class="hint"></p>
+      <button id="btn-open-history" class="secondary big">🕘 Historik</button>
+    </section>
+
+    <!-- Historik (sparas i telefonen) -->
+    <section id="view-history" class="view" hidden>
+      <div class="hist-head">
+        <h2>Historik</h2>
+        <span id="h-count" class="muted small"></span>
+      </div>
+      <input id="h-search" type="search" placeholder="Sök namn eller modellnummer" autocomplete="off" enterkeyhint="search">
+      <div id="h-colors" class="chips">
+        <button type="button" class="chip on" data-color="">Alla</button>
+        <button type="button" class="chip" data-color="green"><i class="dot green"></i>Köp</button>
+        <button type="button" class="chip" data-color="yellow"><i class="dot yellow"></i>Tveksamt</button>
+        <button type="button" class="chip" data-color="red"><i class="dot red"></i>Låt bli</button>
+        <button type="button" class="chip" data-color="none"><i class="dot none"></i>Utan inköpspris</button>
+      </div>
+      <div id="h-saved" class="chips">
+        <button type="button" class="chip on" data-saved="">Alla</button>
+        <button type="button" class="chip" data-saved="yes">Sparade i lager</button>
+        <button type="button" class="chip" data-saved="no">Ej sparade</button>
+      </div>
+      <ul id="h-list" class="hist-list"></ul>
+      <p id="h-empty" class="hint" hidden></p>
+      <button id="btn-history-close" class="secondary big">Tillbaka</button>
     </section>
 
     <!-- Resultat -->
     <section id="view-result" class="view" hidden>
+      <div id="hist-nav" class="hist-nav" hidden>
+        <button id="h-prev" type="button" class="secondary" aria-label="Föregående">‹</button>
+        <span id="h-pos" class="muted small"></span>
+        <button id="h-next" type="button" class="secondary" aria-label="Nästa">›</button>
+      </div>
       <div id="status" class="status"><span class="spinner"></span><span id="status-text">Identifierar…</span></div>
 
       <article id="card" class="card">
@@ -67,6 +100,7 @@
             <h2 id="r-name">…</h2>
             <p id="r-article" class="article" hidden></p>
             <p id="r-sub" class="muted"></p>
+            <p id="r-meta" class="muted small" hidden></p>
           </div>
         </div>
 
@@ -114,7 +148,9 @@
 
       <div class="actions">
         <button id="btn-save" class="primary big" hidden>Spara till lager</button>
+        <button id="btn-back-history" class="secondary big" hidden>Tillbaka till historiken</button>
         <button id="btn-new" class="secondary big">Ny skanning</button>
+        <button id="btn-delete" class="secondary big danger" hidden>Ta bort från historiken</button>
       </div>
     </section>
 

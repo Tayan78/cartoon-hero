@@ -1,5 +1,7 @@
 // Loppisskannern – fas 1: fota (1–4 vinklar) → (inköpspris) → skanna → resultatkort.
 
+import { allScans, askPersistent, deleteScan, filterScans, getScan, putScan, thumbnail, updateScan } from "./history.js";
+
 // Samma standardvärden som lib/settings.js på servern.
 const DEFAULT_SETTINGS = {
   platforms: {
@@ -67,7 +69,7 @@ const getSettings = () => {
 };
 
 // ---------- vyer ----------
-const views = ["scan", "result", "settings"];
+const views = ["scan", "result", "history", "settings"];
 function show(name) {
   for (const v of views) $(`view-${v}`).hidden = v !== name;
   window.scrollTo(0, 0);
@@ -174,6 +176,7 @@ $("photo-gallery").addEventListener("change", async (e) => {
 });
 
 function resetScan() {
+  leaveHistoryCard();
   photos = [];
   $("buy-price").value = "";
   $("note").value = "";
@@ -190,8 +193,8 @@ function setStatus(text, busy = true) {
   $("status").querySelector(".spinner").hidden = !busy;
 }
 
-function resetCard() {
-  $("card-img").src = photos[0];
+function resetCard(image = photos[0]) {
+  $("card-img").src = image;
   $("r-name").textContent = "Identifierar…";
   $("r-sub").textContent = "";
   for (const id of ["r-price", "r-verdict-row", "r-article", "r-details", "r-sources-title", "r-debug", "btn-save"]) $(id).hidden = true;
@@ -319,7 +322,7 @@ function renderDecision(d) {
   $("r-tags").replaceChildren(...tags.map((t) => Object.assign(document.createElement("span"), { className: "tag", textContent: t })));
 }
 
-function renderResult(data) {
+function renderResult(data, { track = true } = {}) {
   const r = data.result;
   const p = r.price_sek;
   renderPrelim(r.item);
@@ -423,7 +426,7 @@ function renderResult(data) {
   $("r-debug").hidden = !r.debug;
   $("r-debug").open = false;
   $("r-debug-pre").textContent = r.debug ? JSON.stringify(r.debug, null, 2) : "";
-  trackCost(data.cost.sek);
+  if (track) trackCost(data.cost.sek);
 }
 
 function trackCost(sek) {
@@ -457,11 +460,16 @@ $("btn-scan").addEventListener("click", async () => {
     openSettings("Ange lösenordet först.");
     return;
   }
+  leaveHistoryCard();
   resetCard();
   show("result");
   setStatus("Skickar…");
   current = null;
   let gotResult = false;
+  const buyPrice = Number($("buy-price").value) || 0;
+  const note = $("note").value.trim();
+  // Miniatyren till historiken görs medan servern arbetar.
+  const thumb = thumbnail(photos[0]).catch(() => "");
 
   try {
     const res = await fetch("/api/scan", {
@@ -469,8 +477,8 @@ $("btn-scan").addEventListener("click", async () => {
       headers: { "Content-Type": "application/json", "x-app-token": getToken() },
       body: JSON.stringify({
         images: photos,
-        buyPrice: Number($("buy-price").value) || 0,
-        note: $("note").value.trim(),
+        buyPrice,
+        note,
         settings: getSettings(),
       }),
     });
@@ -488,8 +496,12 @@ $("btn-scan").addEventListener("click", async () => {
         current = { scan_id: msg.scan_id, result: msg.result, image_url: "" };
         renderResult(msg);
         setStatus("Sparar i Sheet…");
+        saveToHistory(msg, { buyPrice, note, thumb });
       } else if (msg.type === "logged") {
-        if (current) current.image_url = msg.image_url;
+        if (current) {
+          current.image_url = msg.image_url;
+          if (msg.image_url) historyUpdate(current.scan_id, { image_url: msg.image_url });
+        }
         setStatus(msg.ok ? "" : `Kunde inte logga i Sheet: ${msg.error ?? "okänt fel"}`, false);
       } else if (msg.type === "error") throw new Error(msg.error);
     });
@@ -515,6 +527,7 @@ $("btn-save").addEventListener("click", async () => {
     if (!res.ok || !data.ok) throw new Error(data.error || `Fel ${res.status}`);
     btn.textContent = "✓ Sparad i lager";
     btn.classList.add("saved");
+    historyUpdate(current.scan_id, { saved: true });
   } catch (err) {
     btn.disabled = false;
     btn.textContent = "Spara till lager";
@@ -523,6 +536,165 @@ $("btn-save").addEventListener("click", async () => {
 });
 
 $("btn-new").addEventListener("click", resetScan);
+
+// ---------- historik ----------
+// Varje skanning sparas i telefonen. Misslyckas lagringen märks det bara i
+// historiken – skanningen och Sheet-loggningen påverkas inte.
+async function saveToHistory(data, { buyPrice, note, thumb }) {
+  try {
+    await putScan({ id: data.scan_id, ts: Date.now(), buyPrice, note, thumb: await thumb, image_url: "", saved: false, data });
+    askPersistent();
+  } catch (err) {
+    console.warn("Historiken kunde inte sparas:", err);
+  }
+}
+
+function historyUpdate(id, fields) {
+  updateScan(id, fields).catch((err) => console.warn("Historiken kunde inte uppdateras:", err));
+}
+
+const historyFilter = { color: "", saved: "", q: "" };
+let historyIds = []; // id:n i den filtrerade listan, i visningsordning
+let historyIndex = -1; // >= 0 när ett historikkort visas
+
+const when = (ts) =>
+  new Date(ts).toLocaleString("sv-SE", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+
+function pillFor(d) {
+  const pill = document.createElement("span");
+  pill.className = `pill ${d?.color ?? "none"}`;
+  pill.textContent = !d ? "–" : d.known || d.color === "red" ? d.verdict : `Max ${kr(d.pay_max)}`;
+  return pill;
+}
+
+async function renderHistory() {
+  let list = [];
+  try {
+    list = await allScans();
+  } catch (err) {
+    $("h-list").replaceChildren();
+    $("h-empty").hidden = false;
+    $("h-empty").textContent = `⚠️ ${err.message}`;
+    return;
+  }
+  const shown = filterScans(list, historyFilter);
+  historyIds = shown.map((rec) => rec.id);
+  $("h-count").textContent = shown.length === list.length ? `${list.length} skanningar` : `${shown.length} av ${list.length}`;
+  $("h-empty").hidden = shown.length > 0;
+  $("h-empty").textContent = list.length ? "Inget matchar filtret." : "Inga skanningar ännu. De sparas här i telefonen när du skannar.";
+  $("h-list").replaceChildren(
+    ...shown.map((rec, i) => {
+      const r = rec.data.result;
+      const li = document.createElement("li");
+      const row = Object.assign(document.createElement("button"), { type: "button", className: "hist-row" });
+      const img = Object.assign(document.createElement("img"), { src: rec.thumb || "", alt: "" });
+      const info = Object.assign(document.createElement("div"), { className: "info" });
+      const number = r.article?.number ? `${r.article.number}${r.article.verified ? "" : "?"}` : "";
+      info.append(
+        Object.assign(document.createElement("div"), { className: "name", textContent: r.item?.name || "Okänt föremål" }),
+        Object.assign(document.createElement("div"), {
+          className: "line",
+          textContent: [rec.saved ? "✓ lager" : "", number, r.economics?.list_price > 0 ? `Lägg ut för ${kr(r.economics.list_price)}` : ""]
+            .filter(Boolean)
+            .join(" · "),
+        }),
+      );
+      const side = Object.assign(document.createElement("div"), { className: "side" });
+      side.append(pillFor(r.decision), Object.assign(document.createElement("span"), { className: "muted", textContent: when(rec.ts) }));
+      row.append(img, info, side);
+      row.addEventListener("click", () => openHistoryCard(i));
+      li.append(row);
+      return li;
+    }),
+  );
+}
+
+function openHistory() {
+  leaveHistoryCard();
+  show("history");
+  renderHistory();
+}
+
+// Visar ett sparat kort precis som det såg ut, med bläddring inom filtret.
+async function openHistoryCard(index) {
+  const id = historyIds[index];
+  const rec = id && (await getScan(id).catch(() => null));
+  if (!rec) return renderHistory();
+  historyIndex = index;
+  resetCard(rec.thumb || "");
+  renderResult(rec.data, { track: false });
+  setStatus("");
+  current = { scan_id: rec.id, result: rec.data.result, image_url: rec.image_url ?? "" };
+  if (rec.saved) {
+    $("btn-save").textContent = "✓ Sparad i lager";
+    $("btn-save").classList.add("saved");
+    $("btn-save").disabled = true;
+  }
+  $("r-meta").hidden = false;
+  $("r-meta").textContent = [when(rec.ts), rec.buyPrice > 0 ? `inköp ${kr(rec.buyPrice)}` : "inget inköpspris"].join(" · ");
+  $("hist-nav").hidden = false;
+  $("h-pos").textContent = `${index + 1} av ${historyIds.length}`;
+  $("h-prev").disabled = index <= 0;
+  $("h-next").disabled = index >= historyIds.length - 1;
+  $("btn-back-history").hidden = false;
+  $("btn-delete").hidden = false;
+  show("result");
+}
+
+function leaveHistoryCard() {
+  historyIndex = -1;
+  for (const id of ["hist-nav", "r-meta", "btn-back-history", "btn-delete"]) $(id).hidden = true;
+}
+
+function stepHistory(delta) {
+  const next = historyIndex + delta;
+  if (historyIndex >= 0 && next >= 0 && next < historyIds.length) openHistoryCard(next);
+}
+
+$("btn-history").addEventListener("click", openHistory);
+$("btn-open-history").addEventListener("click", openHistory);
+$("btn-history-close").addEventListener("click", resetScan);
+$("btn-back-history").addEventListener("click", openHistory);
+$("h-prev").addEventListener("click", () => stepHistory(-1));
+$("h-next").addEventListener("click", () => stepHistory(1));
+
+$("h-search").addEventListener("input", (e) => {
+  historyFilter.q = e.target.value;
+  renderHistory();
+});
+for (const [group, key] of [["h-colors", "color"], ["h-saved", "saved"]]) {
+  $(group).addEventListener("click", (e) => {
+    const chip = e.target.closest(".chip");
+    if (!chip) return;
+    for (const c of $(group).querySelectorAll(".chip")) c.classList.toggle("on", c === chip);
+    historyFilter[key] = chip.dataset[key];
+    renderHistory();
+  });
+}
+
+$("btn-delete").addEventListener("click", async () => {
+  if (historyIndex < 0 || !confirm("Ta bort skanningen från historiken? (Raden i Sheet finns kvar.)")) return;
+  const index = historyIndex;
+  await deleteScan(historyIds[index]).catch(() => {});
+  historyIds.splice(index, 1);
+  if (historyIds.length) openHistoryCard(Math.min(index, historyIds.length - 1));
+  else openHistory();
+});
+
+// Svep åt sidan på kortet för att bläddra.
+let touch = null;
+$("card").addEventListener("touchstart", (e) => {
+  const t = e.touches[0];
+  touch = { x: t.clientX, y: t.clientY };
+}, { passive: true });
+$("card").addEventListener("touchend", (e) => {
+  if (!touch || historyIndex < 0) return;
+  const t = e.changedTouches[0];
+  const dx = t.clientX - touch.x;
+  const dy = t.clientY - touch.y;
+  touch = null;
+  if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) stepHistory(dx < 0 ? 1 : -1);
+}, { passive: true });
 
 $("btn-copy-debug").addEventListener("click", async () => {
   try {
