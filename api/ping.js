@@ -7,6 +7,7 @@ import { checkAuth, json } from "../lib/http.js";
 import { DEFAULT_ID_MODEL, DEFAULT_SEARCH_MODEL, MODELS } from "../lib/models.js";
 import { callAppsScript, storageConfigured } from "../lib/storage.js";
 import { checkVision, visionConfigured } from "../lib/vision.js";
+import { checkLens, lensConfigured } from "../lib/lens.js";
 
 async function run(configured, fn) {
   if (!configured) return { ok: false, detail: "inte konfigurerat" };
@@ -33,6 +34,7 @@ export async function GET(request) {
     api_key: Boolean(process.env.ANTHROPIC_API_KEY) || mock,
     vision: visionConfigured() || mock,
     gemini: geminiConfigured() || mock,
+    lens: lensConfigured() || mock,
     gemini_model: GEMINI_MODEL,
     storage: storageConfigured(),
     mock,
@@ -41,13 +43,14 @@ export async function GET(request) {
   };
 
   if (new URL(request.url).searchParams.get("check") === "1" && !mock) {
-    const [claude, gemini, vision, sheet] = await Promise.all([
+    const [claude, gemini, vision, sheet, lens] = await Promise.all([
       run(Boolean(process.env.ANTHROPIC_API_KEY), () => checkClaude(DEFAULT_ID_MODEL)),
       run(geminiConfigured(), checkGemini),
       run(visionConfigured(), checkVision),
       run(storageConfigured(), checkSheet),
+      run(lensConfigured(), checkLens),
     ]);
-    body.checks = { claude, gemini, vision, sheet };
+    body.checks = { claude, gemini, vision, sheet, lens };
   }
   return json(body);
 }

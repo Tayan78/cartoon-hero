@@ -13,8 +13,9 @@ import { addUsage, costUsd, emptyUsage, finalizeResult } from "../lib/economics.
 import { checkAuth, json, parseDataUrl } from "../lib/http.js";
 import { geminiArticle, geminiConfigured, geminiIdentify, geminiPriceSearch, geminiText } from "../lib/gemini.js";
 import { DEFAULT_SEARCH_MODEL } from "../lib/models.js";
-import { mockGemini, mockGeminiPrice, mockIdentify, mockPrice, mockSimple, mockVision, mockVisionRaw } from "../lib/mock.js";
+import { mockGemini, mockGeminiPrice, mockIdentify, mockLens, mockPrice, mockSimple, mockVision, mockVisionRaw } from "../lib/mock.js";
 import { debugData, geminiScan, simpleLinks, toPriceRaw, verifyArticle } from "../lib/simple.js";
+import { LENS_USD, lensConfigured, lensListings, lensSearch, lensText } from "../lib/lens.js";
 import { VISION_USD_PER_IMAGE } from "../lib/models.js";
 import { dropUnverifiedArticle, formatArticle, marketUrls, pickArticle, searchTerms } from "../lib/market.js";
 import { mergeSettings } from "../lib/settings.js";
@@ -71,8 +72,8 @@ export async function POST(request) {
         const totals = emptyUsage();
         for (const s of steps) {
           if (s.usages) for (const u of s.usages) addUsage(totals, u);
-          // Gemini-steg har egna räknare i stället för Claude-usage.
-          else if (s.model?.startsWith("gemini")) {
+          // Gemini- och Lens-steg har egna räknare i stället för Claude-usage.
+          else if (s.model?.startsWith("gemini") || s.model?.startsWith("serpapi")) {
             totals.input_tokens += s.tokens_in ?? 0;
             totals.output_tokens += s.tokens_out ?? 0;
             totals.web_searches += s.searches ?? 0;
@@ -211,9 +212,24 @@ async function runAdvanced({ images, note, buyPrice, settings, send, steps, flag
 // Enkelt läge: Vision → ett Gemini-anrop (identifiering + annonser till salu i
 // Sverige). Inga sålda priser; utpris = lägsta Tradera/eBay-annons.
 async function runSimple({ images, note, buyPrice, settings, send, steps, flags, scanId }) {
-  const useVision = settings.vision && (MOCK || visionConfigured());
+  // 1. Google Lens (SerpApi) – annars Cloud Vision som reserv.
+  const useLens = settings.lens && (MOCK || lensConfigured());
+  const useVision = !useLens && settings.vision && (MOCK || visionConfigured());
+  let lens = null;
+  let lensRaw = null;
   let vision = null;
   let visionRaw = null;
+  if (useLens) {
+    send({ type: "status", text: "Google Lens…", scan_id: scanId });
+    try {
+      const l = await (MOCK ? mockLens(settings.fx) : lensSearch(images[0], settings.fx));
+      lens = l.summary;
+      lensRaw = l.raw;
+      steps.push({ step: "Google Lens", model: "serpapi-google-lens", searches: 1, usd: LENS_USD });
+    } catch (err) {
+      flags.push(`Google Lens misslyckades (${err.message}).`);
+    }
+  }
   if (useVision) {
     send({ type: "status", text: "Bildsök…", scan_id: scanId });
     try {
@@ -225,15 +241,21 @@ async function runSimple({ images, note, buyPrice, settings, send, steps, flags,
       flags.push(`Bildsöket misslyckades (${err.message}).`);
     }
   }
-  const hints = useVision ? visionText(vision) : "";
+  const lensHints = lens ? lensText(lens) : "";
+  const visionHints = useVision ? visionText(vision) : "";
+  const hints = [lensHints, visionHints].filter(Boolean).join("\n\n");
 
-  send({ type: "status", text: "Söker på Google…", scan_id: scanId });
-  const g = await (MOCK ? mockSimple : geminiScan)({ images, hints, note, buyPrice, settings }, (text) => send({ type: "status", text }));
+  // 2. Gemini: identifiering (och annonser bara om Lens saknas).
+  send({ type: "status", text: lens ? "Identifierar…" : "Söker på Google…", scan_id: scanId });
+  const g = await (MOCK ? mockSimple : geminiScan)(
+    { images, hints, note, buyPrice, settings, lens: Boolean(lens) },
+    (text) => send({ type: "status", text }),
+  );
   steps.push({ step: "Gemini", model: g.model, tokens_in: g.tokensIn, tokens_out: g.tokensOut, searches: g.queries.length, usd: g.usd });
-  if (!g.grounded) flags.push("Gemini sökte inte på Google – svaret bygger på modellens minne och är osäkert.");
+  if (!g.grounded && !lens) flags.push("Gemini sökte inte på Google – svaret bygger på modellens minne och är osäkert.");
 
-  const priceRaw = toPriceRaw(g.raw);
-  const article = verifyArticle({ article: g.raw?.item?.article_number, visionHints: hints, note, supported: g.supported });
+  const priceRaw = toPriceRaw(g.raw, lens ? lensListings(lens) : null);
+  const article = verifyArticle({ article: g.raw?.item?.article_number, visionHints, lensHints, note });
   if (priceRaw.item) priceRaw.item.article_number = article?.verified ? article.number : "";
   send({ type: "prelim", item: priceRaw.item ?? {} });
 
@@ -245,8 +267,9 @@ async function runSimple({ images, note, buyPrice, settings, send, steps, flags,
   result.search_urls = simpleLinks(article?.verified ? `${brand} ${article.number}`.trim() : result.item.name);
   if (g.sources?.length) result.price_google_sources = g.sources;
   if (vision) result.vision = vision;
-  result.debug = debugData({ visionRaw, gemini: g });
-  return { result, modelLabel: `Enkelt · ${g.model}${vision ? " · Vision" : ""}` };
+  if (lens) result.lens = { matches: lens.matches.length, priced: lens.priced.length, numbers: lens.numbers };
+  result.debug = debugData({ visionRaw, lensRaw, gemini: g });
+  return { result, modelLabel: `Enkelt · ${lens ? "Lens · " : ""}${g.model}${vision ? " · Vision" : ""}` };
 }
 
 // Summerar token och kostnad för ett steg (ett eller flera API-anrop).

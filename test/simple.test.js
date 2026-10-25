@@ -16,7 +16,9 @@ test("standardläget är enkelt", () => {
 test("artikelnummer: belagt via din info, bildsök eller Google-källa – annars obekräftat", () => {
   assert.deepEqual(verifyArticle({ article: "13695", note: "schleich 13695" }), { number: "13695", source: "din info", verified: true });
   assert.equal(verifyArticle({ article: "13695", visionHints: "Schleich 13695 Pinto" }).source, "bildsök");
-  assert.equal(verifyArticle({ article: "13695", supported: ['"article_number": "13695"'] }).source, "Google");
+  assert.deepEqual(verifyArticle({ article: "13695", lensHints: "- Schleich 13695 Pinto – eBay" }), { number: "13695", source: "Google Lens", verified: true });
+  // Geminis källstöd räcker inte längre (gav fel nummer i testet med hästen).
+  assert.equal(verifyArticle({ article: "13803", supported: ['"evidence": "… 13803"'] }).verified, false);
   assert.deepEqual(verifyArticle({ article: "13803" }), { number: "13803", source: "Gemini", verified: false });
   assert.equal(verifyArticle({ article: "" }), null);
 });
