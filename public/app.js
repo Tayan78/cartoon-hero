@@ -69,7 +69,7 @@ const getSettings = () => {
 };
 
 // ---------- vyer ----------
-const views = ["scan", "result", "history", "capture", "groups", "settings"];
+const views = ["scan", "result", "history", "capture", "groups", "review", "settings"];
 function show(name) {
   if (name !== "capture") stopCamera();
   for (const v of views) $(`view-${v}`).hidden = v !== name;
@@ -848,6 +848,7 @@ async function openGroups() {
   editingGroup = null;
   show("groups");
   renderGroups();
+  renderSent();
 }
 
 async function renderGroups() {
@@ -902,10 +903,238 @@ $("g-all").addEventListener("click", () => selectAll(true));
 $("g-none").addEventListener("click", () => selectAll(false));
 $("g-capture").addEventListener("click", () => openCapture());
 $("g-close").addEventListener("click", resetScan);
-$("g-send").addEventListener("click", () => {
-  // Kopplas till AI-berikningen i nästa steg (C2).
-  $("g-hint").textContent = "AI-berikningen byggs i nästa steg – annonserna ligger kvar här i telefonen tills dess.";
+// Skicka till AI: bilderna laddas upp till Drive och annonsen hamnar i kön.
+// Uppladdade annonser tas bort ur telefonen; resten ligger kvar om något går fel.
+async function listingsApi(body) {
+  const res = await fetch("/api/listings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-app-token": getToken() },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok) throw new Error(data.error || `Fel ${res.status}`);
+  return data;
+}
+
+$("g-send").addEventListener("click", async () => {
+  if (!getToken()) return openSettings("Ange lösenordet först.");
+  const groups = (await allGroups().catch(() => [])).filter((g) => g.selected);
+  if (!groups.length) return;
+  const btn = $("g-send");
+  btn.disabled = true;
+  let done = 0;
+  try {
+    for (const g of groups) {
+      $("g-hint").textContent = `Laddar upp ${done + 1} av ${groups.length}…`;
+      await listingsApi({ action: "submit", id: g.id, note: g.note, images: g.photos, settings: getSettings() });
+      await deleteGroup(g.id);
+      done++;
+    }
+    $("g-hint").textContent = `✓ ${done} ${done === 1 ? "annons skickad" : "annonser skickade"}. AI:n arbetar i bakgrunden – du kan stänga appen.`;
+  } catch (err) {
+    $("g-hint").textContent = `⚠️ ${done} av ${groups.length} skickade. ${err.message} – försök igen.`;
+  }
+  renderGroups();
+  renderSent();
 });
+
+// ---------- annonsläge: skickade och granskning ----------
+const STATUS_PILL = { Väntar: "wait", Bearbetas: "wait", Klar: "done", Godkänd: "ok", Fel: "err" };
+let sentListings = [];
+let sentTimer = null;
+
+async function renderSent() {
+  clearTimeout(sentTimer);
+  try {
+    sentListings = (await listingsApi({ action: "list" })).listings ?? [];
+  } catch (err) {
+    $("g-sent-hint").textContent = `⚠️ Kunde inte hämta skickade annonser: ${err.message}`;
+    return;
+  }
+  const working = sentListings.filter((l) => l.status === "Väntar" || l.status === "Bearbetas").length;
+  $("g-sent-hint").textContent = !sentListings.length
+    ? "Inga skickade annonser ännu."
+    : working
+      ? `AI:n arbetar med ${working} ${working === 1 ? "annons" : "annonser"} – du kan stänga appen.`
+      : "Tryck på en annons för att granska den.";
+  $("g-sent").replaceChildren(
+    ...sentListings.map((l) => {
+      const li = Object.assign(document.createElement("li"), { className: "g-row" });
+      const open = Object.assign(document.createElement("button"), { type: "button", className: "open" });
+      const info = Object.assign(document.createElement("div"), { className: "info" });
+      info.append(
+        Object.assign(document.createElement("div"), { className: "name", textContent: l.title || l.note || "Annons" }),
+        Object.assign(document.createElement("div"), {
+          className: "line",
+          textContent: [l.price ? kr(l.price) : "", l.channel, l.confirmed ? `nr ${l.confirmed} ✓` : "", l.status === "Fel" ? l.error : ""]
+            .filter(Boolean)
+            .join(" · ") || (l.note ? `Anteckning: ${l.note}` : ""),
+        }),
+      );
+      open.append(Object.assign(document.createElement("img"), { src: l.image_urls?.[0] ?? "", alt: "" }), info);
+      const pill = Object.assign(document.createElement("span"), { className: `pill status ${STATUS_PILL[l.status] ?? "wait"}`, textContent: l.status });
+      if (["Klar", "Godkänd", "Fel"].includes(l.status)) open.addEventListener("click", () => openReview(l.id));
+      li.append(open, pill);
+      return li;
+    }),
+  );
+  // Uppdatera av sig själv medan AI:n arbetar och listan visas.
+  if (working && !$("view-groups").hidden) sentTimer = setTimeout(renderSent, 15000);
+}
+
+let reviewing = null; // annonsen som granskas
+let reviewChannel = "Tradera";
+let reviewConfirmed = "";
+
+function openReview(id) {
+  const l = sentListings.find((x) => x.id === id);
+  if (!l) return;
+  reviewing = l;
+  const data = l.listing ?? {};
+  $("v-status").textContent = l.status;
+  $("v-images").replaceChildren(
+    ...l.image_urls.map((url, i) => {
+      const slot = Object.assign(document.createElement("div"), { className: "c-slot" });
+      slot.append(Object.assign(document.createElement("img"), { src: url, alt: "" }));
+      if (i === 0) slot.append(Object.assign(document.createElement("span"), { className: "tag", textContent: "Huvudbild" }));
+      return slot;
+    }),
+  );
+  $("v-note").textContent = l.note ? `Din anteckning: ${l.note}` : "";
+  reviewConfirmed = l.confirmed || "";
+  renderCandidates();
+  $("v-title").value = l.title || "";
+  $("v-desc").value = l.description || "";
+  $("v-price").value = l.price || "";
+  $("v-title-count").textContent = `${$("v-title").value.length}/80`;
+  const fs = data.for_sale;
+  $("v-price-basis").textContent = data.price
+    ? `Förslag ${kr(data.price)} (${data.list_basis})${fs?.count ? ` · ${fs.count} till salu ${kr(fs.low)}–${kr(fs.high)}` : ""}${data.retail ? ` · nypris ${kr(data.retail.low)}–${kr(data.retail.high)}` : ""}`
+    : "";
+  reviewChannel = l.channel || data.channel || "Tradera";
+  for (const c of $("v-channel").querySelectorAll(".chip")) c.classList.toggle("on", c.dataset.channel === reviewChannel);
+  $("v-flags").replaceChildren(
+    ...[...(l.status === "Fel" ? [l.error] : []), ...(data.fixes ?? []), ...(data.flags ?? [])].map((f) =>
+      Object.assign(document.createElement("li"), { textContent: f }),
+    ),
+  );
+  const sources = data.sources ?? [];
+  $("v-sources-title").hidden = !sources.length;
+  $("v-sources").replaceChildren(
+    ...sources.map((s) => {
+      const li = document.createElement("li");
+      const a = Object.assign(document.createElement("a"), { href: s.url, target: "_blank", rel: "noopener" });
+      const title = document.createElement("span");
+      title.append(Object.assign(document.createElement("span"), { className: "tag", textContent: s.platform }), s.title || s.url);
+      a.append(title, Object.assign(document.createElement("span"), { textContent: `${kr(s.price_sek)}${s.sold ? " · såld" : ""}` }));
+      li.append(a);
+      return li;
+    }),
+  );
+  const failed = l.status === "Fel";
+  $("v-retry").hidden = !failed;
+  $("v-approve").hidden = failed;
+  $("v-approve").textContent = l.status === "Godkänd" ? "✓ Godkänd – spara igen" : "Godkänn";
+  $("v-hint").textContent = "";
+  show("review");
+}
+
+// Modellnummer: inget räknas som bekräftat förrän du trycker.
+function renderCandidates() {
+  const data = reviewing.listing ?? {};
+  const used = data.article?.number ?? "";
+  const list = [...(data.candidates ?? [])];
+  if (reviewConfirmed && !list.some((c) => c.number === reviewConfirmed)) list.unshift({ number: reviewConfirmed, source: "ditt val" });
+  $("v-candidates").replaceChildren(
+    ...list.map((c) => {
+      const chip = Object.assign(document.createElement("button"), { type: "button", className: `chip${c.number === reviewConfirmed ? " on" : ""}` });
+      chip.append(`${c.number === reviewConfirmed ? "✓ " : ""}${c.number}`, Object.assign(document.createElement("small"), { textContent: ` ${c.name || c.source || ""}` }));
+      chip.addEventListener("click", () => chooseNumber(c.number));
+      return chip;
+    }),
+  );
+  $("v-cand-hint").textContent = !list.length
+    ? "Inget modellnummer hittades."
+    : reviewConfirmed
+      ? `Bekräftat: ${reviewConfirmed}.`
+      : `Texten använder ${used || "inget nummer"} – bekräfta rätt nummer innan du godkänner.`;
+}
+
+async function chooseNumber(number) {
+  const used = reviewing.listing?.article?.number ?? "";
+  if (number === used || number === reviewConfirmed) {
+    reviewConfirmed = number;
+    renderCandidates();
+    return;
+  }
+  // Annat nummer än texten bygger på: hämta data, priser och text på nytt.
+  if (!confirm(`Hämta priser och skriv om annonsen för ${number}?`)) return;
+  try {
+    await listingsApi({ action: "requeue", id: reviewing.id, confirmed: number });
+    openGroups();
+  } catch (err) {
+    $("v-cand-hint").textContent = `⚠️ ${err.message}`;
+  }
+}
+
+$("v-other-use").addEventListener("click", () => {
+  const n = $("v-other").value.trim();
+  if (n) chooseNumber(n);
+});
+$("v-title").addEventListener("input", () => ($("v-title-count").textContent = `${$("v-title").value.length}/80`));
+$("v-channel").addEventListener("click", (e) => {
+  const chip = e.target.closest(".chip");
+  if (!chip) return;
+  reviewChannel = chip.dataset.channel;
+  for (const c of $("v-channel").querySelectorAll(".chip")) c.classList.toggle("on", c === chip);
+});
+
+async function saveReview(status) {
+  const hasCandidates = (reviewing.listing?.candidates ?? []).length > 0;
+  if (status === "Godkänd" && hasCandidates && !reviewConfirmed) {
+    $("v-hint").textContent = "Tryck på rätt modellnummer först.";
+    return;
+  }
+  const fields = {
+    title: $("v-title").value,
+    description: $("v-desc").value,
+    price: $("v-price").value,
+    channel: reviewChannel,
+    confirmed: reviewConfirmed,
+    ...(status ? { status } : {}),
+  };
+  $("v-hint").textContent = "Sparar…";
+  try {
+    await listingsApi({ action: "update", id: reviewing.id, fields });
+    Object.assign(reviewing, fields, status ? { status } : {});
+    $("v-hint").textContent = status === "Godkänd" ? "✓ Godkänd och tillagd i Lager." : "✓ Sparat.";
+    if (status) openGroups();
+  } catch (err) {
+    $("v-hint").textContent = `⚠️ ${err.message}`;
+  }
+}
+
+$("v-approve").addEventListener("click", () => saveReview("Godkänd"));
+$("v-save").addEventListener("click", () => saveReview(""));
+$("v-back").addEventListener("click", openGroups);
+$("v-retry").addEventListener("click", async () => {
+  try {
+    await listingsApi({ action: "requeue", id: reviewing.id, confirmed: reviewing.confirmed || "" });
+    openGroups();
+  } catch (err) {
+    $("v-hint").textContent = `⚠️ ${err.message}`;
+  }
+});
+$("v-delete").addEventListener("click", async () => {
+  if (!confirm("Ta bort annonsen och dess bilder i Drive?")) return;
+  try {
+    await listingsApi({ action: "delete", id: reviewing.id });
+    openGroups();
+  } catch (err) {
+    $("v-hint").textContent = `⚠️ ${err.message}`;
+  }
+});
+$("g-refresh").addEventListener("click", renderSent);
 $("btn-groups").addEventListener("click", openGroups);
 $("btn-open-capture").addEventListener("click", () => openCapture());
 
