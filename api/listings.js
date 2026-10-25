@@ -11,7 +11,7 @@
 // kan stängas efter uppladdningen.
 import { checkAuth, json, parseDataUrl } from "../lib/http.js";
 import { researchListing } from "../lib/listing.js";
-import { mockLens, mockListingText, mockSimple, mockTradera } from "../lib/mock.js";
+import { mockDefect, mockLens, mockListingText, mockSimple, mockTradera } from "../lib/mock.js";
 import { callAppsScript, storageConfigured } from "../lib/storage.js";
 import { findOnTradera } from "../lib/tradera.js";
 
@@ -96,7 +96,7 @@ async function mockStore(action, p) {
     row.status = "Bearbetas";
     const listing = await researchListing(
       { images: [{ mediaType: "image/jpeg", data: "" }], note: row.note, confirmed: row.confirmed },
-      { lens: (img, fx) => mockLens(fx), gemini: (input) => mockSimple(input, () => {}), tradera: (input) => findOnTradera({ ...input, lens: null }, mockTradera), write: mockListingText },
+      { lens: (img, fx) => mockLens(fx), gemini: (input) => mockSimple(input, () => {}), tradera: (input) => findOnTradera({ ...input, lens: null }, mockTradera), write: mockListingText, defect: mockDefect },
     );
     Object.assign(row, { status: "Klar", listing, title: listing.title, description: listing.description, price: listing.price, channel: listing.channel });
   };

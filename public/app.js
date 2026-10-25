@@ -11,6 +11,9 @@ const DEFAULT_SETTINGS = {
     Annan: { fee_percent: 0, fee_fixed: 0, shipping: 59 },
   },
   fx: { USD: 10.5, EUR: 11.5, GBP: 13.5 },
+  listing: {
+    closing: "Samfraktar gärna om du köper flera eller vinner flera auktioner. Packas väl i bubbelkuvert eller spårbart brevlådepaket. Titta gärna på mina andra annonser!",
+  },
   decision: { min_profit: 100, min_multiple: 2, big_buy: 200, small_green: 2, small_yellow: 1.3, small_price: 100, small_brands: ["Schleich"] },
 };
 const RULE_FIELDS = [
@@ -65,6 +68,7 @@ const getSettings = () => {
     lens: s?.lens ?? true,
     tradera: s?.tradera ?? true,
     decision: { ...DEFAULT_SETTINGS.decision, ...(s?.decision ?? {}) },
+    listing: { ...DEFAULT_SETTINGS.listing, ...(s?.listing ?? {}) },
   };
 };
 
@@ -1207,6 +1211,7 @@ function openSettings(message = "") {
       return label;
     })(),
   );
+  $("s-closing").value = s.listing.closing;
   $("s-vision").checked = s.vision;
   $("s-gemini").checked = s.gemini;
   $("s-mode").value = s.mode;
@@ -1240,6 +1245,7 @@ $("btn-settings-save").addEventListener("click", () => {
     const n = Number(input.value);
     if (input.value !== "" && Number.isFinite(n) && n >= 0) s.decision[input.dataset.rule] = n;
   }
+  s.listing.closing = $("s-closing").value.trim();
   s.decision.small_brands = $("s-small-brands").value.split(",").map((b) => b.trim()).filter(Boolean);
   store.set("settings", s);
   $("s-test").textContent = "Sparat.";
