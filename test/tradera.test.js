@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mergeListings, parseSearch, toListing, traderaQuery, traderaSearch } from "../lib/tradera.js";
+import { lensTraderaIds, mergeListings, parseSearch, toItemListing, toListing, traderaQuery, traderaSearch } from "../lib/tradera.js";
 
 const item = (o) => ({ id: 1, shortDescription: "Schleich 13695 Pinto", buyItNowPrice: 0, nextBid: 0, itemUrl: "https://www.tradera.com/item/1/1/x", isEnded: false, ...o });
 
@@ -88,4 +88,40 @@ test("Tradera först, dubbletter tas bort", () => {
   const t = [{ url: "https://www.tradera.com/item/1?utm=x", price_sek: 90 }];
   const lens = [{ url: "https://www.tradera.com/item/1", price_sek: 95 }, { url: "https://www.ebay.de/itm/2", price_sek: 120 }];
   assert.deepEqual(mergeListings(t, lens).map((l) => l.price_sek), [90, 120]);
+});
+
+test("Lens-träffarnas Tradera-länkar: lotter och andra modellnummer bort (riktiga träffar för Tinkersto 13279)", () => {
+  const matches = [
+    ["Schleich häst, sto - 2003 - Tinker | Köp på Tradera (742405778)", "https://www.tradera.com/item/2944/742405778/schleich-hast-sto-2003-tinker"],
+    ["Schleich hästar, 3 stycken | Köp på Tradera (750449807)", "https://www.tradera.com/item/1000532/750449807/schleich-hastar-3-stycken"],
+    ["Se produkter som liknar Schleich Tinker Hingst 13831 .. på ...", "https://www.tradera.com/item/1000532/739249852/schleich-tinker-hingst-13831-hast"],
+    ["Schleich hästar - paket | Köp på Tradera (751997900)", "https://www.tradera.com/item/1000532/751997900/schleich-hastar-paket"],
+    ["Schleich 2003 Tinker Mare Retired Collectible Figure 13279 ...", "https://www.ebay.co.uk/itm/115982413471"],
+  ].map(([title, link]) => ({ title, link, platform: /tradera/.test(link) ? "Tradera" : "eBay" }));
+  assert.deepEqual(lensTraderaIds(matches, "13279").map((x) => x.id), ["742405778"]);
+});
+
+test("enskilt objekt: pågående = till salu, avslutat med bud = såld, utan bud = bort", () => {
+  const now = Date.parse("2026-10-25T12:00:00Z");
+  const link = "https://www.tradera.com/item/2944/742405778/x";
+  const base = { id: 742405778, shortDescription: "Schleich häst, sto - 2003 - Tinker" };
+  const active = toItemListing({ ...base, endDate: "2026-10-30T18:00:00Z", buyItNowPrice: 99, totalBids: 0 }, link, now);
+  assert.deepEqual([active.price, active.sold, active.url], [99, false, link]);
+  const sold = toItemListing({ ...base, endDate: "2026-10-20T18:00:00Z", maxBid: 85, totalBids: 4 }, link, now);
+  assert.deepEqual([sold.price, sold.sold, sold.price_type], [85, true, "såld"]);
+  assert.equal(toItemListing({ ...base, endDate: "2026-10-20T18:00:00Z", maxBid: 0, totalBids: 0 }, link, now), null);
+});
+
+test("namnord matchar utan mellanslag: 'Tinkersto' hittar 'Tinker sto'", async () => {
+  process.env.TRADERA_APP_ID = "7482";
+  process.env.TRADERA_APP_KEY = "nyckel";
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ items: [item({ shortDescription: "Schleich Tinker sto svart/vit", buyItNowPrice: 90 }), item({ id: 2, shortDescription: "Schleich Tinker hingst", buyItNowPrice: 80, itemUrl: "https://www.tradera.com/item/1/2/y" })] }), { status: 200 });
+  try {
+    const r = await traderaSearch({ queries: ["Schleich Tinkersto"], words: ["Tinkersto"] });
+    assert.deepEqual(r.listings.map((l) => l.price), [90]);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });
