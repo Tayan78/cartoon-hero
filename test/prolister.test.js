@@ -44,7 +44,7 @@ const asObjects = (csv) => {
 test("exporten har exakt samma rubrikrad och format som ProListers egen export", () => {
   const { csv } = buildProListerCsv([ok()], { origin: ORIGIN });
   assert.ok(csv.startsWith("﻿"));
-  assert.equal(csv.split("\r\n")[0], reference.split("\r\n")[0], "samma 31 kolumner i samma ordning, inom citattecken");
+  assert.equal(csv.split("\r\n")[0], reference.split(/\r?\n/)[0], "samma 31 kolumner i samma ordning, inom citattecken");
   assert.deepEqual(parse(reference.slice(1))[0], PROLISTER_COLUMNS);
 });
 
