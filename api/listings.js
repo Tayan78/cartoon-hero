@@ -1,6 +1,8 @@
 // POST /api/listings – appens annonsläge mot Sheet/Drive (via Apps Script):
-//   { action: "submit", id, note, images: [dataURL, …] (1–3, första = huvudbild), settings }
-//       laddar upp bilderna till Drive och lägger annonsen i kön (status Väntar)
+// Uppladdning i tre steg, så att varje anrop ryms (upp till 8 bilder per annons):
+//   { action: "submit", id, note, settings }   skapar annonsen (status Laddar upp)
+//   { action: "image", id, image: dataURL }    en bild i taget, första = huvudbild
+//   { action: "commit", id }                   lägger annonsen i kön (status Väntar)
 //   { action: "list" }                         alla annonser med status och resultat
 //   { action: "update", id, fields }           spara ändringar / godkänn
 //   { action: "requeue", id, confirmed }       berika om med det modellnummer du valt
@@ -13,7 +15,6 @@ import { mockLens, mockListingText, mockSimple, mockTradera } from "../lib/mock.
 import { callAppsScript, storageConfigured } from "../lib/storage.js";
 import { findOnTradera } from "../lib/tradera.js";
 
-const MAX_IMAGES = 3;
 const MAX_IMAGE_BYTES = 1024 * 1024;
 const STATUSES = ["Klar", "Godkänd"];
 const CHANNELS = ["Tradera", "Vinted"];
@@ -33,22 +34,27 @@ export async function POST(request) {
   let action;
   let payload;
   switch (body.action) {
-    case "submit": {
-      const images = (Array.isArray(body.images) ? body.images : []).slice(0, MAX_IMAGES);
-      if (!images.length || images.some((d) => !parseDataUrl(d) || d.length * 0.75 > MAX_IMAGE_BYTES)) {
-        return json({ ok: false, error: "1–3 bilder (jpeg, max 1 MB) krävs" }, 400);
-      }
+    case "submit":
       action = "addListing";
       payload = {
         id,
         note: String(body.note ?? "").trim().slice(0, 300),
-        images,
         settings: body.settings ?? {},
         // Kön i Apps Script anropar den här adressen för att berika annonsen.
         process_url: new URL("/api/listing-process", request.url).href,
       };
       break;
-    }
+    case "image":
+      if (!parseDataUrl(body.image) || body.image.length * 0.75 > MAX_IMAGE_BYTES) {
+        return json({ ok: false, error: "Bilden saknas eller är för stor (max 1 MB)" }, 400);
+      }
+      action = "addListingImage";
+      payload = { id, image: body.image };
+      break;
+    case "commit":
+      action = "commitListing";
+      payload = { id };
+      break;
     case "list":
       action = "listListings";
       payload = {};
@@ -95,16 +101,19 @@ async function mockStore(action, p) {
     Object.assign(row, { status: "Klar", listing, title: listing.title, description: listing.description, price: listing.price, channel: listing.channel });
   };
   if (action === "addListing") {
-    const row = { id: p.id, created: new Date().toISOString(), status: "Väntar", note: p.note, confirmed: "", images: p.images, image_urls: p.images };
-    memory.set(p.id, row);
-    setTimeout(() => enrich(row), 1500);
-    return { ok: true, image_urls: p.images };
+    memory.set(p.id, { id: p.id, created: new Date().toISOString(), status: "Laddar upp", note: p.note, confirmed: "", image_urls: [] });
+    return { ok: true };
   }
   if (action === "listListings") {
-    return { ok: true, listings: [...memory.values()].reverse().map(({ images, ...row }) => row) };
+    return { ok: true, listings: [...memory.values()].reverse() };
   }
   const row = memory.get(p.id);
   if (!row) return { ok: false, error: "Annonsen finns inte" };
+  if (action === "addListingImage") row.image_urls.push(p.image);
+  if (action === "commitListing") {
+    row.status = "Väntar";
+    setTimeout(() => enrich(row), 1500);
+  }
   if (action === "updateListing") Object.assign(row, p.fields);
   if (action === "requeueListing") {
     Object.assign(row, { status: "Väntar", confirmed: p.confirmed });

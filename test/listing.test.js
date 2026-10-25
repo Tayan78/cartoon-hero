@@ -88,3 +88,28 @@ test("kön: /api/listing-process kräver hemligheten och svarar med annonsen", a
   assert.equal(data.id, "G1");
   assert.ok(data.listing.title);
 });
+
+test("bilder: Gemini tittar först bara på huvudbilden, upp till 3 om modellen är oklar", async () => {
+  const eight = Array.from({ length: 8 }, (_, i) => ({ mediaType: "image/jpeg", data: String(i) }));
+  const calls = [];
+  const gemini = (unclear) => async (input) => {
+    calls.push(input.images.map((img) => img.data));
+    const g = await mockSimple(input, () => {});
+    if (unclear && calls.length === 1) g.raw = { ...g.raw, item: { ...g.raw.item, article_number: "", confidence_id: "low" } };
+    return g;
+  };
+  let written = [];
+  const write = (imgs, prompt) => ((written = imgs.map((img) => img.data)), mockListingText(imgs, prompt));
+  let lensImage;
+  const lens = (img, fx) => ((lensImage = img.data), mockLens(fx));
+
+  await researchListing({ images: eight }, { ...deps, lens, gemini: gemini(false), write });
+  assert.deepEqual(calls, [["0"]], "tydlig modell: bara huvudbilden");
+  assert.equal(lensImage, "0", "Lens bara på huvudbilden");
+  assert.deepEqual(written, ["0", "1", "2"], "annonstexten ser högst 3 bilder");
+
+  calls.length = 0;
+  const l = await researchListing({ images: eight }, { ...deps, lens, gemini: gemini(true), write });
+  assert.deepEqual(calls, [["0"], ["0", "1", "2"]], "oklar modell: upp till 3 bilder");
+  assert.match(l.flags.join(" "), /3 bilder användes/);
+});

@@ -11,7 +11,8 @@
  * Skriptet skapar själv flikarna "Skanningar", "Lager" och "Annonser" och Drive-mapparna
  * "Loppisskannern/Skanningar" och "Loppisskannern/Annonser".
  *
- * Annonsläget: appen laddar upp bilderna (addListing) och annonsen hamnar i kön.
+ * Annonsläget: appen skapar annonsen (addListing), laddar upp upp till 8 bilder en i
+ * taget (addListingImage) och lägger den i kön (commitListing).
  * En timer kör processQueue varje minut medan något väntar och anropar Vercel
  * (/api/listing-process) en annons i taget – appen kan vara stängd under tiden.
  * Efter att du klistrat in en ny version: kör funktionen setup en gång från
@@ -66,6 +67,8 @@ function doPost(e) {
       if (body.action === 'logScan') return reply(logScan(body));
       if (body.action === 'saveInventory') return reply(saveInventory(body));
       if (body.action === 'addListing') return reply(addListing(body));
+      if (body.action === 'addListingImage') return reply(addListingImage(body));
+      if (body.action === 'commitListing') return reply(commitListing(body));
       if (body.action === 'listListings') return reply(listListings());
       if (body.action === 'updateListing') return reply(updateListing(body));
       if (body.action === 'requeueListing') return reply(requeueListing(body));
@@ -157,36 +160,72 @@ function imageUrl(fileId) {
   return 'https://lh3.googleusercontent.com/d/' + fileId;
 }
 
+var MAX_LISTING_IMAGES = 8;
+
+function listingFolder(id) {
+  var root = getOrCreateFolder(getOrCreateFolder(DriveApp.getRootFolder(), 'Loppisskannern'), 'Annonser');
+  return getOrCreateFolder(root, id);
+}
+
+// Steg 1: skapar annonsen. Skickas samma annons igen (t.ex. efter ett avbrott)
+// börjar uppladdningen om från början.
 function addListing(body) {
   if (body.process_url) PropertiesService.getScriptProperties().setProperty('PROCESS_URL', body.process_url);
   var sh = listingSheet();
-  if (rowById(sh, body.id)) return { ok: true, duplicate: true };
-  var root = getOrCreateFolder(getOrCreateFolder(DriveApp.getRootFolder(), 'Loppisskannern'), 'Annonser');
-  var dir = getOrCreateFolder(root, body.id);
-  var ids = [];
-  (body.images || []).slice(0, 3).forEach(function (dataUrl, i) {
-    var m = /^data:(image\/[a-z]+);base64,(.+)$/.exec(dataUrl);
-    if (!m) return;
-    var file = dir.createFile(Utilities.newBlob(Utilities.base64Decode(m[2]), m[1], body.id + '-' + (i + 1) + '.jpg'));
-    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-    ids.push(file.getId());
-  });
-  if (!ids.length) return { ok: false, error: 'Inga bilder' };
-  var urls = ids.map(imageUrl);
+  var existing = rowById(sh, body.id);
+  if (existing) {
+    var status = sh.getRange(existing, cols(sh)['Status']).getValue();
+    if (status !== 'Laddar upp') return { ok: true, duplicate: true };
+    trashImages(sh, existing);
+    setCells(sh, existing, { 'Huvudbild': '', 'Bilder': '', 'Bild-ID': '', 'Anteckning': body.note || '' });
+    return { ok: true };
+  }
   var row = {};
   LISTING_HEADERS.forEach(function (h) { row[h] = ''; });
   row['Skapad'] = new Date();
   row['Annons-ID'] = body.id;
-  row['Status'] = 'Väntar';
-  row['Huvudbild'] = '=IMAGE("' + urls[0] + '")';
-  row['Bilder'] = urls.join(',');
+  row['Status'] = 'Laddar upp';
   row['Anteckning'] = body.note || '';
   row['Uppdaterad'] = new Date();
-  row['Bild-ID'] = ids.join(',');
   row['Inställningar'] = JSON.stringify(body.settings || {});
   sh.appendRow(LISTING_HEADERS.map(function (h) { return row[h]; }));
+  return { ok: true };
+}
+
+// Steg 2: en bild i taget, i ordning (första = huvudbild).
+function addListingImage(body) {
+  var sh = listingSheet();
+  var row = rowById(sh, body.id);
+  if (!row) return { ok: false, error: 'Annonsen finns inte' };
+  var c = cols(sh);
+  var ids = String(sh.getRange(row, c['Bild-ID']).getValue() || '').split(',').filter(String);
+  if (ids.length >= MAX_LISTING_IMAGES) return { ok: false, error: 'Max ' + MAX_LISTING_IMAGES + ' bilder' };
+  var m = /^data:(image\/[a-z]+);base64,(.+)$/.exec(body.image || '');
+  if (!m) return { ok: false, error: 'Ogiltig bild' };
+  var file = listingFolder(body.id).createFile(
+    Utilities.newBlob(Utilities.base64Decode(m[2]), m[1], body.id + '-' + (ids.length + 1) + '.jpg')
+  );
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  ids.push(file.getId());
+  var urls = ids.map(imageUrl);
+  setCells(sh, row, { 'Huvudbild': '=IMAGE("' + urls[0] + '")', 'Bilder': urls.join(','), 'Bild-ID': ids.join(',') });
+  return { ok: true, image_url: urls[urls.length - 1] };
+}
+
+// Steg 3: annonsen läggs i kön.
+function commitListing(body) {
+  var sh = listingSheet();
+  var row = rowById(sh, body.id);
+  if (!row) return { ok: false, error: 'Annonsen finns inte' };
+  if (!sh.getRange(row, cols(sh)['Bild-ID']).getValue()) return { ok: false, error: 'Inga bilder uppladdade' };
+  setCells(sh, row, { 'Status': 'Väntar' });
   ensureQueueTrigger();
-  return { ok: true, image_urls: urls };
+  return { ok: true };
+}
+
+function trashImages(sh, row) {
+  var ids = String(sh.getRange(row, cols(sh)['Bild-ID']).getValue() || '').split(',').filter(String);
+  ids.forEach(function (id) { try { DriveApp.getFileById(id).setTrashed(true); } catch (e) {} });
 }
 
 function listListings() {
@@ -266,8 +305,7 @@ function deleteListing(body) {
   var sh = listingSheet();
   var row = rowById(sh, body.id);
   if (!row) return { ok: true };
-  var ids = String(sh.getRange(row, cols(sh)['Bild-ID']).getValue() || '').split(',').filter(String);
-  ids.forEach(function (id) { try { DriveApp.getFileById(id).setTrashed(true); } catch (e) {} });
+  trashImages(sh, row);
   sh.deleteRow(row);
   return { ok: true };
 }
@@ -342,7 +380,8 @@ function runJob(job) {
   var result;
   try {
     if (!url) throw new Error('PROCESS_URL saknas – skicka en annons från appen först');
-    var images = job.fileIds.map(function (id) {
+    // AI:n får högst 3 bilder (huvudbilden först); alla följer ändå med annonsen.
+    var images = job.fileIds.slice(0, 3).map(function (id) {
       return Utilities.base64Encode(DriveApp.getFileById(id).getBlob().getBytes());
     });
     var res = UrlFetchApp.fetch(url, {

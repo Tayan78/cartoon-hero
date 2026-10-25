@@ -263,3 +263,6 @@ button:disabled { opacity: .4; }
 .chip.on small { opacity: .9; }
 .inline-field { display: flex; gap: 8px; }
 .inline-field input { flex: 1; min-width: 0; }
+.c-photos.eight { grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.c-photos.eight .c-slot .tag { font-size: 10px; left: 4px; bottom: 4px; padding: 1px 4px; }
+.c-photos.eight .c-slot button { width: 24px; height: 24px; font-size: 16px; }

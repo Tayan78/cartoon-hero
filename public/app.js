@@ -711,8 +711,8 @@ $("btn-copy-debug").addEventListener("click", async () => {
   }
 });
 
-// ---------- annonsläge: fota (max 3 bilder per annons) ----------
-const GROUP_PHOTOS = 3;
+// ---------- annonsläge: fota (max 8 bilder per annons, AI:n tittar på högst 3) ----------
+const GROUP_PHOTOS = 8;
 let groupPhotos = []; // första = huvudbild
 let editingGroup = null; // gruppen som redigeras från listan, annars null (ny annons)
 let stream = null;
@@ -925,8 +925,13 @@ $("g-send").addEventListener("click", async () => {
   let done = 0;
   try {
     for (const g of groups) {
-      $("g-hint").textContent = `Laddar upp ${done + 1} av ${groups.length}…`;
-      await listingsApi({ action: "submit", id: g.id, note: g.note, images: g.photos, settings: getSettings() });
+      // En bild per anrop, så att även 8 bilder ryms.
+      await listingsApi({ action: "submit", id: g.id, note: g.note, settings: getSettings() });
+      for (const [i, image] of g.photos.entries()) {
+        $("g-hint").textContent = `Laddar upp annons ${done + 1} av ${groups.length} – bild ${i + 1} av ${g.photos.length}…`;
+        await listingsApi({ action: "image", id: g.id, image });
+      }
+      await listingsApi({ action: "commit", id: g.id });
       await deleteGroup(g.id);
       done++;
     }
@@ -939,7 +944,7 @@ $("g-send").addEventListener("click", async () => {
 });
 
 // ---------- annonsläge: skickade och granskning ----------
-const STATUS_PILL = { Väntar: "wait", Bearbetas: "wait", Klar: "done", Godkänd: "ok", Fel: "err" };
+const STATUS_PILL = { "Laddar upp": "wait", Väntar: "wait", Bearbetas: "wait", Klar: "done", Godkänd: "ok", Fel: "err" };
 let sentListings = [];
 let sentTimer = null;
 
