@@ -2,12 +2,26 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "outputDirectory": "public",
   "functions": {
-    "api/*.js": { "maxDuration": 120, "includeFiles": "prompts/**" }
+    "api/*.js": {
+      "maxDuration": 120,
+      "includeFiles": "prompts/**"
+    }
   },
   "headers": [
     {
       "source": "/sw.js",
-      "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache"
+        }
+      ]
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/bild/:file",
+      "destination": "/api/image?file=:file"
     }
   ]
 }

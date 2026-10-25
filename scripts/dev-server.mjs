@@ -29,6 +29,12 @@ const TYPES = {
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
+  // Samma omskrivning som i vercel.json: /bild/<id>.jpg → /api/image?file=<id>.jpg
+  const bild = /^\/bild\/([^/]+)$/.exec(url.pathname);
+  if (bild) {
+    url.pathname = "/api/image";
+    url.searchParams.set("file", bild[1]);
+  }
   try {
     if (url.pathname.startsWith("/api/")) {
       const name = url.pathname.slice(5).replace(/[^a-z-]/g, "");

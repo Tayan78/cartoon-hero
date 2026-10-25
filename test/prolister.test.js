@@ -1,17 +1,19 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { PROLISTER_COLUMNS, buildProListerCsv, listingProblem } from "../lib/prolister.js";
+import { PROLISTER_COLUMNS, buildProListerCsv, exportImageUrl, listingProblem, toHtmlText } from "../lib/prolister.js";
 
+const ORIGIN = "https://loppis.vercel.app";
 const ok = (o = {}) => ({
   id: "G1729860000000",
   title: "Schleich Tinker sto 13279 (2003-08)",
-  description: 'Schleich Tinker sto 13279 (2003-08) i lekt men bra skick enligt bild. "Saknar svans".\n\nSamfraktar gärna.',
+  description: 'Schleich Tinker sto 13279 (2003-08) i lekt men bra skick enligt bild. "Saknar svans"; lite slitage.\n\nSamfraktar gärna.',
   price: 129,
-  image_urls: ["https://lh3.googleusercontent.com/d/a", "https://lh3.googleusercontent.com/d/b"],
+  image_urls: ["https://lh3.googleusercontent.com/d/1AbCdEfGhIjKlMnOpQrStUvWxYz012345", "https://lh3.googleusercontent.com/d/1ZyXwVuTsRqPoNmLkJiHgFeDcBa98765"],
   ...o,
 });
+const defaults = { origin: ORIGIN, schleichCategory: "1000532", schleichAttributes: "121:Gott skick" };
 
-// Enkel CSV-läsare (RFC 4180) för att kontrollera filen.
+// Enkel CSV-läsare med semikolon (som ProListers egen export).
 function parse(csv) {
   const rows = [];
   let row = [];
@@ -24,7 +26,7 @@ function parse(csv) {
       else if (c === '"') quoted = false;
       else field += c;
     } else if (c === '"') quoted = true;
-    else if (c === ",") row.push(field), (field = "");
+    else if (c === ";") row.push(field), (field = "");
     else if (c === "\r") continue;
     else if (c === "\n") row.push(field), rows.push(row), (row = []), (field = "");
     else field += c;
@@ -32,20 +34,32 @@ function parse(csv) {
   return rows;
 }
 
-test("ProLister-CSV: kolumnnamn enligt guiden, BOM och en rad per annons", () => {
-  const { csv, included, skipped } = buildProListerCsv([ok(), ok({ id: "G2", title: "Schleich Pinto föl 13803", price: 79, image_urls: ["https://x/1"] })]);
+test("ProLister-CSV: samma format som ProListers egen export (BOM, semikolon, <br>)", () => {
+  const { csv, included, skipped } = buildProListerCsv([ok(), ok({ id: "G2", title: "Rörstrand Mon Amie kopp", price: 79, image_urls: ["https://lh3.googleusercontent.com/d/1QqQqQqQqQqQqQqQqQqQqQq"] })], defaults);
   assert.ok(csv.startsWith("﻿"));
   const rows = parse(csv.slice(1));
   assert.deepEqual(rows[0], PROLISTER_COLUMNS);
-  assert.deepEqual(rows[0], ["Rubrik", "Beskrivning", "Bilder", "Köp nu-pris", "Annonstyp", "Skick", "Referens"]);
   assert.equal(rows.length, 3);
-  const [title, description, images, price, type, condition, reference] = rows[1];
-  assert.equal(title, "Schleich Tinker sto 13279 (2003-08)");
-  assert.equal(description, ok().description, "radbrytningar, komman och citattecken bevaras");
-  assert.equal(images, "https://lh3.googleusercontent.com/d/a,https://lh3.googleusercontent.com/d/b", "bilderna kommaseparerade i en cell");
-  assert.deepEqual([price, type, condition, reference], ["129", "FixedPrice", "Used", "G1729860000000"]);
+  const r = Object.fromEntries(PROLISTER_COLUMNS.map((k, i) => [k, rows[1][i]]));
+  assert.equal(r.Header, "Schleich Tinker sto 13279 (2003-08)");
+  assert.equal(r.Description, 'Schleich Tinker sto 13279 (2003-08) i lekt men bra skick enligt bild. "Saknar svans"; lite slitage.<br><br>Samfraktar gärna.');
+  assert.equal(
+    r.ImageUrls,
+    `${ORIGIN}/bild/1AbCdEfGhIjKlMnOpQrStUvWxYz012345.jpg,${ORIGIN}/bild/1ZyXwVuTsRqPoNmLkJiHgFeDcBa98765.jpg`,
+    "bilderna som .jpg-adresser, kommaseparerade, huvudbilden först",
+  );
+  assert.deepEqual([r.BuyNowPrice, r.ItemType, r.Condition, r.quantity, r.Reference], ["129", "FixedPrice", "Used", "1", "G1729860000000"]);
+  assert.deepEqual([r.Category, r.Attributes], ["1000532", "121:Gott skick"], "Schleich får din kategori och ditt attribut");
+  const other = Object.fromEntries(PROLISTER_COLUMNS.map((k, i) => [k, rows[2][i]]));
+  assert.deepEqual([other.Category, other.Attributes], ["", ""], "övrigt sätts i ProLister");
   assert.deepEqual(included, ["G1729860000000", "G2"]);
   assert.deepEqual(skipped, []);
+});
+
+test("bildadresser och HTML-text", () => {
+  assert.equal(exportImageUrl("https://lh3.googleusercontent.com/d/1AbC_dEf-123456789012345", ORIGIN), `${ORIGIN}/bild/1AbC_dEf-123456789012345.jpg`);
+  assert.equal(exportImageUrl("https://example.com/a.jpg", ORIGIN), "https://example.com/a.jpg");
+  assert.equal(toHtmlText("Rad 1\r\nRad 2 <b>"), "Rad 1<br>Rad 2 &lt;b&gt;");
 });
 
 test("ProLister-CSV: obligatoriska fält och förbjudna formuleringar kontrolleras", () => {
@@ -59,8 +73,27 @@ test("ProLister-CSV: obligatoriska fält och förbjudna formuleringar kontroller
   assert.equal(listingProblem(ok({ description: "Från min egen samling." })), "texten innehåller en förbjuden formulering");
   assert.equal(listingProblem(ok({ description: "Kommer från rökfritt hem." })), "texten innehåller en förbjuden formulering");
 
-  const { csv, included, skipped } = buildProListerCsv([ok(), ok({ id: "G3", price: 0 })]);
+  const { csv, included, skipped } = buildProListerCsv([ok(), ok({ id: "G3", price: 0 })], defaults);
   assert.deepEqual(included, ["G1729860000000"]);
   assert.deepEqual(skipped, [{ id: "G3", title: ok().title, reason: "pris saknas" }]);
   assert.equal(parse(csv.slice(1)).length, 2);
+});
+
+test("bildproxyn: bara giltiga Drive-id, bara bilder", async () => {
+  const { GET } = await import("../api/image.js");
+  const realFetch = globalThis.fetch;
+  try {
+    assert.equal((await GET(new Request("http://x/api/image?file=../../etc.jpg"))).status, 400);
+    globalThis.fetch = async (url) => {
+      assert.match(url, /drive\.google\.com\/uc\?export=download&id=1AbCdEfGhIjKlMnOpQrStUv$/);
+      return new Response(new Uint8Array([0xff, 0xd8]), { headers: { "content-type": "image/jpeg" } });
+    };
+    const res = await GET(new Request("http://x/api/image?file=1AbCdEfGhIjKlMnOpQrStUv.jpg"));
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get("content-type"), "image/jpeg");
+    globalThis.fetch = async () => new Response("<html>", { headers: { "content-type": "text/html" } });
+    assert.equal((await GET(new Request("http://x/api/image?file=1AbCdEfGhIjKlMnOpQrStUv.jpg"))).status, 404);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });

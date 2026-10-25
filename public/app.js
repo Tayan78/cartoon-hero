@@ -13,6 +13,8 @@ const DEFAULT_SETTINGS = {
   fx: { USD: 10.5, EUR: 11.5, GBP: 13.5 },
   listing: {
     closing: "Samfraktar gärna om du köper flera eller vinner flera auktioner. Packas väl i bubbelkuvert eller spårbart brevlådepaket. Titta gärna på mina andra annonser!",
+    schleich_category: "1000532",
+    schleich_attributes: "121:Gott skick",
   },
   decision: { min_profit: 100, min_multiple: 2, big_buy: 200, small_green: 2, small_yellow: 1.3, small_price: 100, small_brands: ["Schleich"] },
 };
@@ -1267,7 +1269,7 @@ $("g-export").addEventListener("click", async () => {
     const res = await fetch("/api/listings", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-app-token": getToken() },
-      body: JSON.stringify({ action: "export", include_exported: $("g-export-all").checked }),
+      body: JSON.stringify({ action: "export", include_exported: $("g-export-all").checked, settings: getSettings() }),
     });
     const data = await res.json().catch(() => ({}));
     showSkipped(data.skipped);
@@ -1381,6 +1383,8 @@ function openSettings(message = "") {
     })(),
   );
   $("s-closing").value = s.listing.closing;
+  $("s-schleich-category").value = s.listing.schleich_category;
+  $("s-schleich-attributes").value = s.listing.schleich_attributes;
   $("s-vision").checked = s.vision;
   $("s-gemini").checked = s.gemini;
   $("s-mode").value = s.mode;
@@ -1415,6 +1419,8 @@ $("btn-settings-save").addEventListener("click", () => {
     if (input.value !== "" && Number.isFinite(n) && n >= 0) s.decision[input.dataset.rule] = n;
   }
   s.listing.closing = $("s-closing").value.trim();
+  s.listing.schleich_category = $("s-schleich-category").value.trim();
+  s.listing.schleich_attributes = $("s-schleich-attributes").value.trim();
   s.decision.small_brands = $("s-small-brands").value.split(",").map((b) => b.trim()).filter(Boolean);
   store.set("settings", s);
   $("s-test").textContent = "Sparat.";
