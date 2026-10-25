@@ -15,6 +15,7 @@ import { checkAuth, json, parseDataUrl } from "../lib/http.js";
 import { researchListing } from "../lib/listing.js";
 import { mockDefect, mockLens, mockListingText, mockSimple, mockTradera } from "../lib/mock.js";
 import { buildProListerCsv } from "../lib/prolister.js";
+import { mergeSettings } from "../lib/settings.js";
 import { callAppsScript, storageConfigured } from "../lib/storage.js";
 import { findOnTradera } from "../lib/tradera.js";
 
@@ -32,7 +33,7 @@ export async function POST(request) {
     return json({ ok: false, error: "Ogiltig förfrågan" }, 400);
   }
   if (body.action === "export") {
-    const res = await exportProLister(Boolean(body.include_exported));
+    const res = await exportProLister(Boolean(body.include_exported), mergeSettings(body.settings), new URL(request.url).origin);
     return json(res, res.ok ? 200 : 502);
   }
   const id = String(body.id ?? "").replace(/[^\w-]/g, "").slice(0, 40);
@@ -102,14 +103,21 @@ function store(action, payload) {
 
 // Godkända Tradera-annonser → CSV för ProLister. Redan exporterade följer bara
 // med om du ber om det, så att inget läggs upp två gånger.
-async function exportProLister(includeExported) {
+async function exportProLister(includeExported, settings, origin) {
   const list = await store("listListings", {});
   if (!list.ok) return list;
   const wanted = (list.listings ?? []).filter(
     (l) => (l.status === "Godkänd" || (includeExported && l.status === "Exporterad")) && (l.channel || "Tradera") === "Tradera",
   );
   if (!wanted.length) return { ok: false, error: "Inga godkända Tradera-annonser att exportera." };
-  const { csv, included, skipped } = buildProListerCsv(wanted);
+  const { csv, included, skipped } = buildProListerCsv(wanted, {
+    origin,
+    schleich: {
+      category: settings.listing.schleich_category,
+      attributes: settings.listing.schleich_attributes,
+      shipping: settings.listing.schleich_shipping,
+    },
+  });
   if (!included.length) return { ok: false, error: "Ingen annons klarade kontrollen.", skipped };
   const stamp = new Date().toLocaleString("sv-SE", { timeZone: "Europe/Stockholm" }).replace(/[-:]/g, "").replace(" ", "-").slice(0, 13);
   const name = `prolister-${stamp}.csv`;

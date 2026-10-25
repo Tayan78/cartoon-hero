@@ -1,6 +1,6 @@
 // Cachar appens skal så att den startar direkt från hemskärmen.
 // API-anrop går alltid mot nätet. Höj VERSION vid ändringar i appen.
-const VERSION = "v26";
+const VERSION = "v28";
 const SHELL = ["/", "/index.html", "/app.js", "/history.js", "/styles.css", "/manifest.webmanifest", "/icons/icon-192.png"];
 
 self.addEventListener("install", (event) => {
@@ -17,7 +17,7 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
-  if (event.request.method !== "GET" || url.origin !== location.origin || url.pathname.startsWith("/api/")) return;
+  if (event.request.method !== "GET" || url.origin !== location.origin || url.pathname.startsWith("/api/") || url.pathname.startsWith("/bild/")) return;
   // Nätet först (så att uppdateringar syns direkt), cachen om du saknar täckning.
   event.respondWith(
     fetch(event.request)
