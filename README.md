@@ -14,7 +14,8 @@ iPhone (PWA) ──1–4 bilder + ev. info──▶ Vercel /api/scan
                                2. Gemini                        (ett anrop, temperatur 0): identifierar föremålet utifrån
                                                                 bilderna och Lens-träffarna. Annonserna = Lens-träffar med
                                                                 pris (Gemini hittar inte på egna). Utan Lens söker Gemini själv.
-                               3. Servern räknar utpris (lägsta Tradera/eBay-annons), netto, vinst, multipel och köpbeslutet
+                               3. Traderas API                  (aktiva annonser för modellnumret, om nycklarna finns)
+                               4. Servern räknar utpris (lägsta Tradera/eBay-annons), netto, vinst, multipel och köpbeslutet
 ```
 
 - Ett modellnummer räknas som bekräftat bara om det står i din info, i Google Lens-titlarna eller i bildsökets träffar. Geminis källstöd (`groundingSupports`) räcker inte – i testet gav det fel nummer med "stöd".
@@ -93,6 +94,11 @@ Utan nyckeln fungerar appen ändå, bara utan bildsök.
 1. Skapa ett konto på <https://serpapi.com> och kopiera din API-nyckel från Dashboard.
 2. Lägg in den som `SERPAPI_API_KEY` i Vercel. Ange gärna `SERPAPI_USD_PER_SEARCH` efter din plan (standard 0,015 $), så att kostnadsraden stämmer.
 3. "Testa anslutning" visar hur många sökningar du har kvar.
+
+### 2b++. Tradera API (aktiva annonser)
+1. Logga in på [Tradera Developer Program](https://api.tradera.com) → Applications → din app → Keys.
+2. Lägg in `TRADERA_APP_ID` (Application ID), `TRADERA_APP_KEY` (App Key) och `TRADERA_PUBLIC_KEY` (Public Key) i Vercel.
+3. Skanningen söker då aktiva annonser på Tradera (märke + bekräftat modellnummer, annars namnet). Gratis inom 10 000 anrop per dygn. Annonserna väger tyngst för *Lägg ut för*; budannonser visas med "bud". Slå av under ⚙︎ om du vill.
 
 ### 2c. Gemini (Google-sökning för exakt modell)
 1. Gå till <https://aistudio.google.com> och logga in med ditt Google-konto.
