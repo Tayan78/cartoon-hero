@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { costUsd, extractJson, finalizeResult, verdictFor } from "../lib/economics.js";
+import { costUsd, extractJson, finalizeResult } from "../lib/economics.js";
 import { mergeSettings } from "../lib/settings.js";
 
 const settings = mergeSettings({});
@@ -29,25 +29,25 @@ test("räknar om ekonomin från medianpris och plattformens avgifter", () => {
   // Inga annonser till salu → utpris = sålt median. 200 − 10 % (20) − frakt 59 − inköp 20
   assert.deepEqual(r.economics, {
     buy_price: 20, sale_price: 200, list_price: 200, list_basis: "sålt median", bid_floor: 200,
-    fees: 20, shipping: 59, net_profit: 101, net_at_floor: 101,
+    fees: 20, shipping: 59, net_before_buy: 121, net_profit: 101, net_at_floor: 101,
   });
-  assert.equal(r.buy_score, 80);
+  // Vinst 101 kr, multipel 121/20 = 6,05 → grön oavsett modellens poäng.
+  assert.equal(r.decision.color, "green");
   assert.equal(r.verdict, "Köp");
   assert.deepEqual(r.flags, []);
 });
 
-test("inga sålda jämförelser → låg säkerhet och lågt tak på poängen", () => {
+test("inga sålda jämförelser → låg säkerhet och osäkert pris", () => {
   const r = finalizeResult(
     { price_sek: { median: 500, comparables: 0, confidence: "high" }, sources: [], buy_score: 90 },
     { buyPrice: 0, settings },
   );
   assert.equal(r.price_sek.confidence, "low");
-  assert.ok(r.buy_score <= 25);
-  assert.equal(r.verdict, "Låt bli");
+  assert.equal(r.decision.uncertain, true);
   assert.match(r.flags[0], /Inga sålda jämförelser/);
 });
 
-test("bara eBay-träffar → flaggas, säkerheten sänks och poängen dras ner", () => {
+test("bara eBay-träffar → flaggas och säkerheten sänks, men priset räknas inte som osäkert", () => {
   const r = finalizeResult(
     {
       price_sek: { low: 300, median: 400, high: 500, comparables: 6, confidence: "high" },
@@ -58,12 +58,11 @@ test("bara eBay-träffar → flaggas, säkerheten sänks och poängen dras ner",
   );
   assert.equal(r.price_sek.no_tradera_data, true);
   assert.equal(r.price_sek.confidence, "medium");
-  assert.equal(r.buy_score, 65);
-  assert.equal(r.verdict, "Kanske");
+  assert.equal(r.decision.uncertain, false);
   assert.match(r.flags.join(" "), /internationell data/);
 });
 
-test("negativ marginal begränsar poängen", () => {
+test("negativ marginal ger rött", () => {
   const r = finalizeResult(
     {
       price_sek: { low: 50, median: 80, high: 100, comparables: 4, confidence: "high" },
@@ -73,7 +72,8 @@ test("negativ marginal begränsar poängen", () => {
     { buyPrice: 100, settings },
   );
   assert.ok(r.economics.net_profit < 0);
-  assert.ok(r.buy_score <= 30);
+  assert.equal(r.decision.color, "red");
+  assert.equal(r.verdict, "Låt bli");
 });
 
 test("inställningar från appen slås ihop och saneras", () => {
@@ -94,12 +94,6 @@ test("kostnad per skanning", () => {
     input_tokens: 1_000_000, output_tokens: 100_000, cache_read_tokens: 0, cache_write_tokens: 0, web_searches: 3,
   });
   assert.equal(Number(usd.toFixed(4)), 4 + 2 + 0.03);
-});
-
-test("verdict-gränser", () => {
-  assert.equal(verdictFor(70), "Köp");
-  assert.equal(verdictFor(69), "Kanske");
-  assert.equal(verdictFor(39), "Låt bli");
 });
 
 test("modellval från appen: bara tillåtna modeller, annars standard", async () => {

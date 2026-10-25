@@ -1,6 +1,6 @@
 # Loppisskannern – fas 1 (snabbskanning)
 
-Privat PWA för reselling. Fota ett föremål (1–4 vinklar) → (valfritt inköpspris) → skanna → resultatkort med medianpris, köp-poäng och verdict. Varje skanning loggas i Google Sheet med bild i Drive.
+Privat PWA för reselling. Fota ett föremål (1–4 vinklar) → (valfritt inköpspris) → skanna → resultatkort med utpris, köpbeslut (grön/gul/röd), vinst och multipel. Varje skanning loggas i Google Sheet med bild i Drive.
 
 ## Så fungerar det
 
@@ -14,7 +14,7 @@ iPhone (PWA) ──1–4 bilder + ev. info──▶ Vercel /api/scan
                                2. Gemini                        (ett anrop, temperatur 0): identifierar föremålet utifrån
                                                                 bilderna och Lens-träffarna. Annonserna = Lens-träffar med
                                                                 pris (Gemini hittar inte på egna). Utan Lens söker Gemini själv.
-                               3. Servern räknar utpris (lägsta Tradera/eBay-annons), netto och poäng
+                               3. Servern räknar utpris (lägsta Tradera/eBay-annons), netto, vinst, multipel och köpbeslutet
 ```
 
 - Ett modellnummer räknas som bekräftat bara om det står i din info, i Google Lens-titlarna eller i bildsökets träffar. Geminis källstöd (`groundingSupports`) räcker inte – i testet gav det fel nummer med "stöd".
@@ -30,14 +30,17 @@ iPhone (PWA) ──1–4 bilder + ev. info──▶ Vercel /api/scan
 - **Artikelnummer först:** nummer som återkommer i bildsökets träffar lyfts fram, identifieringen ger upp till 3 kandidater, och prissteget söker på märke + artikelnummer.
 - **Färdiga söksidor:** servern bygger adresser till Tradera avslutade objekt, eBay sålda objekt och Tradera till salu nu, som modellen läser direkt (web_fetch, bara eBay sålda eftersom Tradera blockerar hämtning; max 2 sidor à 4000 token, `MAX_FETCHES`). Går de inte att läsa används webbsökning. Länkarna visas också på resultatkortet så att du kan kontrollera själv.
 - **Till salu nu** visas som eget intervall men påverkar aldrig medianen.
-- **Prispanelen** högst upp på kortet: *Lägg ut för* = lägsta pris till salu just nu (utan annonser: sålt median, annars uppskattningen). *Bud ned till* = sålt median när det finns sålda jämförelser. En prislinje visar annonserna som prickar och det sålda spannet som grönt fält. Netto och köp-poäng räknas på utpriset; nettot vid budgränsen visas bredvid.
+- **Prispanelen** högst upp på kortet: *Lägg ut för* = lägsta pris till salu just nu (utan annonser: sålt median, annars uppskattningen). *Bud ned till* = sålt median när det finns sålda jämförelser. En prislinje visar annonserna som prickar och det sålda spannet som grönt fält. Netto och köpbeslut räknas på utpriset; nettot vid budgränsen visas bredvid.
 - **Info om föremålet** (valfritt textfält, t.ex. märke, modell, storlek från etiketten) skickas till Gemini (används i Google-sökningarna), till identifieringen (räknas som avläst på föremålet) och till prissökningen. Sparas i Sheet. Cloud Vision tar bara bild och använder inte texten.
 - **Bara två källor:** webbsökningen är låst till `tradera.com` och `ebay.*` (max 4 sökningar, `MAX_SEARCHES`). Bara sålda priser räknas. eBay-priser redovisas separat som internationellt pris.
-- **Ärlighet om osäkerhet:** servern räknar om ekonomin själv och tillämpar regler utöver modellens bedömning:
-  - Inga sålda jämförelser → säkerhet "låg", poäng max 25, tydlig flagga.
-  - Inga Tradera-träffar → säkerhet sänks (aldrig "hög"), −10 poäng, flagga.
-  - Netto ≤ 0 → poäng max 30.
-  - Verdict följer poängen: 70–100 Köp, 40–69 Kanske, 0–39 Låt bli.
+- **Köpbeslutet räknas av servern** (`lib/decision.js`), aldrig av AI:n. Trösklarna ställs in under ⚙︎ → Köpregler.
+  - Vinst = netto efter avgift och frakt − inköp. Multipel = netto / inköp.
+  - Vanliga föremål: **Köp** (grön) om vinst ≥ 100 kr och (multipel ≥ 2,0 eller inköp ≥ 200 kr). **Tveksamt** (gul) om vinst > 0. **Låt bli** (röd) annars.
+  - Småfigurer (märket Schleich eller utpris under 100 kr): grön från 2,0×, gul från 1,3×, röd under. Kortet påminner om att räkna på hela lotten.
+  - Osäkert pris (låg säkerhet eller inga Tradera/eBay-annonser): högst gul, märkt "Osäkert pris".
+  - Utan inköpspris räknas maxpriset bakvägen: *Betala inte mer än X kr* (grön gräns) och var vinsten tar slut.
+  - Motiveringen: Gemini får det färdiga beslutet och siffrorna och skriver en mening (utan Google-sökning, ca 0,01 kr). En mening som säger emot beslutet kastas och den regelstyrda texten visas i stället.
+- **Ärlighet om osäkerhet:** inga sålda jämförelser eller inga annonser → säkerhet "låg" och tydlig flagga. Inga Tradera-träffar → säkerheten är aldrig "hög".
 - **Avgifter, frakt och växelkurser** ställs in i appen (⚙︎) per plattform. Inget är hårdkodat; standardvärdena i `lib/settings.js` är bara utgångsvärden. Kolla särskilt Traderas avgift mot dina faktiska villkor.
 - **Kostnad per skanning** loggas i Sheet och visas under resultatkortet, uppdelad på bildsök, identifiering och prissök. Bildsöket räknas alltid som betalt, även inom de 1000 gratis bilderna per månad.
 - **Extra vinklar** (baksida, stämpel, etikett) kostar ungefär 0,006 $ per bild med Opus eftersom bara identifieringen ser bilderna. Bara huvudbilden sparas i Drive.

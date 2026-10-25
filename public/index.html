@@ -88,12 +88,10 @@
           <div id="r-nosold" class="nosold" hidden>Inga bekräftade försäljningar – priset följer marknaden just nu.</div>
         </section>
 
-        <div id="r-verdict-row" class="verdict-row" hidden>
-          <div id="r-score" class="score"><span id="r-score-num"></span><small>%</small></div>
-          <div>
-            <div id="r-verdict" class="verdict-text"></div>
-            <div id="r-net" class="muted small"></div>
-          </div>
+        <div id="r-verdict-row" class="decision" hidden>
+          <div id="r-verdict" class="verdict-text"></div>
+          <div id="r-net" class="decision-numbers"></div>
+          <div id="r-tags" class="decision-tags"></div>
         </div>
         <p id="r-reason" class="reason"></p>
         <p id="r-evidence" class="muted small"></p>
@@ -160,6 +158,10 @@
         <input id="s-gemini" type="checkbox">
         <span>Använd Gemini med Google-sökning</span>
       </label>
+
+      <h3>Köpregler</h3>
+      <p class="hint">Vinst = netto efter avgift och frakt − inköp. Multipel = netto / inköp. Grön kräver vinst ≥ minsta vinst och (multipel ≥ minsta multipel eller inköp ≥ stort köp). Osäkert pris ger högst gul.</p>
+      <div id="s-rules" class="rules"></div>
 
       <h3>Avgifter och frakt per plattform</h3>
       <p class="hint">Frakt = det du själv står för (emballage, frakt som inte betalas av köparen).</p>

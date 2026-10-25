@@ -11,9 +11,10 @@ import { randomBytes } from "node:crypto";
 import { identify, priceSearch } from "../lib/claude.js";
 import { addUsage, costUsd, emptyUsage, finalizeResult } from "../lib/economics.js";
 import { checkAuth, json, parseDataUrl } from "../lib/http.js";
-import { geminiArticle, geminiConfigured, geminiIdentify, geminiPriceSearch, geminiText } from "../lib/gemini.js";
+import { geminiArticle, geminiConfigured, geminiSentence, geminiIdentify, geminiPriceSearch, geminiText } from "../lib/gemini.js";
 import { DEFAULT_SEARCH_MODEL } from "../lib/models.js";
-import { mockGemini, mockGeminiPrice, mockIdentify, mockLens, mockPrice, mockSimple, mockVision, mockVisionRaw } from "../lib/mock.js";
+import { mockGemini, mockGeminiPrice, mockIdentify, mockLens, mockPrice, mockSentence, mockSimple, mockVision, mockVisionRaw } from "../lib/mock.js";
+import { checkExplanation, explainPrompt } from "../lib/decision.js";
 import { debugData, geminiScan, simpleLinks, toPriceRaw, verifyArticle } from "../lib/simple.js";
 import { LENS_USD, lensConfigured, lensListings, lensSearch, lensText } from "../lib/lens.js";
 import { VISION_USD_PER_IMAGE } from "../lib/models.js";
@@ -68,6 +69,7 @@ export async function POST(request) {
         if (settings.mode === "simple" && !simple) flags.push("Gemini är inte konfigurerat – avancerat läge användes.");
         const ctx = { images, note, buyPrice, settings, send, steps, flags, scanId };
         const { result, modelLabel: model } = await (simple ? runSimple(ctx) : runAdvanced(ctx));
+        await explain(result, steps, send);
 
         const totals = emptyUsage();
         for (const s of steps) {
@@ -214,7 +216,7 @@ async function runAdvanced({ images, note, buyPrice, settings, send, steps, flag
 async function runSimple({ images, note, buyPrice, settings, send, steps, flags, scanId }) {
   // 1. Google Lens (SerpApi) – annars Cloud Vision som reserv.
   const useLens = settings.lens && (MOCK || lensConfigured());
-  const useVision = !useLens && settings.vision && (MOCK || visionConfigured());
+  let useVision = !useLens && settings.vision && (MOCK || visionConfigured());
   let lens = null;
   let lensRaw = null;
   let vision = null;
@@ -227,7 +229,9 @@ async function runSimple({ images, note, buyPrice, settings, send, steps, flags,
       lensRaw = l.raw;
       steps.push({ step: "Google Lens", model: "serpapi-google-lens", searches: 1, usd: LENS_USD });
     } catch (err) {
-      flags.push(`Google Lens misslyckades (${err.message}).`);
+      // T.ex. slut på månadens gratissökningar: bildsöket (Cloud Vision) tar över.
+      useVision = settings.vision && (MOCK || visionConfigured());
+      flags.push(`Google Lens misslyckades (${err.message})${useVision ? " – bildsöket användes i stället" : ""}.`);
     }
   }
   if (useVision) {
@@ -270,6 +274,31 @@ async function runSimple({ images, note, buyPrice, settings, send, steps, flags,
   if (lens) result.lens = { matches: lens.matches.length, priced: lens.priced.length, numbers: lens.numbers };
   result.debug = debugData({ visionRaw, lensRaw, gemini: g });
   return { result, modelLabel: `Enkelt · ${lens ? "Lens · " : ""}${g.model}${vision ? " · Vision" : ""}` };
+}
+
+// Motiveringen: beslutet är redan fattat av servern. Gemini får beslutet och
+// siffrorna och skriver en mening; en text som säger emot beslutet kastas och
+// den regelstyrda motiveringen står kvar.
+async function explain(result, steps, send) {
+  result.reason_source = "regler";
+  if (!(MOCK || geminiConfigured())) return;
+  send({ type: "status", text: "Skriver motivering…" });
+  try {
+    const prompt = explainPrompt(result.decision, {
+      name: result.item.name,
+      listPrice: result.economics.list_price,
+      marketNote: result.market_note,
+    });
+    const g = await (MOCK ? mockSentence : geminiSentence)(prompt);
+    steps.push({ step: "Motivering", model: g.model, tokens_in: g.tokensIn, tokens_out: g.tokensOut, searches: 0, usd: g.usd });
+    const text = checkExplanation(g.text, result.decision);
+    if (text) {
+      result.reason = text;
+      result.reason_source = "ai";
+    }
+  } catch (err) {
+    console.warn("Motiveringen misslyckades:", err.message);
+  }
 }
 
 // Summerar token och kostnad för ett steg (ett eller flera API-anrop).
