@@ -7,11 +7,14 @@
 //   { action: "update", id, fields }           spara ändringar / godkänn
 //   { action: "requeue", id, confirmed }       berika om med det modellnummer du valt
 //   { action: "delete", id }                   ta bort annonsen och dess bilder
+//   { action: "export", include_exported }     CSV till ProLister av godkända Tradera-annonser;
+//       sparas i Drive (Loppisskannern/Export) och annonserna markeras Exporterad
 // Själva berikningen sker i kön (Apps Script → /api/listing-process), så appen
 // kan stängas efter uppladdningen.
 import { checkAuth, json, parseDataUrl } from "../lib/http.js";
 import { researchListing } from "../lib/listing.js";
 import { mockDefect, mockLens, mockListingText, mockSimple, mockTradera } from "../lib/mock.js";
+import { buildProListerCsv } from "../lib/prolister.js";
 import { callAppsScript, storageConfigured } from "../lib/storage.js";
 import { findOnTradera } from "../lib/tradera.js";
 
@@ -27,6 +30,10 @@ export async function POST(request) {
     body = await request.json();
   } catch {
     return json({ ok: false, error: "Ogiltig förfrågan" }, 400);
+  }
+  if (body.action === "export") {
+    const res = await exportProLister(Boolean(body.include_exported));
+    return json(res, res.ok ? 200 : 502);
   }
   const id = String(body.id ?? "").replace(/[^\w-]/g, "").slice(0, 40);
   if (body.action !== "list" && !id) return json({ ok: false, error: "id saknas" }, 400);
@@ -84,9 +91,31 @@ export async function POST(request) {
       return json({ ok: false, error: "Okänd action" }, 400);
   }
 
-  if (process.env.MOCK === "1" && !storageConfigured()) return json(await mockStore(action, payload));
-  const res = await callAppsScript(action, payload).catch((err) => ({ ok: false, error: err.message }));
+  const res = await store(action, payload);
   return json(res, res.ok ? 200 : 502);
+}
+
+function store(action, payload) {
+  if (process.env.MOCK === "1" && !storageConfigured()) return mockStore(action, payload);
+  return callAppsScript(action, payload).catch((err) => ({ ok: false, error: err.message }));
+}
+
+// Godkända Tradera-annonser → CSV för ProLister. Redan exporterade följer bara
+// med om du ber om det, så att inget läggs upp två gånger.
+async function exportProLister(includeExported) {
+  const list = await store("listListings", {});
+  if (!list.ok) return list;
+  const wanted = (list.listings ?? []).filter(
+    (l) => (l.status === "Godkänd" || (includeExported && l.status === "Exporterad")) && (l.channel || "Tradera") === "Tradera",
+  );
+  if (!wanted.length) return { ok: false, error: "Inga godkända Tradera-annonser att exportera." };
+  const { csv, included, skipped } = buildProListerCsv(wanted);
+  if (!included.length) return { ok: false, error: "Ingen annons klarade kontrollen.", skipped };
+  const stamp = new Date().toLocaleString("sv-SE", { timeZone: "Europe/Stockholm" }).replace(/[-:]/g, "").replace(" ", "-").slice(0, 13);
+  const name = `prolister-${stamp}.csv`;
+  const saved = await store("saveExport", { name, csv, ids: included });
+  if (!saved.ok) return saved;
+  return { ok: true, name, csv, url: saved.url ?? "", count: included.length, skipped };
 }
 
 // Testläge utan Sheet: annonserna ligger i minnet och berikas direkt.
@@ -106,6 +135,10 @@ async function mockStore(action, p) {
   }
   if (action === "listListings") {
     return { ok: true, listings: [...memory.values()].reverse() };
+  }
+  if (action === "saveExport") {
+    for (const id of p.ids) if (memory.has(id)) memory.get(id).status = "Exporterad";
+    return { ok: true, url: "" };
   }
   const row = memory.get(p.id);
   if (!row) return { ok: false, error: "Annonsen finns inte" };
