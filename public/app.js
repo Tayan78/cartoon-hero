@@ -383,7 +383,7 @@ function renderResult(data) {
       const title = document.createElement("span");
       title.append(Object.assign(document.createElement("span"), { className: "tag", textContent: s.platform }), s.title || s.url);
       const price = document.createElement("span");
-      price.textContent = (s.price_sek ? kr(s.price_sek) : "") + (s.sold ? "" : s.price_type === "bud" ? ` · bud${s.bids ? ` (${s.bids})` : ""}` : " · till salu");
+      price.textContent = (s.price_sek ? kr(s.price_sek) : "") + (s.sold ? "" : s.price_type === "bud" ? ` · bud${s.bids ? ` (${s.bids})` : ""}` : " · till salu") + (s.price_type === "såld" ? " · såld" : "");
       a.append(title, price);
       li.append(a);
       return li;
