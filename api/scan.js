@@ -13,9 +13,10 @@ import { addUsage, costUsd, emptyUsage, finalizeResult } from "../lib/economics.
 import { checkAuth, json, parseDataUrl } from "../lib/http.js";
 import { geminiArticle, geminiConfigured, geminiSentence, geminiIdentify, geminiPriceSearch, geminiText } from "../lib/gemini.js";
 import { DEFAULT_SEARCH_MODEL } from "../lib/models.js";
-import { mockGemini, mockGeminiPrice, mockIdentify, mockLens, mockPrice, mockSentence, mockSimple, mockVision, mockVisionRaw } from "../lib/mock.js";
+import { mockGemini, mockGeminiPrice, mockIdentify, mockLens, mockPrice, mockSentence, mockSimple, mockTradera, mockVision, mockVisionRaw } from "../lib/mock.js";
 import { checkExplanation, explainPrompt } from "../lib/decision.js";
 import { debugData, geminiScan, simpleLinks, toPriceRaw, verifyArticle } from "../lib/simple.js";
+import { mergeListings, traderaConfigured, traderaQuery, traderaSearch } from "../lib/tradera.js";
 import { LENS_USD, lensConfigured, lensListings, lensSearch, lensText } from "../lib/lens.js";
 import { VISION_USD_PER_IMAGE } from "../lib/models.js";
 import { dropUnverifiedArticle, formatArticle, marketUrls, pickArticle, searchTerms } from "../lib/market.js";
@@ -75,7 +76,7 @@ export async function POST(request) {
         for (const s of steps) {
           if (s.usages) for (const u of s.usages) addUsage(totals, u);
           // Gemini- och Lens-steg har egna räknare i stället för Claude-usage.
-          else if (s.model?.startsWith("gemini") || s.model?.startsWith("serpapi")) {
+          else if (s.model?.startsWith("gemini") || s.model?.startsWith("serpapi") || s.model?.startsWith("tradera")) {
             totals.input_tokens += s.tokens_in ?? 0;
             totals.output_tokens += s.tokens_out ?? 0;
             totals.web_searches += s.searches ?? 0;
@@ -263,6 +264,21 @@ async function runSimple({ images, note, buyPrice, settings, send, steps, flags,
   if (priceRaw.item) priceRaw.item.article_number = article?.verified ? article.number : "";
   send({ type: "prelim", item: priceRaw.item ?? {} });
 
+  // 3. Traderas egna sökning: riktiga aktiva annonser (gratis, bara appnycklar).
+  let tradera = null;
+  if (settings.tradera && (MOCK || traderaConfigured())) {
+    const q = traderaQuery({ item: priceRaw.item, article });
+    send({ type: "status", text: "Söker på Tradera…" });
+    try {
+      tradera = await (MOCK ? mockTradera(q) : traderaSearch(q));
+      priceRaw.sources = mergeListings(tradera.listings, priceRaw.sources);
+      steps.push({ step: "Tradera", model: "tradera-api", searches: 0, usd: 0 });
+      if (!tradera.listings.length) flags.push(`Inga aktiva Tradera-annonser för "${q.query}".`);
+    } catch (err) {
+      flags.push(`Tradera-sökningen misslyckades (${err.message}).`);
+    }
+  }
+
   const result = finalizeResult(priceRaw, { buyPrice, settings, mode: "listings" });
   result.article = article;
   result.note = note;
@@ -273,7 +289,11 @@ async function runSimple({ images, note, buyPrice, settings, send, steps, flags,
   if (vision) result.vision = vision;
   if (lens) result.lens = { matches: lens.matches.length, priced: lens.priced.length, numbers: lens.numbers };
   result.debug = debugData({ visionRaw, lensRaw, gemini: g });
-  return { result, modelLabel: `Enkelt · ${lens ? "Lens · " : ""}${g.model}${vision ? " · Vision" : ""}` };
+  if (tradera) {
+    result.tradera = { query: tradera.query, total: tradera.total, shown: tradera.listings.length, matched_number: tradera.matched_number };
+    result.debug.tradera = { ...result.tradera, listings: tradera.listings };
+  }
+  return { result, modelLabel: `Enkelt · ${lens ? "Lens · " : ""}${g.model}${tradera ? " · Tradera" : ""}${vision ? " · Vision" : ""}` };
 }
 
 // Motiveringen: beslutet är redan fattat av servern. Gemini får beslutet och

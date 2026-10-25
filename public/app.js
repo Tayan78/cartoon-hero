@@ -61,6 +61,7 @@ const getSettings = () => {
     gemini: s?.gemini ?? true,
     mode: s?.mode ?? "simple",
     lens: s?.lens ?? true,
+    tradera: s?.tradera ?? true,
     decision: { ...DEFAULT_SETTINGS.decision, ...(s?.decision ?? {}) },
   };
 };
@@ -377,7 +378,7 @@ function renderResult(data) {
       const title = document.createElement("span");
       title.append(Object.assign(document.createElement("span"), { className: "tag", textContent: s.platform }), s.title || s.url);
       const price = document.createElement("span");
-      price.textContent = (s.price_sek ? kr(s.price_sek) : "") + (s.sold ? "" : " · till salu");
+      price.textContent = (s.price_sek ? kr(s.price_sek) : "") + (s.sold ? "" : s.price_type === "bud" ? ` · bud${s.bids ? ` (${s.bids})` : ""}` : " · till salu");
       a.append(title, price);
       li.append(a);
       return li;
@@ -403,7 +404,7 @@ function renderResult(data) {
   const secs = (data.duration_ms / 1000).toFixed(1);
   const sek = (n) => `${n.toFixed(2).replace(".", ",")} kr`;
   const short = (m) => {
-    if (m === "serpapi-google-lens") return "";
+    if (m === "serpapi-google-lens" || m === "tradera-api") return "";
     const flash = m?.match(/gemini-([\d.]+)-flash/);
     if (flash) return `Flash ${flash[1]}`;
     return (m?.match(/opus|sonnet|haiku/i)?.[0] ?? "").replace(/^./, (c) => c.toUpperCase());
@@ -595,6 +596,7 @@ function openSettings(message = "") {
   $("s-gemini").checked = s.gemini;
   $("s-mode").value = s.mode;
   $("s-lens").checked = s.lens;
+  $("s-tradera").checked = s.tradera;
   const month = store.get("costs", {})[new Date().toISOString().slice(0, 7)];
   $("s-costs").textContent = month
     ? `Den här månaden (denna telefon): ${month.scans} skanningar, ${month.sek.toFixed(2).replace(".", ",")} kr. Exakt kostnad per skanning loggas i Sheet.`
@@ -618,6 +620,7 @@ $("btn-settings-save").addEventListener("click", () => {
   s.gemini = $("s-gemini").checked;
   s.mode = $("s-mode").value;
   s.lens = $("s-lens").checked;
+  s.tradera = $("s-tradera").checked;
   for (const input of $("s-rules").querySelectorAll("input[data-rule]")) {
     const n = Number(input.value);
     if (input.value !== "" && Number.isFinite(n) && n >= 0) s.decision[input.dataset.rule] = n;
@@ -644,6 +647,7 @@ $("btn-test").addEventListener("click", async () => {
       line("Claude", c?.claude, data.api_key),
       line(`Gemini (${data.gemini_model})`, c?.gemini, data.gemini),
       line("Google Lens (SerpApi)", c?.lens, data.lens),
+      line("Tradera", c?.tradera, data.tradera),
       line("Bildsök (Cloud Vision)", c?.vision, data.vision),
       line("Google Sheet", c?.sheet, data.storage),
       `Standard: identifiering ${label(data.defaults.identify)}, prissök ${label(data.defaults.search)}.` +
