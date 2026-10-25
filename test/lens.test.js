@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { lensListings, lensSearch, lensText, platformFor, summarizeLens, toSek } from "../lib/lens.js";
+import { readFileSync } from "node:fs";
+import { lensListings, lensRetail, lensSearch, lensText, platformFor, summarizeLens, toSek } from "../lib/lens.js";
 import { mergeSettings } from "../lib/settings.js";
 
 const fx = mergeSettings({}).fx;
@@ -11,6 +12,25 @@ test("valutor från Lens räknas om till SEK, okända hoppas över", () => {
   assert.equal(toSek({ extracted_value: 10, currency: "$" }, fx), Math.round(10 * fx.USD));
   assert.equal(toSek({ extracted_value: 100, currency: "NOK" }, fx), 0);
   assert.equal(toSek(undefined, fx), 0);
+});
+
+test("pris utan valutafält: valutan läses ur texten (så som Lens svarar)", () => {
+  assert.equal(toSek({ value: "119 kr*", extracted_value: 119 }, fx), 119);
+  assert.equal(toSek({ value: "$12.99*", extracted_value: 12.99 }, fx), Math.round(12.99 * fx.USD));
+  assert.equal(toSek({ value: "US$5", extracted_value: 5 }, fx), Math.round(5 * fx.USD));
+  assert.equal(toSek({ value: "6,50 €", extracted_value: 6.5 }, fx), Math.round(6.5 * fx.EUR));
+  assert.equal(toSek({ value: "£4.32", extracted_value: 4.32 }, fx), Math.round(4.32 * fx.GBP));
+  assert.equal(toSek({ value: "120", extracted_value: 120 }, fx), 0);
+});
+
+test("riktigt Lens-svar (13910): butikspriser blir nypris, inte begagnade annonser", () => {
+  const raw = JSON.parse(readFileSync(new URL("./fixtures/lens-13910.json", import.meta.url)));
+  const s = summarizeLens(raw, fx);
+  assert.equal(s.numbers[0].number, "13910");
+  assert.equal(s.priced.length, 6);
+  assert.deepEqual(lensListings(s), []);
+  const retail = lensRetail(s);
+  assert.deepEqual([retail.low, retail.high, retail.count], [81, 150, 6]);
 });
 
 test("plattform från länken", () => {
@@ -37,6 +57,7 @@ test("sammanfattning: dubbletter bort, nummer ur titlarna, bara prissatta blir a
   assert.equal(s.priced.length, 2);
   const listings = lensListings(s);
   assert.deepEqual(listings.map((l) => [l.platform, l.price_sek, l.sold]), [["eBay", Math.round(6.5 * fx.EUR), false], ["Tradera", 79, false]]);
+  assert.equal(lensRetail(s), null);
   assert.match(lensText(s), /13695 \(2 träffar\)/);
 });
 

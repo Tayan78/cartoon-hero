@@ -17,7 +17,7 @@ import { mockGemini, mockGeminiPrice, mockIdentify, mockLens, mockPrice, mockSen
 import { checkExplanation, explainPrompt } from "../lib/decision.js";
 import { debugData, geminiScan, simpleLinks, toPriceRaw, verifyArticle } from "../lib/simple.js";
 import { mergeListings, traderaConfigured, traderaQuery, traderaSearch } from "../lib/tradera.js";
-import { LENS_USD, lensConfigured, lensListings, lensSearch, lensText } from "../lib/lens.js";
+import { LENS_USD, lensConfigured, lensListings, lensRetail, lensSearch, lensText } from "../lib/lens.js";
 import { VISION_USD_PER_IMAGE } from "../lib/models.js";
 import { dropUnverifiedArticle, formatArticle, marketUrls, pickArticle, searchTerms } from "../lib/market.js";
 import { mergeSettings } from "../lib/settings.js";
@@ -273,7 +273,7 @@ async function runSimple({ images, note, buyPrice, settings, send, steps, flags,
       tradera = await (MOCK ? mockTradera(q) : traderaSearch(q));
       priceRaw.sources = mergeListings(tradera.listings, priceRaw.sources);
       steps.push({ step: "Tradera", model: "tradera-api", searches: 0, usd: 0 });
-      if (!tradera.listings.length) flags.push(`Inga aktiva Tradera-annonser för "${q.query}".`);
+      if (!tradera.listings.length) flags.push(`Inga aktiva Tradera-annonser för ${q.queries.map((x) => `"${x}"`).join(" eller ")}.`);
     } catch (err) {
       flags.push(`Tradera-sökningen misslyckades (${err.message}).`);
     }
@@ -287,11 +287,14 @@ async function runSimple({ images, note, buyPrice, settings, send, steps, flags,
   result.search_urls = simpleLinks(article?.verified ? `${brand} ${article.number}`.trim() : result.item.name);
   if (g.sources?.length) result.price_google_sources = g.sources;
   if (vision) result.vision = vision;
-  if (lens) result.lens = { matches: lens.matches.length, priced: lens.priced.length, numbers: lens.numbers };
+  if (lens) {
+    result.lens = { matches: lens.matches.length, priced: lens.priced.length, numbers: lens.numbers };
+    result.retail = lensRetail(lens);
+  }
   result.debug = debugData({ visionRaw, lensRaw, gemini: g });
   if (tradera) {
     result.tradera = { query: tradera.query, total: tradera.total, shown: tradera.listings.length, matched_number: tradera.matched_number };
-    result.debug.tradera = { ...result.tradera, listings: tradera.listings };
+    result.debug.tradera = { ...result.tradera, tried: tradera.tried, listings: tradera.listings };
   }
   return { result, modelLabel: `Enkelt · ${lens ? "Lens · " : ""}${g.model}${tradera ? " · Tradera" : ""}${vision ? " · Vision" : ""}` };
 }

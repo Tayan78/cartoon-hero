@@ -34,7 +34,7 @@ test("Tradera-sökning: rätt adress och nycklar, numret filtrerar bort andra mo
     }), { status: 200 });
   };
   try {
-    const r = await traderaSearch({ query: "Schleich 13695", article: "13695" });
+    const r = await traderaSearch({ queries: ["Schleich 13695"], article: "13695" });
     assert.equal(seen.url, "https://api.tradera.com/v4/search?query=Schleich+13695");
     assert.equal(seen.headers["X-App-Id"], "7482");
     assert.equal(seen.headers["X-App-Key"], "nyckel");
@@ -43,15 +43,45 @@ test("Tradera-sökning: rätt adress och nycklar, numret filtrerar bort andra mo
     assert.equal(r.total, 3);
 
     globalThis.fetch = async () => new Response("Unauthorized", { status: 401 });
-    await assert.rejects(traderaSearch({ query: "x" }), /Fel Tradera-nycklar/);
+    await assert.rejects(traderaSearch({ queries: ["x"] }), /Fel Tradera-nycklar/);
   } finally {
     globalThis.fetch = realFetch;
   }
 });
 
-test("sökord: märke + bekräftat nummer, annars namnet", () => {
-  assert.deepEqual(traderaQuery({ item: { brand: "Schleich", name: "Pinto" }, article: { number: "13695", verified: true } }), { query: "Schleich 13695", article: "13695" });
-  assert.deepEqual(traderaQuery({ item: { brand: "Schleich", name: "Schleich Pinto" }, article: { number: "13803", verified: false } }), { query: "Schleich Pinto", article: "" });
+test("sökord: märke + bekräftat nummer, sedan namnet utan nummer", () => {
+  assert.deepEqual(traderaQuery({ item: { brand: "Schleich", name: "Schleich Knabstrupper sto (13910)" }, article: { number: "13910", verified: true } }), {
+    queries: ["Schleich 13910", "Schleich Knabstrupper sto"], article: "13910", words: ["Knabstrupper"],
+  });
+  assert.deepEqual(traderaQuery({ item: { brand: "Schleich", name: "Schleich Pinto" }, article: { number: "13803", verified: false } }), {
+    queries: ["Schleich Pinto"], article: "", words: ["Pinto"],
+  });
+});
+
+test("inga träffar på numret: söker på namnet och behåller bara samma modell", async () => {
+  process.env.TRADERA_APP_ID = "7482";
+  process.env.TRADERA_APP_KEY = "nyckel";
+  const realFetch = globalThis.fetch;
+  const asked = [];
+  globalThis.fetch = async (url) => {
+    const q = new URL(url).searchParams.get("query");
+    asked.push(q);
+    const items = q === "Schleich 13910" ? [] : [
+      item({ id: 1, shortDescription: "Schleich häst Knabstrupper", buyItNowPrice: 70 }),
+      item({ id: 2, shortDescription: "Schleich Hannoveraner sto", buyItNowPrice: 40, itemUrl: "https://www.tradera.com/item/1/2/y" }),
+    ];
+    return new Response(JSON.stringify({ totalNumberOfItems: items.length, items }), { status: 200 });
+  };
+  try {
+    const r = await traderaSearch({ queries: ["Schleich 13910", "Schleich Knabstrupper sto"], article: "13910", words: ["Knabstrupper"] });
+    assert.deepEqual(asked, ["Schleich 13910", "Schleich Knabstrupper sto"]);
+    assert.equal(r.query, "Schleich Knabstrupper sto");
+    assert.deepEqual(r.listings.map((l) => l.price), [70]);
+    assert.equal(r.matched_number, false);
+    assert.deepEqual(r.tried.map((t) => t.found), [0, 2]);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });
 
 test("Tradera först, dubbletter tas bort", () => {

@@ -294,6 +294,11 @@ function renderPrice(r) {
     ? "Priset bygger på annonser till salu just nu – inte på sålda priser."
     : "Inga bekräftade försäljningar – priset följer marknaden just nu.";
   $("r-nosold").hidden = hasSold;
+  $("r-retail").hidden = !r.retail;
+  if (r.retail) {
+    const span = r.retail.low === r.retail.high ? kr(r.retail.low) : `${kr(r.retail.low)}–${kr(r.retail.high)}`;
+    $("r-retail").textContent = `Nypris i butik: ${span} (${r.retail.count} butiker) – räknas inte som begagnatpris.`;
+  }
 
   renderDecision(r.decision);
 }
