@@ -11,9 +11,8 @@ Saker vi har pratat om men som **inte** finns i Alpha v1 ([ALPHA-v1.md](ALPHA-v1
 
 | | Punkt | Bakgrund |
 |---|---|---|
-| 🔴 | **Frakt i ProLister-importen** | Kolumnen `shipping` med sex fraktsätt kommer från ProListers egen export, men importguiden nämner bara `ShippingFirst`/`ShippingSecond`. Mappas den inte lägger vi de två viktigaste fraktsätten där i stället. *Väntar på test* |
-| 🔴 | **Mapp och bilder i ProLister** | Kontrollera att `Mapp` skapar mappen och att `/bild/<id>.jpg` hämtas. Fungerar inte bilderna är alternativet att lagra dem i Vercel Blob, där adresserna slutar på `.jpg`. *Väntar på test* |
-| 🔴 | **Träffsäkerhet för Schleich** | Mät andelen rätt modellnummer, ras/djurtyp och årtal. Justera prompten (`listing_name`, `production_years`) eller lägg till fler kandidater. *Väntar på test* |
+| 🔴 | **Träffsäkerhet för Schleich** | Första testet: 4 av 23 behövde ett annat modellnummer. Mät också ras/djurtyp och årtal över fler batcher, och justera prompten (`listing_name`, `production_years`) eller lägg till fler kandidater. |
+| 🔴 | **Bilder från bildbiblioteket** | Rättat i #27 (mindre avkodning, minnet släpps). Testa 8 bilder per annons på nästa batch. *Väntar på test* |
 | 🟡 | **Mapp med klockslag** | Två exporter samma dag hamnar i samma mapp. Alternativ: `2026-10-25 14.30 Schleich`. |
 | 🟡 | **Fel i kön** | Gör annonser med status *Fel* ett automatiskt nytt försök (t.ex. en gång efter 10 minuter) innan du behöver trycka själv? |
 
@@ -52,8 +51,8 @@ Saker vi har pratat om men som **inte** finns i Alpha v1 ([ALPHA-v1.md](ALPHA-v1
 | | Punkt | Bakgrund |
 |---|---|---|
 | 🟡 | **Gemini utan Google-sökning när Lens finns** | Gemini har sökning påslagen även när Lens redan gett träffar, vilket kan kosta extra per anrop. Stäng av den i Lens-läget om träffsäkerheten håller. |
-| 🟡 | **Varning för Lens-kvoten** | Visa hur många av de 250 sökningarna som är kvar, och varna när de börjar ta slut. Uppgiften finns redan i "Testa anslutning". |
-| 🟡 | **Kostnadsöversikt** | Summa per vecka och månad, och per annons, från Sheet, i appen. |
+| ⚪ | **Tydligare varning för Lens-kvoten** | Kvoten visas på startsidan och mätaren blir gul/röd. Kvar: en varning i själva skanningen när det är få sökningar kvar. |
+| 🟡 | **Kostnadsöversikt** | Saldot för Google Cloud visas på startsidan. Kvar: summa per vecka och månad, och per annons, från Sheet. |
 | ⚪ | **Förenkla: ta bort avancerat läge (Claude)** | Används inte längre i praktiken. Mindre kod och färre inställningar. |
 | ⚪ | **Vision-ledtråd** | Använd Visions "visuellt liknande bilder" (domäner som schleich-s.com) som märkesledtråd när Lens saknas. |
 | ⚪ | **Städa Drive** | Ta bort bilder för sålda eller raderade annonser efter en tid. |
@@ -82,7 +81,8 @@ Saker vi har pratat om men som **inte** finns i Alpha v1 ([ALPHA-v1.md](ALPHA-v1
 - ✅ 4 av 23 behövde ett annat modellnummer, vilket kandidatknapparna löste.
 - **Rättat:** bilder från bildbiblioteket var långsamma, kraschade och tömde batteriet. De avkodas nu i mindre storlek, och bildminnet släpps direkt.
 - **Byggt:** *Godkänn markerade*, för att godkänna alla klara annonser på en gång.
+- **Byggt efteråt:** startsida med Lens-kvot, Google Cloud-saldo och antal publicerade annonser, plus en tillbaka-pil (#28).
 
 ## Klart (för spårbarhet)
 
-Punkter från tidigare diskussioner som nu är byggda: godkänn flera på en gång, köpbeslut med regler (PR A), historik (PR B), annonsläge C1–C3, 8 bilder per annons, bakgrundsuppladdning, Schleich-mall, egen avslutning, ProLister-export med `skick` och `Mapp`, Tradera-sökning, Lens med Vision som reserv.
+Punkter från tidigare diskussioner som nu är byggda: startsida med budget och mått, ProLister-import verifierad (frakt, mapp, bilder), godkänn flera på en gång, köpbeslut med regler (PR A), historik (PR B), annonsläge C1–C3, 8 bilder per annons, bakgrundsuppladdning, Schleich-mall, egen avslutning, ProLister-export med `skick` och `Mapp`, Tradera-sökning, Lens med Vision som reserv.

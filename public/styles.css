@@ -258,7 +258,9 @@ button:disabled { opacity: .4; }
 .g-row .status { flex: none; }
 .pill.wait { background: var(--surface-2); color: var(--text); }
 .pill.done { background: var(--accent); color: #fff; }
-.pill.ok { background: var(--green); }
+.pill.ok { background: var(--green); color: #fff; }
+.fold { margin-top: 16px; }
+.fold summary { cursor: pointer; color: var(--muted); font-weight: 600; padding: 12px 0; }
 .pill.err { background: var(--red); }
 .chips.wrap { flex-wrap: wrap; overflow: visible; }
 .chip small { color: inherit; opacity: .75; font-size: 12px; }
