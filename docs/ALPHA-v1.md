@@ -120,6 +120,7 @@ Kortet visar: prispanel (lägg ut för, mittpris, prislinje, antal annonser), be
   - **Tryck på rätt modellnummer.** Kandidaterna kommer från Gemini och Lens. **Inget nummer räknas som bekräftat utan ditt tryck**, och väljer du ett annat nummer berikas annonsen om. Det går också att skriva ett eget nummer.
   - Redigera rubrik, text, fast pris och kanal. Under "Jämförelser" syns annonserna som priset bygger på.
   - **Godkänn.** Annonsen läggs också i fliken **Lager**.
+  - **Godkänn markerade:** alla klara annonser är förbockade. Avmarkera de du vill vänta med och godkänn resten på en gång. Modellnumret AI:n valt räknas då som bekräftat, så rätta de felaktiga först.
   - Det finns knappar för **Kopiera rubrik och text** (för Vinted) och **Ta bort** (raderar även bilderna i Drive).
 
 ### 4.4 Exportera till ProLister

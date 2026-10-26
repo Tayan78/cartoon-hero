@@ -76,7 +76,11 @@ export async function thumbnail(dataUrl, side = 240) {
   canvas
     .getContext("2d")
     .drawImage(img, (img.naturalWidth - s) / 2, (img.naturalHeight - s) / 2, s, s, 0, 0, side, side);
-  return canvas.toDataURL("image/jpeg", 0.75);
+  const out = canvas.toDataURL("image/jpeg", 0.75);
+  // Släpp bildminnet direkt (Safari har ett tak för canvas-minne).
+  canvas.width = 0;
+  canvas.height = 0;
+  return out;
 }
 
 // Filter och sökning för listan. color: "" | "green" | "yellow" | "red" | "none";
