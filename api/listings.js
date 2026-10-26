@@ -5,6 +5,7 @@
 //   { action: "commit", id }                   lägger annonsen i kön (status Väntar)
 //   { action: "list" }                         alla annonser med status och resultat
 //   { action: "update", id, fields }           spara ändringar / godkänn
+//   { action: "approve", items: [{ id, confirmed }] }  godkänn flera på en gång
 //   { action: "requeue", id, confirmed }       berika om med det modellnummer du valt
 //   { action: "delete", id }                   ta bort annonsen och dess bilder
 //   { action: "export", include_exported }     CSV till ProLister av godkända Tradera-annonser;
@@ -37,7 +38,7 @@ export async function POST(request) {
     return json(res, res.ok ? 200 : 502);
   }
   const id = String(body.id ?? "").replace(/[^\w-]/g, "").slice(0, 40);
-  if (body.action !== "list" && !id) return json({ ok: false, error: "id saknas" }, 400);
+  if (!["list", "approve"].includes(body.action) && !id) return json({ ok: false, error: "id saknas" }, 400);
 
   let action;
   let payload;
@@ -78,6 +79,17 @@ export async function POST(request) {
       if (typeof f.confirmed === "string") fields.confirmed = f.confirmed.trim().slice(0, 20);
       action = "updateListing";
       payload = { id, fields };
+      break;
+    }
+    case "approve": {
+      // Godkänn flera på en gång: [{ id, confirmed }]
+      const items = (Array.isArray(body.items) ? body.items : []).slice(0, 200).map((it) => ({
+        id: String(it?.id ?? "").replace(/[^\w-]/g, "").slice(0, 40),
+        confirmed: String(it?.confirmed ?? "").trim().slice(0, 20),
+      })).filter((it) => it.id);
+      if (!items.length) return json({ ok: false, error: "Inga annonser att godkänna" }, 400);
+      action = "approveListings";
+      payload = { items };
       break;
     }
     case "requeue":
@@ -143,6 +155,10 @@ async function mockStore(action, p) {
   }
   if (action === "listListings") {
     return { ok: true, listings: [...memory.values()].reverse() };
+  }
+  if (action === "approveListings") {
+    for (const it of p.items) if (memory.has(it.id)) Object.assign(memory.get(it.id), { status: "Godkänd", confirmed: it.confirmed });
+    return { ok: true, count: p.items.length };
   }
   if (action === "saveExport") {
     for (const id of p.ids) if (memory.has(id)) memory.get(id).status = "Exporterad";

@@ -75,6 +75,14 @@ Saker vi har pratat om men som **inte** finns i Alpha v1 ([ALPHA-v1.md](ALPHA-v1
 
 ---
 
+## Från första skarpa testet (23 annonser)
+
+- ✅ Kameran i appen är snabb.
+- ✅ Import i ProLister: inga fel.
+- ✅ 4 av 23 behövde ett annat modellnummer, vilket kandidatknapparna löste.
+- **Rättat:** bilder från bildbiblioteket var långsamma, kraschade och tömde batteriet. De avkodas nu i mindre storlek, och bildminnet släpps direkt.
+- **Byggt:** *Godkänn markerade*, för att godkänna alla klara annonser på en gång.
+
 ## Klart (för spårbarhet)
 
-Punkter från tidigare diskussioner som nu är byggda: köpbeslut med regler (PR A), historik (PR B), annonsläge C1–C3, 8 bilder per annons, bakgrundsuppladdning, Schleich-mall, egen avslutning, ProLister-export med `skick` och `Mapp`, Tradera-sökning, Lens med Vision som reserv.
+Punkter från tidigare diskussioner som nu är byggda: godkänn flera på en gång, köpbeslut med regler (PR A), historik (PR B), annonsläge C1–C3, 8 bilder per annons, bakgrundsuppladdning, Schleich-mall, egen avslutning, ProLister-export med `skick` och `Mapp`, Tradera-sökning, Lens med Vision som reserv.

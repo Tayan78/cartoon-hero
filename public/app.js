@@ -86,7 +86,18 @@ function show(name) {
 // ---------- bilder ----------
 let photos = []; // dataURL:er efter komprimering, första = huvudbild
 
-async function compress(file) {
+// Bilder från telefonens bildbibliotek är 12–24 megapixel. De avkodas direkt i
+// mindre storlek, så att minnet räcker även för 8 bilder i rad (annars kraschar
+// Safari). Stöds det inte används <img> som förut.
+async function decodeSmall(file) {
+  // Små bilder (under ~1 MB) behöver inte krympas vid avkodningen.
+  if ("createImageBitmap" in window && file.size > 1024 * 1024) {
+    try {
+      // Bredd 1500 räcker för både liggande och stående bilder; toJpeg krymper resten.
+      const bitmap = await createImageBitmap(file, { resizeWidth: MAX_SIDE, resizeQuality: "high", imageOrientation: "from-image" });
+      return { source: bitmap, width: bitmap.width, height: bitmap.height, release: () => bitmap.close() };
+    } catch {}
+  }
   const url = URL.createObjectURL(file);
   try {
     const img = await new Promise((resolve, reject) => {
@@ -96,29 +107,45 @@ async function compress(file) {
       i.src = url;
     });
     // iOS roterar enligt EXIF när bilden ritas, så naturalWidth/Height stämmer.
-    return toJpeg(img, img.naturalWidth, img.naturalHeight);
+    return { source: img, width: img.naturalWidth, height: img.naturalHeight, release: () => img.removeAttribute("src") };
   } finally {
     URL.revokeObjectURL(url);
   }
 }
 
+async function compress(file) {
+  const { source, width, height, release } = await decodeSmall(file);
+  try {
+    return toJpeg(source, width, height);
+  } finally {
+    release();
+  }
+}
+
 // Bild eller videobild → JPEG. Google Lens (SerpApi) tar max 500 kB: krymp
-// kvalitet och storlek tills bilden ryms.
+// kvalitet och storlek bara om bilden inte ryms (oftast räcker första försöket).
 function toJpeg(source, width, height) {
+  const canvas = document.createElement("canvas");
   let dataUrl = "";
-  for (const [side, quality] of [[MAX_SIDE, JPEG_QUALITY], [MAX_SIDE, 0.7], [1200, 0.7], [1000, 0.65]]) {
-    const scale = Math.min(1, side / Math.max(width, height));
-    const w = Math.round(width * scale);
-    const h = Math.round(height * scale);
-    const canvas = document.createElement("canvas");
-    canvas.width = w;
-    canvas.height = h;
-    canvas.getContext("2d").drawImage(source, 0, 0, w, h);
-    dataUrl = canvas.toDataURL("image/jpeg", quality);
-    if (dataUrl.length * 0.75 <= MAX_BYTES) break;
+  try {
+    for (const [side, quality] of [[MAX_SIDE, JPEG_QUALITY], [MAX_SIDE, 0.7], [1200, 0.7], [1000, 0.65]]) {
+      const scale = Math.min(1, side / Math.max(width, height));
+      canvas.width = Math.round(width * scale);
+      canvas.height = Math.round(height * scale);
+      canvas.getContext("2d").drawImage(source, 0, 0, canvas.width, canvas.height);
+      dataUrl = canvas.toDataURL("image/jpeg", quality);
+      if (dataUrl.length * 0.75 <= MAX_BYTES) break;
+    }
+  } finally {
+    // Safari har ett tak för bildminne; en bortglömd canvas räknas tills den städas bort.
+    canvas.width = 0;
+    canvas.height = 0;
   }
   return dataUrl;
 }
+
+// Låter telefonen andas mellan tunga bilder (uppdaterar skärmen och städar minne).
+const nextFrame = () => new Promise((r) => setTimeout(r, 30));
 
 async function addPhoto(file, replaceMain) {
   $("btn-scan").disabled = true;
@@ -185,7 +212,10 @@ $("photo-more").addEventListener("change", async (e) => {
 $("photo-gallery").addEventListener("change", async (e) => {
   const files = [...(e.target.files ?? [])].slice(0, MAX_PHOTOS - photos.length);
   e.target.value = "";
-  for (const file of files) await addPhoto(file, false);
+  for (const file of files) {
+    await addPhoto(file, false);
+    await nextFrame();
+  }
 });
 
 function resetScan() {
@@ -812,13 +842,18 @@ for (const id of ["c-gallery", "c-native"]) {
   $(id).addEventListener("change", async (e) => {
     const files = [...(e.target.files ?? [])].slice(0, GROUP_PHOTOS - groupPhotos.length);
     e.target.value = "";
-    for (const file of files) {
+    $("c-next").disabled = true;
+    for (const [i, file] of files.entries()) {
+      $("c-hint").textContent = files.length > 1 ? `Förbereder bild ${i + 1} av ${files.length}…` : "Förbereder bild…";
       try {
         addGroupPhoto(await compress(file));
       } catch (err) {
         $("c-hint").textContent = `⚠️ ${err.message}`;
       }
+      await nextFrame();
     }
+    if ($("c-hint").textContent.startsWith("Förbereder")) $("c-hint").textContent = "";
+    renderCapture();
   });
 }
 
@@ -1058,6 +1093,8 @@ window.addEventListener("online", retryFailed);
 const STATUS_PILL = { "Laddar upp": "wait", Väntar: "wait", Bearbetas: "wait", Klar: "done", Godkänd: "ok", Exporterad: "ok", Fel: "err" };
 let sentListings = [];
 let sentTimer = null;
+// Klara annonser är markerade för "Godkänn markerade" tills du avmarkerar dem.
+const approveSkip = new Set();
 
 async function renderSent() {
   clearTimeout(sentTimer);
@@ -1091,10 +1128,20 @@ async function renderSent() {
       open.append(Object.assign(document.createElement("img"), { src: l.image_urls?.[0] ?? "", alt: "" }), info);
       const pill = Object.assign(document.createElement("span"), { className: `pill status ${STATUS_PILL[l.status] ?? "wait"}`, textContent: l.status });
       if (["Klar", "Godkänd", "Exporterad", "Fel"].includes(l.status)) open.addEventListener("click", () => openReview(l.id));
+      if (l.status === "Klar") {
+        const check = Object.assign(document.createElement("input"), { type: "checkbox", checked: !approveSkip.has(l.id), ariaLabel: "Markera för godkännande" });
+        check.addEventListener("change", () => {
+          if (check.checked) approveSkip.delete(l.id);
+          else approveSkip.add(l.id);
+          renderApproveBar();
+        });
+        li.append(check);
+      }
       li.append(open, pill);
       return li;
     }),
   );
+  renderApproveBar();
   const approved = sentListings.filter((l) => l.status === "Godkänd" && (l.channel || "Tradera") === "Tradera").length;
   const exported = sentListings.some((l) => l.status === "Exporterad");
   $("g-export").hidden = !approved && !exported;
@@ -1103,6 +1150,55 @@ async function renderSent() {
   // Uppdatera av sig själv medan AI:n arbetar och listan visas.
   if (working && !$("view-groups").hidden) sentTimer = setTimeout(renderSent, 15000);
 }
+
+// ---------- godkänn flera på en gång ----------
+const readyListings = () => sentListings.filter((l) => l.status === "Klar");
+const markedListings = () => readyListings().filter((l) => !approveSkip.has(l.id));
+
+function renderApproveBar() {
+  const ready = readyListings().length;
+  const marked = markedListings().length;
+  $("g-approve-tools").hidden = ready < 2;
+  $("g-approve").hidden = ready === 0;
+  $("g-approve").disabled = marked === 0;
+  $("g-approve").textContent = `✓ Godkänn markerade (${marked})`;
+}
+
+$("g-approve-all").addEventListener("click", () => {
+  for (const l of readyListings()) approveSkip.delete(l.id);
+  renderSent();
+});
+$("g-approve-none").addEventListener("click", () => {
+  for (const l of readyListings()) approveSkip.add(l.id);
+  renderSent();
+});
+
+// Godkänner med det modellnummer du bekräftat, annars det AI:n valt.
+// Rätta de annonser som har fel modell först (öppna dem och tryck på rätt nummer).
+$("g-approve").addEventListener("click", async () => {
+  const items = markedListings().map((l) => ({ id: l.id, confirmed: l.confirmed || l.listing?.article?.number || "" }));
+  if (!items.length) return;
+  if (!confirm(`Godkänn ${items.length} ${items.length === 1 ? "annons" : "annonser"}? Modellnumret AI:n valt räknas som bekräftat – öppna och rätta dem som är fel först.`)) return;
+  const btn = $("g-approve");
+  btn.disabled = true;
+  $("g-approve-hint").textContent = `Godkänner ${items.length}…`;
+  try {
+    try {
+      await listingsApi({ action: "approve", items });
+    } catch (err) {
+      // Äldre Apps Script utan approveListings: en i taget.
+      if (!/okänd action/i.test(err.message)) throw err;
+      for (const [i, item] of items.entries()) {
+        $("g-approve-hint").textContent = `Godkänner ${i + 1} av ${items.length}…`;
+        await listingsApi({ action: "update", id: item.id, fields: { status: "Godkänd", confirmed: item.confirmed } });
+      }
+    }
+    $("g-approve-hint").textContent = `✓ ${items.length} godkända och tillagda i Lager.`;
+  } catch (err) {
+    $("g-approve-hint").textContent = `⚠️ ${err.message} – försök igen.`;
+  }
+  renderSent();
+});
 
 let reviewing = null; // annonsen som granskas
 let reviewChannel = "Tradera";

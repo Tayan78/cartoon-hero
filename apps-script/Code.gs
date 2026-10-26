@@ -74,6 +74,7 @@ function doPost(e) {
       if (body.action === 'requeueListing') return reply(requeueListing(body));
       if (body.action === 'deleteListing') return reply(deleteListing(body));
       if (body.action === 'saveExport') return reply(saveExport(body));
+      if (body.action === 'approveListings') return reply(approveListings(body));
       return reply({ ok: false, error: 'Okänd action' });
     } finally {
       lock.releaseLock();
@@ -273,6 +274,21 @@ function updateListing(body) {
   setCells(sh, row, values);
   if (f.status === 'Godkänd') addListingToInventory(sh, row);
   return { ok: true };
+}
+
+// Godkänn flera på en gång: [{ id, confirmed }]. Bara annonser med status Klar.
+function approveListings(body) {
+  var sh = listingSheet();
+  var c = cols(sh);
+  var count = 0;
+  (body.items || []).forEach(function (it) {
+    var row = rowById(sh, it.id);
+    if (!row || sh.getRange(row, c['Status']).getValue() !== 'Klar') return;
+    setCells(sh, row, { 'Status': 'Godkänd', 'Bekräftat': it.confirmed || '' });
+    addListingToInventory(sh, row);
+    count++;
+  });
+  return { ok: true, count: count };
 }
 
 // Godkända annonser blir en rad i Lager (en gång per annons).
