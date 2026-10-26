@@ -1,6 +1,6 @@
 # Loppisskannern – fas 1 (snabbskanning)
 
-Privat PWA för reselling. Fota ett föremål (1–4 vinklar) → (valfritt inköpspris) → skanna → resultatkort med utpris, köpbeslut (grön/gul/röd), vinst och multipel. Varje skanning loggas i Google Sheet med bild i Drive.
+Privat PWA för reselling (**Alpha v1**, se [docs/ALPHA-v1.md](docs/ALPHA-v1.md)). Fota ett föremål (1–4 vinklar) → (valfritt inköpspris) → skanna → resultatkort med utpris, köpbeslut (grön/gul/röd), vinst och multipel. Varje skanning loggas i Google Sheet med bild i Drive.
 
 ## Så fungerar det
 
@@ -156,15 +156,11 @@ npm run dev              # riktiga anrop
 
 ## Fart och kostnad
 
-Ungefärlig kostnad per skanning med en bild (uppskattning, se exakta siffror i Sheet):
+Enkelt läge (standard): Google Lens + Gemini + Tradera, ca 0,1–0,4 kr per skanning eller annons. Lens är gratis inom 250 sökningar per månad, och Tradera API är gratis. Exakt kostnad per skanning loggas i Sheet och visas under kortet. En skanning tar ungefär 10–25 s. Annonsläget tar ungefär en annons per minut i bakgrunden.
 
-| Steg | Standard | Ungefär |
-|---|---|---|
-| Bildsök | Google Vision | 0–0,0035 $ |
-| Identifiering | Opus 5.5 | ~0,01–0,015 $ (+~0,006 $ per extra vinkel) |
-| Prissök | Haiku 5.5, max 4 sökningar | ~0,02–0,04 $ (sökningarna kostar 0,01 $ st) |
+Avancerat läge (Claude) är kvar som tillval men används normalt inte.
 
-Stegen körs efter varandra, så en skanning tar ungefär 10–30 s. Identifieringen syns efter ungefär 5–10 s. Blir prissökningen för svag med Haiku: prova Sonnet 5.5 för prissök i inställningarna.
+## Status och backlog
 
-## Nästa faser (inte påbörjade)
-Fas 2 batchläge, fas 3 granskning, fas 4 berikning och annonser – enligt byggprompten, efter att fas 1 är testad.
+- [docs/ALPHA-v1.md](docs/ALPHA-v1.md) – vad som är byggt (Alpha v1), flödena steg för steg, konfiguration, kostnad, kända begränsningar och testplan.
+- [docs/BACKLOG.md](docs/BACKLOG.md) – det vi har pratat om men inte byggt än.
