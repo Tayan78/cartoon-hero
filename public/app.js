@@ -1120,49 +1120,56 @@ async function renderSent() {
     return;
   }
   const working = sentListings.filter((l) => l.status === "Väntar" || l.status === "Bearbetas").length;
+  // Exporterade läggs i en egen hopfälld lista längst ner, så att de inte stör.
+  const active = sentListings.filter((l) => l.status !== "Exporterad");
+  const done = sentListings.filter((l) => l.status === "Exporterad");
   $("g-sent-hint").textContent = !sentListings.length
     ? "Inga skickade annonser ännu."
     : working
       ? `AI:n arbetar med ${working} ${working === 1 ? "annons" : "annonser"} – du kan stänga appen.`
-      : "Tryck på en annons för att granska den.";
-  $("g-sent").replaceChildren(
-    ...sentListings.map((l) => {
-      const li = Object.assign(document.createElement("li"), { className: "g-row" });
-      const open = Object.assign(document.createElement("button"), { type: "button", className: "open" });
-      const info = Object.assign(document.createElement("div"), { className: "info" });
-      info.append(
-        Object.assign(document.createElement("div"), { className: "name", textContent: l.title || l.note || "Annons" }),
-        Object.assign(document.createElement("div"), {
-          className: "line",
-          textContent: [l.price ? kr(l.price) : "", l.channel, l.confirmed ? `nr ${l.confirmed} ✓` : "", l.status === "Fel" ? l.error : ""]
-            .filter(Boolean)
-            .join(" · ") || (l.note ? `Anteckning: ${l.note}` : ""),
-        }),
-      );
-      open.append(Object.assign(document.createElement("img"), { src: l.image_urls?.[0] ?? "", alt: "" }), info);
-      const pill = Object.assign(document.createElement("span"), { className: `pill status ${STATUS_PILL[l.status] ?? "wait"}`, textContent: l.status });
-      if (["Klar", "Godkänd", "Exporterad", "Fel"].includes(l.status)) open.addEventListener("click", () => openReview(l.id));
-      if (l.status === "Klar") {
-        const check = Object.assign(document.createElement("input"), { type: "checkbox", checked: !approveSkip.has(l.id), ariaLabel: "Markera för godkännande" });
-        check.addEventListener("change", () => {
-          if (check.checked) approveSkip.delete(l.id);
-          else approveSkip.add(l.id);
-          renderApproveBar();
-        });
-        li.append(check);
-      }
-      li.append(open, pill);
-      return li;
-    }),
-  );
+      : active.length
+        ? "Tryck på en annons för att granska den."
+        : "Alla annonser är exporterade.";
+  $("g-sent").replaceChildren(...active.map(sentRow));
+  $("g-exported").hidden = !done.length;
+  $("g-exported-count").textContent = done.length;
+  $("g-exported-list").replaceChildren(...done.map(sentRow));
   renderApproveBar();
   const approved = sentListings.filter((l) => l.status === "Godkänd" && (l.channel || "Tradera") === "Tradera").length;
-  const exported = sentListings.some((l) => l.status === "Exporterad");
-  $("g-export").hidden = !approved && !exported;
-  $("g-export-all-label").hidden = !exported;
+  $("g-export").hidden = !approved && !done.length;
+  $("g-export-all-label").hidden = !done.length;
   $("g-export").textContent = approved ? `📄 Exportera till ProLister (${approved})` : "📄 Exportera till ProLister";
   // Uppdatera av sig själv medan AI:n arbetar och listan visas.
   if (working && !$("view-groups").hidden) sentTimer = setTimeout(renderSent, 15000);
+}
+
+function sentRow(l) {
+  const li = Object.assign(document.createElement("li"), { className: "g-row" });
+  const open = Object.assign(document.createElement("button"), { type: "button", className: "open" });
+  const info = Object.assign(document.createElement("div"), { className: "info" });
+  info.append(
+    Object.assign(document.createElement("div"), { className: "name", textContent: l.title || l.note || "Annons" }),
+    Object.assign(document.createElement("div"), {
+      className: "line",
+      textContent: [l.price ? kr(l.price) : "", l.channel, l.confirmed ? `nr ${l.confirmed} ✓` : "", l.status === "Fel" ? l.error : ""]
+        .filter(Boolean)
+        .join(" · ") || (l.note ? `Anteckning: ${l.note}` : ""),
+    }),
+  );
+  open.append(Object.assign(document.createElement("img"), { src: l.image_urls?.[0] ?? "", alt: "" }), info);
+  const pill = Object.assign(document.createElement("span"), { className: `pill status ${STATUS_PILL[l.status] ?? "wait"}`, textContent: l.status });
+  if (["Klar", "Godkänd", "Exporterad", "Fel"].includes(l.status)) open.addEventListener("click", () => openReview(l.id));
+  if (l.status === "Klar") {
+    const check = Object.assign(document.createElement("input"), { type: "checkbox", checked: !approveSkip.has(l.id), ariaLabel: "Markera för godkännande" });
+    check.addEventListener("change", () => {
+      if (check.checked) approveSkip.delete(l.id);
+      else approveSkip.add(l.id);
+      renderApproveBar();
+    });
+    li.append(check);
+  }
+  li.append(open, pill);
+  return li;
 }
 
 // ---------- godkänn flera på en gång ----------
