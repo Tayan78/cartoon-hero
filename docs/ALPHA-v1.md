@@ -1,6 +1,6 @@
 # Loppisskannern – Alpha v1
 
-**Status per 2026-10-26.** Allt nedan är byggt, mergat till `master` (PR #1–#25) och driftsatt på Vercel. Nästa steg är ett skarpt test i veckan: fota främst Schleich-djur och skicka dem för berikning och modellidentifiering.
+**Status per 2026-10-26.** Allt nedan är byggt, mergat till `master` (PR #1–#28) och driftsatt på Vercel. Det första skarpa testet är gjort: 23 Schleich-annonser exporterades till ProLister utan importfel, och 4 av 23 behövde ett annat modellnummer. Rättningarna från testet (bilder från bildbiblioteket, *Godkänn markerade*) och startsidan ingår.
 
 Det som inte är byggt än finns i [BACKLOG.md](BACKLOG.md).
 
@@ -20,10 +20,10 @@ Dessutom finns:
 - **Google Sheet**: logg över allt, plus flikarna Lager och Annonser.
 
 
-**Startsidan** har knappar till alla delar (Skanna, Fota annonser, Annonser, Historik, Inställningar) och tre mått:
-- **Google Lens:** sökningar kvar hos SerpApi, hämtas live.
+**Startsidan** är det första du ser när appen öppnas. Den har knappar till alla delar (Skanna, Fota annonser, Annonser, Historik, Inställningar) och tre mått som hämtas varje gång du kommer tillbaka till den:
+- **Google Lens:** sökningar kvar hos SerpApi av 250, hämtas live. Mätaren blir gul och sedan röd när kvoten börjar ta slut.
 - **Google Cloud:** saldo kvar. Det räknas från din senaste avläsning i Google Cloud (⚙︎ → Budget) plus appens egen kostnadsräkning sedan dess, eftersom Google inte visar saldot via API.
-- **Publicerade via appen:** antal annonser med status *Exporterad*.
+- **Publicerade via appen:** antal annonser med status *Exporterad* i fliken Annonser. Under siffran visas hur många som är klara eller godkända men inte exporterade än.
 
 Alla andra vyer har en **tillbaka-pil** (←) högst upp.
 ---
@@ -169,6 +169,7 @@ Efter en ändrad variabel: **Deployments → Redeploy**. Efter en merge deployar
 - **Skriptegenskaper:**
   - `SECRET` sätts av dig.
   - `PROCESS_URL` och `QUEUE_BUSY_UNTIL` sätts av skriptet.
+- **Funktioner som appen anropar** (utöver loggningen): `addListing`, `addListingImage`, `commitListing`, `listListings`, `updateListing`, `approveListings` (Godkänn markerade), `requeueListing`, `deleteListing`, `saveExport` och `summary` (siffrorna till startsidan).
 - **Flikar:**
   - **Skanningar:** alla skanningar, 48 kolumner med beslut, vinst och kostnad.
   - **Lager:** "Spara till lager" och godkända annonser.
@@ -184,6 +185,7 @@ Allt sparas i telefonen och skickas med varje anrop:
 - köpregler
 - fast avslutning i annonser
 - ProLister-standard för Schleich (kategori, skick, frakt)
+- **Budget:** Google Cloud-saldot och vad som är förbrukat, avläst i Google Cloud Console. Tidpunkten sparas när du ändrar *förbrukat*, och startsidan räknar sedan av appens egen kostnad från den tidpunkten.
 
 ---
 
@@ -202,7 +204,9 @@ Allt sparas i telefonen och skickas med varje anrop:
 
 ## 7. Kända begränsningar i Alpha v1
 
-- **Inte verifierat i ProLister:** att kolumnen `shipping` (sex fraktsätt) och `Mapp` mappas vid import, och att `/bild/<id>.jpg` hämtas. `skick` är verifierat.
+- **ProLister-importen är verifierad** i det första skarpa testet (23 annonser, inga fel): bilder, `skick`, frakt och `Mapp`.
+- **Google Cloud-saldot på startsidan är en uppskattning.** Google visar inte saldot via API, så appen räknar från din senaste avläsning. Läs av i Google Cloud Console ibland och skriv in det under ⚙︎ → Budget.
+- **SerpApi visar inte när kvoten nollställs**, bara hur många sökningar som är kvar.
 - **iOS stoppar webbappar som är stängda.** Uppladdning som inte hunnit klart fortsätter först när appen öppnas igen. AI-kön på servern påverkas inte.
 - **Historiken och ej skickade annonser finns bara i den telefon de skapades i.** Sheet är den gemensamma loggen.
 - **Inget riktigt "sålt pris" i skanningen.** Priset bygger på aktiva annonser. Tradera-annonser som Lens hittar och som har avslutats med bud visas som sålda, men används inte i beslutet.
@@ -252,3 +256,6 @@ Skicka "Visa rådata", eller raden i fliken Annonser, för de annonser där någ
 | #21 | 8 bilder per annons, fast Schleich-mall, egen avslutning |
 | #22 | Uppladdning i bakgrunden medan du fotar |
 | #23–#25 | C3: export till ProLister, samma format som ProListers egen export, `skick`, `Mapp` |
+| #26 | Dokumentation: Alpha v1 och backlog |
+| #27 | Rättningar från första skarpa testet: snabbare och stabilare bilder från bildbiblioteket, *Godkänn markerade* |
+| #28 | Startsida med Lens-kvot, Google Cloud-saldo och antal publicerade annonser, tillbaka-pil, budget i inställningarna |
