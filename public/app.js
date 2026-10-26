@@ -90,12 +90,21 @@ const TITLES = {
   settings: "Inställningar",
 };
 let currentView = "home";
+// Flikraden: vilken flik som lyser för varje vy.
+const TAB_ROOTS = ["home", "scan", "capture", "groups", "history"];
+const TAB_OF = { result: null, review: "groups", settings: null };
+function markTab(name) {
+  const tab = name === "result" ? (historyIndex >= 0 ? "history" : "scan") : name in TAB_OF ? TAB_OF[name] : name;
+  for (const b of document.querySelectorAll("#tabbar .tab")) b.classList.toggle("on", b.dataset.tab === tab);
+}
 function show(name) {
   if (name !== "capture") stopCamera();
   for (const v of views) $(`view-${v}`).hidden = v !== name;
   currentView = name;
   $("top-title").textContent = TITLES[name] ?? "Loppisskannern";
-  $("btn-back").hidden = name === "home";
+  // Tillbaka-pilen behövs bara under en flik (resultat, granskning, inställningar …).
+  $("btn-back").hidden = TAB_ROOTS.includes(name) && !(name === "capture" && captureFrom === "groups");
+  markTab(name);
   $("btn-settings").hidden = name === "settings";
   window.scrollTo(0, 0);
 }
@@ -1539,6 +1548,13 @@ function goBack() {
 }
 
 $("btn-back").addEventListener("click", goBack);
+const TAB_OPEN = { home: openHome, scan: resetScan, capture: () => openCapture(null, "home"), groups: openGroups, history: openHistory };
+for (const b of document.querySelectorAll("#tabbar .tab")) {
+  b.addEventListener("click", () => {
+    if (currentView === "capture" && groupPhotos.length && !editingGroup && !confirm("Bilderna för den här annonsen är inte sparade. Lämna ändå?")) return;
+    TAB_OPEN[b.dataset.tab]();
+  });
+}
 $("h-go-scan").addEventListener("click", resetScan);
 $("h-go-capture").addEventListener("click", () => openCapture(null, "home"));
 $("h-go-groups").addEventListener("click", openGroups);
