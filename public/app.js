@@ -72,14 +72,31 @@ const getSettings = () => {
     tradera: s?.tradera ?? true,
     decision: { ...DEFAULT_SETTINGS.decision, ...(s?.decision ?? {}) },
     listing: { ...DEFAULT_SETTINGS.listing, ...(s?.listing ?? {}) },
+    // Startsidans budget: saldo och förbrukat enligt Google Cloud, och när du läste av.
+    budget: { google_limit: 50, google_spent: 0, google_spent_at: "", ...(s?.budget ?? {}) },
   };
 };
 
 // ---------- vyer ----------
-const views = ["scan", "result", "history", "capture", "groups", "review", "settings"];
+const views = ["home", "scan", "result", "history", "capture", "groups", "review", "settings"];
+const TITLES = {
+  home: "Loppisskannern",
+  scan: "Skanna",
+  result: "Resultat",
+  history: "Historik",
+  capture: "Fota annonser",
+  groups: "Annonser",
+  review: "Granska annons",
+  settings: "Inställningar",
+};
+let currentView = "home";
 function show(name) {
   if (name !== "capture") stopCamera();
   for (const v of views) $(`view-${v}`).hidden = v !== name;
+  currentView = name;
+  $("top-title").textContent = TITLES[name] ?? "Loppisskannern";
+  $("btn-back").hidden = name === "home";
+  $("btn-settings").hidden = name === "settings";
   window.scrollTo(0, 0);
 }
 
@@ -679,14 +696,13 @@ async function openHistoryCard(index) {
   $("h-pos").textContent = `${index + 1} av ${historyIds.length}`;
   $("h-prev").disabled = index <= 0;
   $("h-next").disabled = index >= historyIds.length - 1;
-  $("btn-back-history").hidden = false;
   $("btn-delete").hidden = false;
   show("result");
 }
 
 function leaveHistoryCard() {
   historyIndex = -1;
-  for (const id of ["hist-nav", "r-meta", "btn-back-history", "btn-delete"]) $(id).hidden = true;
+  for (const id of ["hist-nav", "r-meta", "btn-delete"]) $(id).hidden = true;
 }
 
 function stepHistory(delta) {
@@ -694,10 +710,6 @@ function stepHistory(delta) {
   if (historyIndex >= 0 && next >= 0 && next < historyIds.length) openHistoryCard(next);
 }
 
-$("btn-history").addEventListener("click", openHistory);
-$("btn-open-history").addEventListener("click", openHistory);
-$("btn-history-close").addEventListener("click", resetScan);
-$("btn-back-history").addEventListener("click", openHistory);
 $("h-prev").addEventListener("click", () => stepHistory(-1));
 $("h-next").addEventListener("click", () => stepHistory(1));
 
@@ -822,7 +834,10 @@ function addGroupPhoto(dataUrl) {
   renderCapture();
 }
 
-async function openCapture(group = null) {
+let captureFrom = "home"; // vart tillbaka-pilen leder från fotovyn
+
+async function openCapture(group = null, from = currentView === "groups" ? "groups" : "home") {
+  captureFrom = from;
   editingGroup = group;
   groupPhotos = group ? [...group.photos] : [];
   $("c-note").value = group?.note ?? "";
@@ -948,7 +963,6 @@ async function selectAll(selected) {
 $("g-all").addEventListener("click", () => selectAll(true));
 $("g-none").addEventListener("click", () => selectAll(false));
 $("g-capture").addEventListener("click", () => openCapture());
-$("g-close").addEventListener("click", resetScan);
 // Uppladdningen sker i bakgrunden medan du fotar: varje annons laddas upp när
 // du trycker Nästa. "Skicka till AI" lägger bara de uppladdade annonserna i kön.
 // Avbryts något (skärmen släcks, täckningen försvinner) fortsätter det av sig
@@ -1334,7 +1348,6 @@ async function saveReview(status) {
 
 $("v-approve").addEventListener("click", () => saveReview("Godkänd"));
 $("v-save").addEventListener("click", () => saveReview(""));
-$("v-back").addEventListener("click", openGroups);
 $("v-retry").addEventListener("click", async () => {
   try {
     await listingsApi({ action: "requeue", id: reviewing.id, confirmed: reviewing.confirmed || "" });
@@ -1412,11 +1425,9 @@ $("v-copy").addEventListener("click", async () => {
     $("v-hint").textContent = "Markera texten och kopiera.";
   }
 });
-$("btn-groups").addEventListener("click", openGroups);
-$("btn-open-capture").addEventListener("click", () => openCapture());
 
 // ---------- inställningar ----------
-let viewBeforeSettings = "scan";
+let viewBeforeSettings = "home";
 
 function numberInput(value) {
   return Object.assign(document.createElement("input"), {
@@ -1480,6 +1491,11 @@ function openSettings(message = "") {
     })(),
   );
   $("s-closing").value = s.listing.closing;
+  $("s-google-limit").value = s.budget.google_limit || "";
+  $("s-google-spent").value = s.budget.google_spent || "";
+  $("s-google-at").textContent = s.budget.google_spent_at
+    ? `Senast avläst ${new Date(s.budget.google_spent_at).toLocaleString("sv-SE", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}. Ändrar du "förbrukat" räknas tiden från nu.`
+    : "";
   $("s-schleich-category").value = s.listing.schleich_category;
   $("s-schleich-condition").value = s.listing.schleich_condition ?? s.listing.schleich_attributes?.replace(/^\s*\d+\s*:\s*/, "") ?? "";
   $("s-schleich-shipping").value = s.listing.schleich_shipping;
@@ -1497,7 +1513,94 @@ function openSettings(message = "") {
 }
 
 $("btn-settings").addEventListener("click", () => openSettings());
-$("btn-settings-close").addEventListener("click", () => show(viewBeforeSettings));
+// ---------- startsidan och tillbaka-pilen ----------
+function openHome() {
+  leaveHistoryCard();
+  show("home");
+  renderHome();
+}
+
+// Tillbaka går ett steg upp: granskning → annonser, kort i historiken → historik,
+// resultat → skanna, inställningar → där du var, allt annat → startsidan.
+function goBack() {
+  if (currentView === "capture" && groupPhotos.length && !editingGroup && !confirm("Bilderna för den här annonsen är inte sparade. Lämna ändå?")) return;
+  if (currentView === "review") return openGroups();
+  if (currentView === "result") return historyIndex >= 0 ? openHistory() : show("scan");
+  if (currentView === "capture") return captureFrom === "groups" ? openGroups() : openHome();
+  if (currentView === "settings" && viewBeforeSettings !== "home") return show(viewBeforeSettings);
+  openHome();
+}
+
+$("btn-back").addEventListener("click", goBack);
+$("h-go-scan").addEventListener("click", resetScan);
+$("h-go-capture").addEventListener("click", () => openCapture(null, "home"));
+$("h-go-groups").addEventListener("click", openGroups);
+$("h-go-history").addEventListener("click", openHistory);
+$("h-go-settings").addEventListener("click", () => openSettings());
+
+const sek = (n) => `${n.toFixed(2).replace(".", ",")} kr`;
+function meter(id, share) {
+  const bar = $(id);
+  const p = Math.max(0, Math.min(1, share));
+  bar.style.width = `${Math.round(p * 100)}%`;
+  bar.className = p <= 0.05 ? "empty" : p <= 0.2 ? "low" : "";
+}
+
+// Siffrorna på startsidan: Lens live från SerpApi, Google Cloud från din
+// avläsning + appens räkning sedan dess, och antal exporterade annonser.
+async function renderHome() {
+  const groups = await allGroups().catch(() => []);
+  $("h-capture-note").textContent = groups.length
+    ? `${groups.length} ${groups.length === 1 ? "annons" : "annonser"} i telefonen, inte skickade`
+    : "Fota det du ska sälja";
+  if (!getToken()) return;
+  const budget = getSettings().budget;
+  let data;
+  try {
+    const res = await fetch("/api/home", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-app-token": getToken() },
+      body: JSON.stringify({ since: budget.google_spent_at }),
+    });
+    data = await res.json();
+    if (!res.ok) throw new Error(data.error || `Fel ${res.status}`);
+    $("h-status").textContent = "";
+  } catch (err) {
+    $("h-status").textContent = `⚠️ Kunde inte hämta siffrorna: ${err.message}`;
+    return;
+  }
+
+  const lens = data.lens;
+  if (lens?.left != null) {
+    const total = lens.per_month ?? 250;
+    $("m-lens").textContent = `${lens.left} kvar av ${total}`;
+    meter("m-lens-bar", lens.left / total);
+    $("m-lens-note").textContent = lens.used != null ? `${lens.used} använda denna period` : "";
+  } else {
+    $("m-lens").textContent = "–";
+    $("m-lens-note").textContent = lens?.error ? `⚠️ ${lens.error}` : "SerpApi är inte inställt";
+  }
+
+  if (budget.google_limit > 0 && data.usage && !data.usage.error) {
+    const spent = (Number(budget.google_spent) || 0) + (data.usage.sek_since ?? 0);
+    const left = budget.google_limit - spent;
+    $("m-google").textContent = `${sek(Math.max(0, left))} kvar av ${sek(budget.google_limit)}`;
+    meter("m-google-bar", left / budget.google_limit);
+    const at = budget.google_spent_at ? new Date(budget.google_spent_at).toLocaleDateString("sv-SE", { day: "numeric", month: "short" }) : "";
+    $("m-google-note").textContent = at
+      ? `${sek(spent)} förbrukat · avläst ${at} + ${sek(data.usage.sek_since ?? 0)} sedan dess`
+      : `${sek(spent)} förbrukat enligt appen · stäm av under ⚙︎ → Budget`;
+  } else {
+    $("m-google").textContent = "–";
+    $("m-google-note").textContent = data.usage?.error ? `⚠️ ${data.usage.error}` : "Ställ in saldot under ⚙︎ → Budget";
+  }
+
+  const l = data.listings;
+  $("m-exported").textContent = l ? String(l.exported) : "–";
+  $("h-groups-note").textContent = l
+    ? [l.ready ? `${l.ready} att granska` : "", l.approved ? `${l.approved} godkända att exportera` : ""].filter(Boolean).join(" · ") || "Skicka, granska och exportera"
+    : "Skicka, granska och exportera";
+}
 
 $("btn-settings-save").addEventListener("click", () => {
   store.set("token", $("s-token").value.trim());
@@ -1517,6 +1620,14 @@ $("btn-settings-save").addEventListener("click", () => {
     if (input.value !== "" && Number.isFinite(n) && n >= 0) s.decision[input.dataset.rule] = n;
   }
   s.listing.closing = $("s-closing").value.trim();
+  const limit = Number($("s-google-limit").value);
+  const spent = Number($("s-google-spent").value);
+  if (Number.isFinite(limit) && limit >= 0) s.budget.google_limit = limit;
+  // Ny avläsning: appen räknar bara med det som körts efter den här tidpunkten.
+  if (Number.isFinite(spent) && spent >= 0 && (spent !== s.budget.google_spent || !s.budget.google_spent_at)) {
+    s.budget.google_spent = spent;
+    s.budget.google_spent_at = new Date().toISOString();
+  }
   s.listing.schleich_category = $("s-schleich-category").value.trim();
   s.listing.schleich_condition = $("s-schleich-condition").value.trim();
   delete s.listing.schleich_attributes;
@@ -1556,4 +1667,7 @@ $("btn-test").addEventListener("click", async () => {
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 if (!getToken()) openSettings("Välkommen! Ange ditt lösenord (APP_TOKEN) och tryck Spara.");
-else retryFailed();
+else {
+  openHome();
+  retryFailed();
+}

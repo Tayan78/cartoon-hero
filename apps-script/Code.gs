@@ -75,6 +75,7 @@ function doPost(e) {
       if (body.action === 'deleteListing') return reply(deleteListing(body));
       if (body.action === 'saveExport') return reply(saveExport(body));
       if (body.action === 'approveListings') return reply(approveListings(body));
+      if (body.action === 'summary') return reply(summary(body));
       return reply({ ok: false, error: 'Okänd action' });
     } finally {
       lock.releaseLock();
@@ -274,6 +275,38 @@ function updateListing(body) {
   setCells(sh, row, values);
   if (f.status === 'Godkänd') addListingToInventory(sh, row);
   return { ok: true };
+}
+
+// Siffrorna på appens startsida: kostnad sedan en tidpunkt (din senaste avläsning
+// av Google Cloud), antal exporterade annonser och hur många som väntar på dig.
+function summary(body) {
+  var since = body.since ? new Date(body.since).getTime() : 0;
+  var sek = 0;
+  var sumSince = function (name, timeHeader) {
+    var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name);
+    if (!sh || sh.getLastRow() < 2) return [];
+    var c = cols(sh);
+    var rows = sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues();
+    rows.forEach(function (r) {
+      var t = new Date(r[c[timeHeader] - 1]).getTime() || 0;
+      var v = Number(r[c['Kostnad SEK'] - 1]) || 0;
+      if (t >= since) sek += v;
+    });
+    return { rows: rows, c: c };
+  };
+  sumSince('Skanningar', 'Tid');
+  var listings = sumSince('Annonser', 'Skapad');
+  var count = function (status) {
+    if (!listings.rows) return 0;
+    return listings.rows.filter(function (r) { return r[listings.c['Status'] - 1] === status; }).length;
+  };
+  return {
+    ok: true,
+    sek_since: Math.round(sek * 100) / 100,
+    exported: count('Exporterad'),
+    ready: count('Klar'),
+    approved: count('Godkänd')
+  };
 }
 
 // Godkänn flera på en gång: [{ id, confirmed }]. Bara annonser med status Klar.

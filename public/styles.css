@@ -26,7 +26,9 @@ body {
   min-height: 100dvh;
 }
 
-.top { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; }
+.top { display: flex; align-items: center; gap: 8px; padding: 12px 0; }
+.top h1 { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.icon-btn.back { font-size: 28px; color: var(--text); padding: 4px 10px 4px 0; }
 .top h1 { font-size: 20px; margin: 0; }
 .icon-btn { background: none; border: 0; color: var(--muted); font-size: 26px; padding: 8px; }
 .top-buttons { display: flex; gap: 4px; }
@@ -268,3 +270,25 @@ button:disabled { opacity: .4; }
 .c-photos.eight .c-slot button { width: 24px; height: 24px; font-size: 16px; }
 .link-btn { display: block; text-align: center; text-decoration: none; border-radius: var(--radius); }
 #g-sent .g-row input[type="checkbox"] { width: 24px; height: 24px; flex: none; accent-color: var(--accent); }
+
+/* Startsida */
+.metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.metric { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.metric.wide { grid-column: 1 / -1; flex-direction: row; align-items: baseline; flex-wrap: wrap; column-gap: 12px; }
+.metric.wide .metric-label { width: 100%; }
+.metric-label { color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; }
+.metric-value { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.metric-value.big-number { font-size: 34px; line-height: 1; }
+.metric-note { color: var(--muted); font-size: 13px; }
+.meter { height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+.meter span { display: block; height: 100%; width: 0; background: var(--green); border-radius: 3px; }
+.meter span.low { background: var(--yellow); }
+.meter span.empty { background: var(--red); }
+.home-nav { display: flex; flex-direction: column; gap: 10px; }
+.home-btn { display: flex; align-items: center; gap: 14px; text-align: left; width: 100%; padding: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; color: var(--text); font: inherit; }
+.home-btn:active { background: var(--surface-2); }
+.home-btn .home-icon { font-size: 28px; width: 40px; text-align: center; flex: none; }
+.home-btn b { display: block; font-size: 19px; }
+.home-btn small { display: block; color: var(--muted); font-size: 14px; }
+#h-go-scan { background: var(--accent); border-color: var(--accent); color: #fff; }
+#h-go-scan small { color: rgba(255, 255, 255, 0.85); }

@@ -16,17 +16,61 @@
 </head>
 <body>
   <header class="top">
-    <h1>Loppisskannern</h1>
-    <div class="top-buttons">
-      <button id="btn-groups" class="icon-btn" aria-label="Annonser">📦</button>
-      <button id="btn-history" class="icon-btn" aria-label="Historik">🕘</button>
-      <button id="btn-settings" class="icon-btn" aria-label="Inställningar">⚙︎</button>
-    </div>
+    <button id="btn-back" class="icon-btn back" aria-label="Tillbaka" hidden>←</button>
+    <h1 id="top-title">Loppisskannern</h1>
+    <button id="btn-settings" class="icon-btn" aria-label="Inställningar">⚙︎</button>
   </header>
 
   <main>
+    <!-- Startsida -->
+    <section id="view-home" class="view">
+      <div class="metrics">
+        <div class="metric">
+          <span class="metric-label">Google Lens</span>
+          <span id="m-lens" class="metric-value">–</span>
+          <div class="meter"><span id="m-lens-bar"></span></div>
+          <span id="m-lens-note" class="metric-note"></span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Google Cloud</span>
+          <span id="m-google" class="metric-value">–</span>
+          <div class="meter"><span id="m-google-bar"></span></div>
+          <span id="m-google-note" class="metric-note"></span>
+        </div>
+        <div class="metric wide">
+          <span class="metric-label">Publicerade via appen</span>
+          <span id="m-exported" class="metric-value big-number">–</span>
+          <span id="m-exported-note" class="metric-note">annonser exporterade till ProLister</span>
+        </div>
+      </div>
+
+      <nav class="home-nav" aria-label="Delar av appen">
+        <button id="h-go-scan" type="button" class="home-btn">
+          <span class="home-icon">📷</span>
+          <span><b>Skanna</b><small>Köpbeslut på loppis</small></span>
+        </button>
+        <button id="h-go-capture" type="button" class="home-btn">
+          <span class="home-icon">📦</span>
+          <span><b>Fota annonser</b><small id="h-capture-note">Fota det du ska sälja</small></span>
+        </button>
+        <button id="h-go-groups" type="button" class="home-btn">
+          <span class="home-icon">📋</span>
+          <span><b>Annonser</b><small id="h-groups-note">Skicka, granska och exportera</small></span>
+        </button>
+        <button id="h-go-history" type="button" class="home-btn">
+          <span class="home-icon">🕘</span>
+          <span><b>Historik</b><small>Alla skanningar</small></span>
+        </button>
+        <button id="h-go-settings" type="button" class="home-btn">
+          <span class="home-icon">⚙︎</span>
+          <span><b>Inställningar</b><small>Lösenord, regler, budget</small></span>
+        </button>
+      </nav>
+      <p id="h-status" class="hint"></p>
+    </section>
+
     <!-- Skanna -->
-    <section id="view-scan" class="view">
+    <section id="view-scan" class="view" hidden>
       <label class="camera" id="camera-label">
         <input id="photo" type="file" accept="image/*" capture="environment" hidden>
         <img id="preview" alt="" hidden>
@@ -58,8 +102,6 @@
 
       <button id="btn-scan" class="primary big" disabled>Skanna</button>
       <p id="scan-hint" class="hint"></p>
-      <button id="btn-open-history" class="secondary big">🕘 Historik</button>
-      <button id="btn-open-capture" class="secondary big">📦 Fota annonser</button>
     </section>
 
     <!-- Annonsläge: fota en artikel i taget (max 3 bilder, första = huvudbild) -->
@@ -131,7 +173,6 @@
         <button id="g-export-save" type="button" class="secondary big">💾 Spara / dela filen</button>
         <a id="g-export-drive" class="secondary big link-btn" target="_blank" rel="noopener">Öppna i Drive</a>
       </div>
-      <button id="g-close" class="secondary big">Tillbaka</button>
     </section>
 
     <!-- Granska en berikad annons -->
@@ -180,7 +221,6 @@
         <button id="v-retry" class="primary big" hidden>Försök igen</button>
         <button id="v-save" class="secondary big">Spara ändringar</button>
         <button id="v-copy" class="secondary big">📋 Kopiera rubrik och text</button>
-        <button id="v-back" class="secondary big">Tillbaka</button>
         <button id="v-delete" class="secondary big danger">Ta bort annonsen</button>
       </div>
     </section>
@@ -206,7 +246,6 @@
       </div>
       <ul id="h-list" class="hist-list"></ul>
       <p id="h-empty" class="hint" hidden></p>
-      <button id="btn-history-close" class="secondary big">Tillbaka</button>
     </section>
 
     <!-- Resultat -->
@@ -273,7 +312,6 @@
 
       <div class="actions">
         <button id="btn-save" class="primary big" hidden>Spara till lager</button>
-        <button id="btn-back-history" class="secondary big" hidden>Tillbaka till historiken</button>
         <button id="btn-new" class="secondary big">Ny skanning</button>
         <button id="btn-delete" class="secondary big danger" hidden>Ta bort från historiken</button>
       </div>
@@ -345,6 +383,18 @@
       </label>
       <p class="hint">Från din egen ProLister-export (kolumnerna category, skick och shipping). Lämna tomt för att sätta i ProLister.</p>
 
+      <h3>Budget (startsidan)</h3>
+      <p class="hint">Google visar inte saldot via API. Skriv in vad Google Cloud visar, så räknar appen med allt som körts efter avläsningen.</p>
+      <label class="field">
+        <span>Google Cloud: saldo (kr)</span>
+        <input id="s-google-limit" type="number" inputmode="decimal" min="0" step="any" placeholder="50">
+      </label>
+      <label class="field">
+        <span>Google Cloud: förbrukat enligt Google (kr)</span>
+        <input id="s-google-spent" type="number" inputmode="decimal" min="0" step="any" placeholder="6.02">
+      </label>
+      <p id="s-google-at" class="hint"></p>
+
       <h3>Köpregler</h3>
       <p class="hint">Vinst = netto efter avgift och frakt − inköp. Multipel = netto / inköp. Grön kräver vinst ≥ minsta vinst och (multipel ≥ minsta multipel eller inköp ≥ stort köp). Osäkert pris ger högst gul.</p>
       <div id="s-rules" class="rules"></div>
@@ -363,7 +413,6 @@
 
       <div class="actions">
         <button id="btn-settings-save" class="primary big">Spara</button>
-        <button id="btn-settings-close" class="secondary big">Tillbaka</button>
       </div>
     </section>
   </main>

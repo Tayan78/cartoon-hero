@@ -19,6 +19,13 @@ Dessutom finns:
 - **Historik** 🕘: alla skanningar sparas i telefonen.
 - **Google Sheet**: logg över allt, plus flikarna Lager och Annonser.
 
+
+**Startsidan** har knappar till alla delar (Skanna, Fota annonser, Annonser, Historik, Inställningar) och tre mått:
+- **Google Lens:** sökningar kvar hos SerpApi, hämtas live.
+- **Google Cloud:** saldo kvar. Det räknas från din senaste avläsning i Google Cloud (⚙︎ → Budget) plus appens egen kostnadsräkning sedan dess, eftersom Google inte visar saldot via API.
+- **Publicerade via appen:** antal annonser med status *Exporterad*.
+
+Alla andra vyer har en **tillbaka-pil** (←) högst upp.
 ---
 
 ## 2. Teknik i korthet
