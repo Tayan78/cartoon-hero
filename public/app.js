@@ -1688,6 +1688,37 @@ $("btn-test").addEventListener("click", async () => {
   }
 });
 
+// Test: söker avslutade "lego kg"-partier på Tradera och visar vad som går att få ut.
+$("btn-test-lego").addEventListener("click", async () => {
+  const out = $("s-test-lego");
+  out.textContent = "Söker på Tradera…";
+  try {
+    const res = await fetch("/api/ping?probe=lego", { headers: { "x-app-token": $("s-token").value.trim() } });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `Fel ${res.status}`);
+    const variant = (v) =>
+      v.error
+        ? `✗ ${v.name}: ${v.error}`
+        : `${v.ended ? "✓" : "–"} ${v.name}: ${v.count} träffar (totalt ${v.total}), ${v.ended} avslutade, ${v.sold} med bud, ${v.with_kg} med vikt` +
+          (v.median_kr_per_kg ? `, median ${v.median_kr_per_kg} kr/kg (${v.priced} st)` : "") +
+          (v.errors?.length ? ` · fel: ${JSON.stringify(v.errors).slice(0, 120)}` : "");
+    const lot = (l) =>
+      `• ${l.title.slice(0, 60)} – ${l.price ? kr(l.price) : "inget pris"}, ${l.bids} bud, ${l.kg ? `${String(l.kg).replace(".", ",")} kg` : "vikt?"}` +
+      (l.kr_per_kg ? ` = ${l.kr_per_kg} kr/kg` : "") +
+      ` (${String(l.end).slice(0, 10)}${l.sold ? ", såld" : ""})`;
+    const fields = data.variants.find((v) => v.fields?.length)?.fields ?? [];
+    out.textContent = [
+      `Sökning: "${data.query}"`,
+      ...data.variants.map(variant),
+      data.sample.length ? `\nAvslutade (${data.best}):` : "\nInga avslutade annonser hittades.",
+      ...data.sample.map(lot),
+      fields.length ? `\nFält: ${fields.join(", ")}` : "",
+    ].join("\n");
+  } catch (err) {
+    out.textContent = `✗ ${err.message}`;
+  }
+});
+
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 if (!getToken()) openSettings("Välkommen! Ange ditt lösenord (APP_TOKEN) och tryck Spara.");
 else {
