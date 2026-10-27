@@ -78,7 +78,7 @@ const getSettings = () => {
 };
 
 // ---------- vyer ----------
-const views = ["home", "scan", "result", "history", "capture", "groups", "review", "settings"];
+const views = ["home", "scan", "result", "history", "capture", "groups", "review", "settings", "lego"];
 const TITLES = {
   home: "Loppisskannern",
   scan: "Skanna",
@@ -88,6 +88,7 @@ const TITLES = {
   groups: "Annonser",
   review: "Granska annons",
   settings: "Inställningar",
+  lego: "Lego i bulk",
 };
 let currentView = "home";
 // Flikraden: vilken flik som lyser för varje vy.
@@ -1559,6 +1560,7 @@ $("h-go-scan").addEventListener("click", resetScan);
 $("h-go-capture").addEventListener("click", () => openCapture(null, "home"));
 $("h-go-groups").addEventListener("click", openGroups);
 $("h-go-history").addEventListener("click", openHistory);
+$("h-go-lego").addEventListener("click", openLego);
 $("h-go-settings").addEventListener("click", () => openSettings());
 
 const sek = (n) => `${n.toFixed(2).replace(".", ",")} kr`;
@@ -1687,6 +1689,149 @@ $("btn-test").addEventListener("click", async () => {
     $("s-test").textContent = `✗ ${err.message}`;
   }
 });
+
+// ---------- Lego i bulk ----------
+// Kilopris från sålda Tradera-partier. Senaste hämtningen sparas i telefonen och
+// visas direkt; ny hämtning när den är äldre än 12 timmar eller när du ber om det.
+let lego = store.get("lego", null);
+let legoPeriod = "d90";
+let legoShown = 50;
+const kgText = (kg) => `${String(kg).replace(".", ",")} kg`;
+
+async function legoApi(body) {
+  const res = await fetch("/api/lego", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-app-token": getToken() },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok) throw new Error(data.error || `Fel ${res.status}`);
+  return data;
+}
+
+function openLego() {
+  show("lego");
+  renderLego();
+  if (!lego || Date.now() - Date.parse(lego.fetched_at) > 12 * 60 * 60 * 1000) fetchLego();
+}
+
+async function fetchLego() {
+  $("l-status").textContent = "Hämtar sålda partier från Tradera…";
+  $("l-refresh").disabled = true;
+  try {
+    lego = await legoApi({ action: "stats" });
+    store.set("lego", lego);
+    renderLego();
+  } catch (err) {
+    $("l-status").textContent = `⚠️ Kunde inte hämta: ${err.message}`;
+  } finally {
+    $("l-refresh").disabled = false;
+  }
+}
+
+const spread = (s) => (s?.n ? `${s.p25}–${s.p75} kr/kg · ${s.n} partier` : "för få partier");
+
+function renderLego() {
+  for (const b of document.querySelectorAll("#l-period .chip")) b.classList.toggle("on", b.dataset.period === legoPeriod);
+  if (!lego) return;
+  const p = lego.stats[legoPeriod];
+  const when = new Date(lego.fetched_at).toLocaleString("sv-SE", { dateStyle: "short", timeStyle: "short" });
+  $("l-status").textContent = `Kilopris från sålda auktioner på Tradera (med bud). Hämtat ${when}.`;
+  $("l-plain").textContent = p.plain.n ? `${p.plain.median} kr/kg` : "–";
+  $("l-plain-note").textContent = spread(p.plain);
+  $("l-figs").textContent = p.figs.n ? `${p.figs.median} kr/kg` : "–";
+  $("l-figs-note").textContent = spread(p.figs);
+  $("l-sizes").replaceChildren(
+    ...Object.entries(p.sizes).map(([name, s]) => {
+      const tr = document.createElement("tr");
+      for (const text of [name, s.n ? `${s.median} kr/kg` : "–", s.n ? `${s.p25}–${s.p75}` : "", String(s.n)]) tr.append(Object.assign(document.createElement("td"), { textContent: text }));
+      return tr;
+    }),
+  );
+  const ex = Object.entries(lego.excluded ?? {}).map(([why, n]) => `${n} ${why}`).join(", ");
+  $("l-info").textContent =
+    `${lego.used} sålda partier används (sedan ${String(lego.oldest).slice(0, 10)}). ` +
+    `${lego.unsold} avslutades utan bud och räknas inte` +
+    (ex ? `. Bortsorterade: ${ex}.` : ".") +
+    " Tryck på ett parti för att se det på Tradera.";
+  const since = { d30: 30, d90: 90 }[legoPeriod];
+  const list = lego.lots.filter((l) => !since || Date.now() - Date.parse(l.end) <= since * 86400000);
+  $("l-lots").replaceChildren(
+    ...list.slice(0, legoShown).map((l) => {
+      const li = document.createElement("li");
+      const a = Object.assign(document.createElement("a"), { href: l.url, target: "_blank", rel: "noopener" });
+      const t = Object.assign(document.createElement("div"), { className: "t" });
+      t.append(
+        Object.assign(document.createElement("b"), { textContent: l.title }),
+        Object.assign(document.createElement("small"), {
+          textContent: `${String(l.end).slice(0, 10)} · ${l.bids} bud · ${kgText(l.kg)}${l.figs ? " · figurer/tema" : ""}`,
+        }),
+      );
+      const k = Object.assign(document.createElement("div"), { className: "k", textContent: `${l.kr_per_kg} kr/kg` });
+      k.append(Object.assign(document.createElement("small"), { textContent: kr(l.price) }));
+      a.append(t, k);
+      li.append(a);
+      return li;
+    }),
+  );
+  $("l-more").hidden = list.length <= legoShown;
+  calcLego();
+}
+
+// Räknaren använder kilopriset för partier utan figurer i samma storlek (minst 8
+// partier), annars alla utan figurer – för vald period.
+let calcSeq = 0;
+async function calcLego() {
+  const weight = Number($("l-weight").value.replace(",", "."));
+  const price = Number($("l-price").value) || 0;
+  if (!lego || !(weight > 0)) {
+    $("l-result").hidden = true;
+    $("l-basis").textContent = lego ? "Skriv in vikten för att räkna." : "";
+    return;
+  }
+  const p = lego.stats[legoPeriod];
+  // Samma gränser som SIZES i lib/lego.js.
+  const size = weight < 3 ? "1–3 kg" : weight < 10 ? "3–10 kg" : "10 kg+";
+  const bySize = p.sizes[size];
+  const basis = bySize?.n >= 8 ? { s: bySize, text: `partier ${size} utan figurer` } : { s: p.plain, text: "alla partier utan figurer" };
+  if (!basis.s.n) {
+    $("l-result").hidden = true;
+    $("l-basis").textContent = "För få sålda partier för att räkna.";
+    return;
+  }
+  const seq = ++calcSeq;
+  try {
+    const r = await legoApi({ action: "calc", weight, price, kr_per_kg: basis.s.median, settings: getSettings() });
+    if (seq !== calcSeq) return;
+    const d = r.decision;
+    $("l-result").hidden = false;
+    $("l-result").className = `decision ${d.color}`;
+    $("l-verdict").textContent = d.verdict;
+    $("l-numbers").textContent =
+      `Värt ca ${kr(r.sale)} (${r.kr_per_kg} kr/kg × ${kgText(r.kg)}), netto ${kr(r.net)} efter avgift` +
+      (d.known ? ` · vinst ${kr(d.profit)}` : "");
+    $("l-basis").textContent =
+      `Räknat på median för ${basis.text} (${basis.s.n} st, spann ${basis.s.p25}–${basis.s.p75} kr/kg). ` +
+      "Köparen betalar frakten. Figurer du sorterar ut är en extra vinst ovanpå.";
+  } catch (err) {
+    if (seq === calcSeq) $("l-basis").textContent = `⚠️ ${err.message}`;
+  }
+}
+
+$("l-refresh").addEventListener("click", fetchLego);
+$("l-weight").addEventListener("input", calcLego);
+$("l-price").addEventListener("input", calcLego);
+$("l-more").addEventListener("click", () => {
+  legoShown += 50;
+  renderLego();
+});
+for (const b of document.querySelectorAll("#l-period .chip")) {
+  b.addEventListener("click", () => {
+    legoPeriod = b.dataset.period;
+    legoShown = 50;
+    renderLego();
+  });
+}
 
 // Test: söker avslutade "lego kg"-partier på Tradera och visar vad som går att få ut.
 $("btn-test-lego").addEventListener("click", async () => {

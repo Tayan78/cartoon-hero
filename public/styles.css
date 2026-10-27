@@ -295,6 +295,22 @@ button:disabled { opacity: .4; }
 .meter span.low { background: var(--yellow); }
 .meter span.empty { background: var(--red); }
 .home-nav { display: flex; flex-direction: column; gap: 10px; }
+
+/* Lego i bulk */
+.lego-sizes { width: 100%; border-collapse: collapse; font-size: 15px; font-variant-numeric: tabular-nums; }
+.lego-sizes th { text-align: left; color: var(--muted); font-weight: 600; font-size: 13px; padding: 4px 0; }
+.lego-sizes td { padding: 6px 0; border-top: 1px solid var(--line); }
+.lego-sizes td + td, .lego-sizes th + th { text-align: right; }
+#l-result.none { background: var(--surface); }
+#view-lego .metric-value.big-number { font-size: 26px; white-space: nowrap; }
+.lego-lots { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.lego-lots li { border-top: 1px solid var(--line); }
+.lego-lots a { display: flex; gap: 10px; padding: 10px 0; color: var(--text); text-decoration: none; }
+.lego-lots .t { flex: 1; min-width: 0; }
+.lego-lots .t b { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lego-lots .t small { color: var(--muted); font-size: 13px; }
+.lego-lots .k { flex: none; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+.lego-lots .k small { display: block; color: var(--muted); font-weight: 400; font-size: 13px; }
 .home-btn { display: flex; align-items: center; gap: 14px; text-align: left; width: 100%; padding: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; color: var(--text); font: inherit; }
 .home-btn:active { background: var(--surface-2); }
 .home-btn .home-icon { font-size: 28px; width: 40px; text-align: center; flex: none; }

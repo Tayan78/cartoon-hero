@@ -57,6 +57,10 @@
           <span class="home-icon">📋</span>
           <span><b>Annonser</b><small id="h-groups-note">Skicka, granska och exportera</small></span>
         </button>
+        <button id="h-go-lego" type="button" class="home-btn">
+          <span class="home-icon">🧱</span>
+          <span><b>Lego i bulk</b><small>Kilopris från sålda partier på Tradera</small></span>
+        </button>
         <button id="h-go-history" type="button" class="home-btn">
           <span class="home-icon">🕘</span>
           <span><b>Historik</b><small>Alla skanningar</small></span>
@@ -322,6 +326,52 @@
     </section>
 
     <!-- Inställningar -->
+    <!-- Lego i bulk: kilopris från sålda Tradera-partier -->
+    <section id="view-lego" class="view" hidden>
+      <div class="hist-head">
+        <h2>Lego i bulk</h2>
+        <button id="l-refresh" type="button" class="chip">↻ Hämta igen</button>
+      </div>
+      <p id="l-status" class="hint">Kilopris från sålda auktioner på Tradera (med bud).</p>
+      <div id="l-period" class="chips" role="group" aria-label="Period">
+        <button type="button" class="chip" data-period="d30">30 dagar</button>
+        <button type="button" class="chip on" data-period="d90">90 dagar</button>
+        <button type="button" class="chip" data-period="all">Allt</button>
+      </div>
+      <div class="metrics">
+        <div class="metric">
+          <span class="metric-label">Utan figurer</span>
+          <span id="l-plain" class="metric-value big-number">–</span>
+          <span id="l-plain-note" class="metric-note"></span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Med figurer/tema</span>
+          <span id="l-figs" class="metric-value big-number">–</span>
+          <span id="l-figs-note" class="metric-note"></span>
+        </div>
+      </div>
+      <table class="fees lego-sizes">
+        <thead><tr><th>Utan figurer</th><th>Median</th><th>Spann</th><th>Antal</th></tr></thead>
+        <tbody id="l-sizes"></tbody>
+      </table>
+
+      <h3>Räknare för ett parti</h3>
+      <div class="inline-field">
+        <label class="field"><span>Vikt (kg)</span><input id="l-weight" type="text" inputmode="decimal" placeholder="t.ex. 5"></label>
+        <label class="field"><span>Pris (kr, valfritt)</span><input id="l-price" type="number" inputmode="numeric" min="0" placeholder="t.ex. 300"></label>
+      </div>
+      <div id="l-result" class="decision" hidden>
+        <div id="l-verdict" class="verdict-text"></div>
+        <div id="l-numbers" class="decision-numbers"></div>
+      </div>
+      <p id="l-basis" class="hint"></p>
+
+      <h3>Sålda partier</h3>
+      <p id="l-info" class="hint"></p>
+      <ul id="l-lots" class="lego-lots"></ul>
+      <button id="l-more" class="secondary" hidden>Visa fler</button>
+    </section>
+
     <section id="view-settings" class="view" hidden>
       <h2>Inställningar</h2>
       <label class="field">
