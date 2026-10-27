@@ -125,3 +125,63 @@ test("namnord matchar utan mellanslag: 'Tinkersto' hittar 'Tinker sto'", async (
     globalThis.fetch = realFetch;
   }
 });
+
+import { endedLot, parseWeightKg, probeEndedSearch, summarizeLots } from "../lib/tradera.js";
+
+test("Vikt ur rubrik eller text: kg, kilo och gram", () => {
+  assert.equal(parseWeightKg("Lego blandat 5 kg"), 5);
+  assert.equal(parseWeightKg("LEGO bitar 2,3 kilo med figurer"), 2.3);
+  assert.equal(parseWeightKg("Lego 1.5kg"), 1.5);
+  assert.equal(parseWeightKg("Legobitar ca 800 g"), 0.8);
+  assert.equal(parseWeightKg("<p>Vikt: 3 kilogram</p>"), 3);
+  assert.equal(parseWeightKg("Lego 6 st minifigurer"), null);
+  assert.equal(parseWeightKg("Lego 5 g"), null); // för litet för ett parti
+});
+
+test("Avslutat parti: slutpris från högsta bud, kilopris", () => {
+  const lot = endedLot({ id: 7, shortDescription: "Lego 4 kg blandat", isEnded: true, hasBids: true, bidCount: 12, maxBid: 360, endDate: "2026-10-20T19:00:00Z" });
+  assert.equal(lot.sold, true);
+  assert.equal(lot.price, 360);
+  assert.equal(lot.kr_per_kg, 90);
+  const unsold = endedLot({ id: 8, shortDescription: "Lego", isEnded: true, hasBids: false, buyItNowPrice: 300, longDescription: "Väger 2 kg" });
+  assert.equal(unsold.sold, false);
+  assert.equal(unsold.kg, 2);
+});
+
+test("Sammanfattning: avslutade, med bud, median kr/kg", () => {
+  const s = summarizeLots({
+    totalNumberOfItems: 3,
+    items: [
+      { shortDescription: "Lego 2 kg", isEnded: true, hasBids: true, maxBid: 200 },
+      { shortDescription: "Lego 4 kg", isEnded: true, hasBids: true, maxBid: 480 },
+      { shortDescription: "Lego låda", isEnded: false, buyItNowPrice: 500 },
+    ],
+  });
+  assert.deepEqual([s.count, s.ended, s.sold, s.with_kg, s.priced], [3, 2, 2, 2, 2]);
+  assert.equal(s.median_kr_per_kg, 110);
+});
+
+test("Testsökning: provar varianter och väljer den med flest avslutade", async () => {
+  const original = globalThis.fetch;
+  process.env.TRADERA_APP_ID ??= "1";
+  process.env.TRADERA_APP_KEY ??= "k";
+  const bodies = [];
+  globalThis.fetch = async (url, opts) => {
+    const body = JSON.parse(opts.body);
+    bodies.push(body);
+    if (body.request) return new Response("Bad request", { status: 400 });
+    const ended = body.itemStatus === "Ended" && body.searchWords;
+    const items = [{ id: 1, shortDescription: "Lego 3 kg", isEnded: Boolean(ended), hasBids: Boolean(ended), maxBid: 300 }];
+    return new Response(JSON.stringify({ totalNumberOfItems: 1, items }), { status: 200 });
+  };
+  try {
+    const r = await probeEndedSearch("lego kg");
+    assert.equal(bodies.length, 4);
+    assert.equal(r.best, "searchWords + itemStatus");
+    assert.equal(r.sample.length, 1);
+    assert.equal(r.sample[0].kr_per_kg, 100);
+    assert.ok(r.variants.find((v) => v.name === "request-omslag").error);
+  } finally {
+    globalThis.fetch = original;
+  }
+});

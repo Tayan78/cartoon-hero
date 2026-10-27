@@ -8,7 +8,7 @@ import { DEFAULT_ID_MODEL, DEFAULT_SEARCH_MODEL, MODELS } from "../lib/models.js
 import { callAppsScript, storageConfigured } from "../lib/storage.js";
 import { checkVision, visionConfigured } from "../lib/vision.js";
 import { checkLens, lensConfigured } from "../lib/lens.js";
-import { checkTradera, traderaConfigured } from "../lib/tradera.js";
+import { checkTradera, probeEndedSearch, traderaConfigured } from "../lib/tradera.js";
 
 async function run(configured, fn) {
   if (!configured) return { ok: false, detail: "inte konfigurerat" };
@@ -30,6 +30,16 @@ export async function GET(request) {
   const denied = checkAuth(request);
   if (denied) return denied;
   const mock = process.env.MOCK === "1";
+  // ?probe=lego: test av avslutade Lego-partier på Tradera (kilopris).
+  const probe = new URL(request.url).searchParams.get("probe");
+  if (probe) {
+    if (!traderaConfigured()) return json({ error: "Tradera är inte konfigurerat" }, 400);
+    try {
+      return json({ ok: true, ...(await probeEndedSearch(probe === "lego" ? "lego kg" : probe)) });
+    } catch (err) {
+      return json({ error: err.message }, 502);
+    }
+  }
   const body = {
     ok: true,
     api_key: Boolean(process.env.ANTHROPIC_API_KEY) || mock,
