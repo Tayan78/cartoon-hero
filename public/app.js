@@ -1306,7 +1306,7 @@ function renderCandidates() {
     ? "Inget modellnummer hittades."
     : reviewConfirmed
       ? `Bekräftat: ${reviewConfirmed}.`
-      : `Texten använder ${used || "inget nummer"} – bekräfta rätt nummer innan du godkänner.`;
+      : `Texten använder ${used || "inget nummer"} – tryck på rätt nummer, eller godkänn utan om det är ett tillbehör eller parti.`;
 }
 
 async function chooseNumber(number) {
@@ -1340,8 +1340,9 @@ $("v-channel").addEventListener("click", (e) => {
 
 async function saveReview(status) {
   const hasCandidates = (reviewing.listing?.candidates ?? []).length > 0;
-  if (status === "Godkänd" && hasCandidates && !reviewConfirmed) {
-    $("v-hint").textContent = "Tryck på rätt modellnummer först.";
+  // Tillbehör och partier har inget modellnummer: fråga, men tvinga inte.
+  if (status === "Godkänd" && hasCandidates && !reviewConfirmed && !confirm("Godkänn utan modellnummer? (T.ex. tillbehör eller parti.)")) {
+    $("v-hint").textContent = "Tryck på rätt modellnummer, eller godkänn utan.";
     return;
   }
   const fields = {
