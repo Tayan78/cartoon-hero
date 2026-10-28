@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fetchSeller, modelNumber, sellerReport, toSellerItem } from "../lib/seller.js";
+import { fetchSeller, modelNumber, numberFromText, sellerReport, toSellerItem } from "../lib/seller.js";
 
 const NOW = Date.parse("2026-10-28T12:00:00Z");
 const ago = (d) => new Date(NOW - d * 86400000).toISOString();
@@ -58,4 +58,27 @@ test("Hämtning: alias → id, aktiva + avslutade senaste året, utan dubbletter
   assert.deepEqual([r.user_id, r.total, r.active], [42, 2, 1]);
   await assert.rejects(fetchSeller("  ", { get }), /Ange säljarens alias/);
   await assert.rejects(fetchSeller("okand", { get: async () => { throw new Error("Tradera 404: Not found"); } }), /Hittade ingen säljare/);
+});
+
+test("Nummer ur annonstexten: ensamt nummer, annars det intill Schleich/art.nr", () => {
+  assert.deepEqual(numberFromText("<p>Schleich Tinker sto, art.nr 13279. Tillverkad 2003-2008.</p>"), { number: "13279", ambiguous: false });
+  assert.deepEqual(numberFromText("Fin häst 13617 i lekt skick"), { number: "13617", ambiguous: false });
+  assert.deepEqual(numberFromText("Schleich 13279. Passar ihop med 13280 som jag också säljer."), { number: "13279", ambiguous: false });
+  assert.deepEqual(numberFromText("Två hästar: 13279 och 13280"), { number: "", ambiguous: true });
+  assert.deepEqual(numberFromText("Ingen siffra här, frakt 49 kr"), { number: "", ambiguous: false });
+  assert.deepEqual(numberFromText(undefined), { number: "", ambiguous: false });
+});
+
+test("Rubrik utan nummer: numret läses ur texten, och hämtas om texten saknas i listan", async () => {
+  const fromText = toSellerItem(raw({ shortDescription: "Schleich Tinker sto", longDescription: "Schleich 13279 i lekt skick" }), NOW);
+  assert.deepEqual([fromText.number, fromText.number_source], ["13279", "text"]);
+  const get = async (path) => {
+    if (path.startsWith("/v4/users/")) return { id: 7 };
+    if (path.startsWith("/v4/items/seller/")) return path.includes("filterActive=2") ? [raw({ id: 5, shortDescription: "Schleich häst", longDescription: undefined })] : [];
+    if (path === "/v4/items/5") return { id: 5, longDescription: "Modell 13617" };
+    throw new Error(path);
+  };
+  const r = await fetchSeller("x", { get, now: NOW });
+  assert.equal(r.models[0].number, "13617");
+  assert.equal(r.number_from_text, 1);
 });
