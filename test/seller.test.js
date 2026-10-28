@@ -74,11 +74,13 @@ test("Rubrik utan nummer: numret läses ur texten, och hämtas om texten saknas 
   assert.deepEqual([fromText.number, fromText.number_source], ["13279", "text"]);
   const get = async (path) => {
     if (path.startsWith("/v4/users/")) return { id: 7 };
-    if (path.startsWith("/v4/items/seller/")) return path.includes("filterActive=2") ? [raw({ id: 5, shortDescription: "Schleich häst", longDescription: undefined })] : [];
+    if (path.startsWith("/v4/items/seller/")) return path.includes("filterActive=2") ? [raw({ id: 5, shortDescription: "Schleich häst", longDescription: undefined }), raw({ id: 6, shortDescription: "Schleich föl", longDescription: "" })] : [];
+    if (path === "/v4/items/6") return { id: 6, longDescription: "<p>Art.nr 13814</p>" };
     if (path === "/v4/items/5") return { id: 5, longDescription: "Modell 13617" };
     throw new Error(path);
   };
   const r = await fetchSeller("x", { get, now: NOW });
-  assert.equal(r.models[0].number, "13617");
-  assert.equal(r.number_from_text, 1);
+  assert.deepEqual(r.models.map((m) => m.number).sort(), ["13617", "13814"]); // tom text hämtas också
+  assert.equal(r.number_from_text, 2);
+  assert.deepEqual(r.detail, { fetched: 2, errors: 0 });
 });

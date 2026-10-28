@@ -165,7 +165,7 @@ button:disabled { opacity: .4; }
   background: var(--surface-2); color: var(--text); font-weight: 600; cursor: pointer;
 }
 .sources .search-link { color: var(--accent); background: transparent; border: 1px solid var(--line); }
-#s-test, #s-test-lego { white-space: pre-line; }
+#s-test, #s-test-lego, #k-status { white-space: pre-line; }
 
 /* Prispanelen (variant A): utpris, budgräns och prislinje högst upp på kortet. */
 .article { margin: 0 0 2px; font-size: 14px; color: #9db8ff; }
