@@ -619,7 +619,18 @@ function marketUpsert(body) {
     set('Länk', x.url); set('Senast sedd', now);
     if (x.text) set('Text', x.text);
   });
-  if (data.length) sh.getRange(2, 1, data.length, width).setValues(data);
+  // Bara Schleich sparas: säljarens rader utan "Schleich" i rubrik eller text tas bort.
+  var kept = data.filter(function (r) {
+    return String(r[c['Säljar-ID'] - 1]) !== String(body.seller_id) || /schleich/i.test(String(r[c['Rubrik'] - 1]) + ' ' + String(r[c['Text'] - 1]));
+  });
+  var removed = data.length - kept.length;
+  var before = Math.max(0, last - 1);
+  if (kept.length) sh.getRange(2, 1, kept.length, width).setValues(kept);
+  if (before > kept.length) {
+    if (kept.length) sh.deleteRows(2 + kept.length, before - kept.length);
+    else sh.getRange(2, 1, before, width).clearContent();
+  }
+  data = kept;
 
   // Säljarens siffror i fliken Säljare.
   var ssh = marketSellerSheet();
@@ -632,7 +643,7 @@ function marketUpsert(body) {
       'Sålda i databasen': mine.filter(function (r) { return r[c['Status'] - 1] === 'Såld'; }).length
     });
   }
-  return { ok: true, added: added, updated: updated };
+  return { ok: true, added: added, updated: updated, removed: removed };
 }
 
 function ensureMarketTrigger() {
