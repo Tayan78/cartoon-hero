@@ -1893,7 +1893,10 @@ function renderSeller() {
     `Modellnummer i ${s.with_number} av ${s.total}` +
     (s.number_from_text ? ` (${s.number_from_text} ur annonstexten)` : "") +
     (s.number_ambiguous ? `, ${s.number_ambiguous} osäkra (flera nummer i texten)` : "") +
-    `. Hämtat ${when}.`;
+    (s.with_description != null ? `. Annonstext för ${s.with_description} av ${s.total}` : "") +
+    (s.detail?.fetched ? ` (${s.detail.fetched} hämtade en och en${s.detail.errors ? `, ${s.detail.errors} fel` : ""})` : "") +
+    `. Hämtat ${when}.` +
+    (s.samples?.length ? `\n\nExempel utan nummer:\n${s.samples.map((x) => `• ${x.title}: ${x.text || "(ingen text)"}`).join("\n")}` : "");
   $("k-sold").textContent = String(s.sold);
   $("k-sold-note").textContent = s.sell_through != null ? `${s.sell_through} % av de avslutade såldes` : "";
   $("k-median").textContent = s.median_sold ? kr(s.median_sold) : "–";
