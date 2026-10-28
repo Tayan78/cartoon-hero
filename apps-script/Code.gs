@@ -17,6 +17,10 @@
  * (/api/listing-process) en annons i taget – appen kan vara stängd under tiden.
  * Efter att du klistrat in en ny version: kör funktionen setup en gång från
  * editorn, så att skriptet får lov att dela bilder, starta timern och anropa Vercel.
+ *
+ * Marknadsdata: flikarna "Säljare" (bevakade konkurrenter) och "Marknad" (en rad
+ * per annons, uppdateras). En timer kör collectMarket varje natt kl 3 och ber
+ * Vercel (/api/marketdata) samla in varje bevakad säljare.
  */
 
 var SCAN_HEADERS = [
@@ -76,6 +80,10 @@ function doPost(e) {
       if (body.action === 'saveExport') return reply(saveExport(body));
       if (body.action === 'approveListings') return reply(approveListings(body));
       if (body.action === 'summary') return reply(summary(body));
+      if (body.action === 'marketSellers') return reply(marketSellers());
+      if (body.action === 'marketWatch') return reply(marketWatch(body));
+      if (body.action === 'marketKnown') return reply(marketKnown(body));
+      if (body.action === 'marketUpsert') return reply(marketUpsert(body));
       return reply({ ok: false, error: 'Okänd action' });
     } finally {
       lock.releaseLock();
@@ -491,6 +499,193 @@ function runJob(job) {
   }
 }
 
+// ---------- Marknadsdata ----------
+var MARKET_SELLER_HEADERS = [
+  'Säljar-ID', 'Alias', 'Bevakad', 'Schleich-annonser', 'Aktiva', 'Avslutade', 'Med nummer %', 'Betyg',
+  'Tillagd', 'Senast insamlad', 'Annonser i databasen', 'Sålda i databasen', 'Fel'
+];
+var MARKET_HEADERS = [
+  'Annons-ID', 'Säljare', 'Säljar-ID', 'Rubrik', 'Modellnummer', 'Nummerkälla', 'Typ', 'Status', 'Pris',
+  'Första pris', 'Lägsta pris', 'Prisändringar', 'Bud', 'Frakt', 'Skick', 'Start', 'Slut', 'Dagar',
+  'Omstarter', 'Länk', 'Först sedd', 'Senast sedd', 'Såld upptäckt', 'Text'
+];
+
+function marketSellerSheet() { return sheet('Säljare', MARKET_SELLER_HEADERS); }
+function marketSheet() { return sheet('Marknad', MARKET_HEADERS); }
+
+function sellerRow(sh, id) {
+  var last = sh.getLastRow();
+  if (last < 2) return 0;
+  var ids = sh.getRange(2, 1, last - 1, 1).getValues();
+  for (var i = 0; i < ids.length; i++) if (String(ids[i][0]) === String(id)) return i + 2;
+  return 0;
+}
+
+function marketSellers() {
+  var sh = marketSellerSheet();
+  var last = sh.getLastRow();
+  if (last < 2) return { ok: true, sellers: [] };
+  var c = cols(sh);
+  var rows = sh.getRange(2, 1, last - 1, sh.getLastColumn()).getValues();
+  return {
+    ok: true,
+    sellers: rows.map(function (r) {
+      var get = function (h) { return r[c[h] - 1]; };
+      var collected = get('Senast insamlad');
+      return {
+        id: String(get('Säljar-ID')), alias: get('Alias'), watched: get('Bevakad') === 'Ja',
+        total: get('Schleich-annonser'), active: get('Aktiva'), ended: get('Avslutade'), number_share: get('Med nummer %'),
+        rating: get('Betyg'), collected: collected ? new Date(collected).toISOString() : '',
+        in_db: get('Annonser i databasen') || 0, sold_in_db: get('Sålda i databasen') || 0, error: get('Fel') || ''
+      };
+    })
+  };
+}
+
+// Bevaka (eller sluta bevaka) en säljare. Timern körs bara när någon bevakas.
+function marketWatch(body) {
+  var s = body.seller || {};
+  var sh = marketSellerSheet();
+  var row = sellerRow(sh, s.id);
+  if (!row) {
+    sh.appendRow([String(s.id), s.alias, 'Nej', s.total || '', s.active || '', s.ended || '', s.number_share || '', s.rating || '', new Date(), '', 0, 0, '']);
+    row = sh.getLastRow();
+  }
+  setCells(sh, row, { 'Alias': s.alias, 'Bevakad': body.watch ? 'Ja' : 'Nej' });
+  if (body.process_url) PropertiesService.getScriptProperties().setProperty('MARKET_URL', body.process_url);
+  var anyWatched = marketSellers().sellers.some(function (x) { return x.watched; });
+  if (anyWatched) ensureMarketTrigger(); else removeMarketTrigger();
+  return { ok: true };
+}
+
+// Annonser vars text redan hämtats (behöver inte hämtas igen).
+function marketKnown(body) {
+  var sh = marketSheet();
+  var last = sh.getLastRow();
+  if (last < 2) return { ok: true, ids: [] };
+  var c = cols(sh);
+  var rows = sh.getRange(2, 1, last - 1, sh.getLastColumn()).getValues();
+  var ids = [];
+  rows.forEach(function (r) {
+    if (String(r[c['Säljar-ID'] - 1]) === String(body.seller_id) && (r[c['Text'] - 1] || r[c['Modellnummer'] - 1])) ids.push(String(r[c['Annons-ID'] - 1]));
+  });
+  return { ok: true, ids: ids };
+}
+
+// En rad per annons: nya läggs till, befintliga uppdateras. Första pris, lägsta
+// pris och antal prisändringar sparas, så att prissänkningar syns över tid.
+function marketUpsert(body) {
+  var sh = marketSheet();
+  var c = cols(sh);
+  var width = sh.getLastColumn();
+  var last = sh.getLastRow();
+  var data = last > 1 ? sh.getRange(2, 1, last - 1, width).getValues() : [];
+  var index = {};
+  data.forEach(function (r, i) { index[String(r[c['Annons-ID'] - 1])] = i; });
+  var now = new Date(body.collected_at || Date.now());
+  var added = 0, updated = 0;
+  var toDate = function (v) { return v ? new Date(v) : ''; };
+  (body.rows || []).forEach(function (x) {
+    var i = index[x.id];
+    var r;
+    if (i === undefined) {
+      r = new Array(width).fill('');
+      r[c['Annons-ID'] - 1] = x.id;
+      r[c['Första pris'] - 1] = x.price;
+      r[c['Lägsta pris'] - 1] = x.price;
+      r[c['Prisändringar'] - 1] = 0;
+      r[c['Först sedd'] - 1] = now;
+      data.push(r);
+      index[x.id] = data.length - 1;
+      added++;
+    } else {
+      r = data[i];
+      // Auktioner ändrar pris med varje bud – bara Köp nu räknas som prisändring.
+      if (x.type !== 'auktion') {
+        var old = Number(r[c['Pris'] - 1]) || 0;
+        if (x.price && old && Number(x.price) !== old) r[c['Prisändringar'] - 1] = (Number(r[c['Prisändringar'] - 1]) || 0) + 1;
+        var low = Number(r[c['Lägsta pris'] - 1]) || 0;
+        if (x.price && (!low || Number(x.price) < low)) r[c['Lägsta pris'] - 1] = x.price;
+      }
+      updated++;
+    }
+    var set = function (h, v) { if (c[h]) r[c[h] - 1] = v; };
+    if (x.status === 'Såld' && r[c['Status'] - 1] !== 'Såld') set('Såld upptäckt', now);
+    set('Säljare', x.seller); set('Säljar-ID', x.seller_id); set('Rubrik', x.title);
+    if (x.number) { set('Modellnummer', x.number); set('Nummerkälla', x.number_source); }
+    set('Typ', x.type); set('Status', x.status); set('Pris', x.price); set('Bud', x.bids); set('Frakt', x.shipping);
+    if (x.condition) set('Skick', x.condition);
+    set('Start', toDate(x.start)); set('Slut', toDate(x.end)); set('Dagar', x.days); set('Omstarter', x.restarts);
+    set('Länk', x.url); set('Senast sedd', now);
+    if (x.text) set('Text', x.text);
+  });
+  if (data.length) sh.getRange(2, 1, data.length, width).setValues(data);
+
+  // Säljarens siffror i fliken Säljare.
+  var ssh = marketSellerSheet();
+  var row = sellerRow(ssh, body.seller_id);
+  if (row) {
+    var mine = data.filter(function (r) { return String(r[c['Säljar-ID'] - 1]) === String(body.seller_id); });
+    setCells(ssh, row, {
+      'Alias': body.alias, 'Senast insamlad': now, 'Fel': '',
+      'Annonser i databasen': mine.length,
+      'Sålda i databasen': mine.filter(function (r) { return r[c['Status'] - 1] === 'Såld'; }).length
+    });
+  }
+  return { ok: true, added: added, updated: updated };
+}
+
+function ensureMarketTrigger() {
+  var has = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'collectMarket'; });
+  if (!has) ScriptApp.newTrigger('collectMarket').timeBased().atHour(3).everyDays(1).create();
+}
+
+function removeMarketTrigger() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'collectMarket') ScriptApp.deleteTrigger(t);
+  });
+}
+
+// Körs varje natt: samlar in de bevakade säljarna, den som väntat längst först,
+// i upp till 5 minuter. Vercel hämtar från Tradera och skriver till Marknad.
+function collectMarket() {
+  var props = PropertiesService.getScriptProperties();
+  var url = props.getProperty('MARKET_URL');
+  if (!url) return;
+  var started = Date.now();
+  var sellers = marketSellers().sellers
+    .filter(function (s) { return s.watched; })
+    .sort(function (a, b) { return String(a.collected).localeCompare(String(b.collected)); });
+  for (var i = 0; i < sellers.length && Date.now() - started < 5 * 60 * 1000; i++) {
+    var s = sellers[i];
+    var error = '';
+    try {
+      var res = UrlFetchApp.fetch(url, {
+        method: 'post',
+        contentType: 'application/json',
+        headers: { 'x-script-secret': props.getProperty('SECRET') },
+        payload: JSON.stringify({ action: 'collect', alias: s.alias, user_id: s.id }),
+        muteHttpExceptions: true
+      });
+      var result = JSON.parse(res.getContentText());
+      if (!result.ok) error = result.error || ('Vercel svarade ' + res.getResponseCode());
+    } catch (err) {
+      error = String(err.message || err);
+    }
+    if (error) {
+      var lock = LockService.getScriptLock();
+      lock.waitLock(20000);
+      try {
+        var sh = marketSellerSheet();
+        var row = sellerRow(sh, s.id);
+        if (row) setCells(sh, row, { 'Fel': error });
+      } finally {
+        lock.releaseLock();
+      }
+    }
+  }
+}
+
 function saveImage(dataUrl, scanId) {
   var m = /^data:(image\/[a-z]+);base64,(.+)$/.exec(dataUrl);
   if (!m) return '';
@@ -538,6 +733,8 @@ function setup() {
   sheet('Skanningar', SCAN_HEADERS);
   sheet('Lager', INVENTORY_HEADERS);
   listingSheet();
+  marketSellerSheet();
+  marketSheet();
   folder();
   // Behörigheter för annonsläget: dela bilder, timer och anrop till Vercel.
   ScriptApp.getProjectTriggers();
