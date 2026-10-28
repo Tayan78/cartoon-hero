@@ -20,7 +20,7 @@ Saker vi har pratat om men som **inte** finns i Alpha v1 ([ALPHA-v1.md](ALPHA-v1
 
 | | Punkt | Bakgrund |
 |---|---|---|
-| 🔴 | **Sålda priser som budgräns** | Tradera-annonser som Lens hittar och som avslutats med bud visas redan som *sålda*. Använd dem som "Bud ned till" och i köpbeslutet när det finns tillräckligt många. |
+| 🔴 | **Sålda priser per modellnummer** | Traderas avancerade sökning med `itemStatus: "Ended"` ger avslutade annonser ca 4 månader bakåt (verifierat för Lego i #31–#32). Sök "schleich <nummer>": median, spann och säljgrad (andel auktioner med bud) i Skanna och annonsläget, i stället för lägsta aktiva pris. Sedan en topplista över vilka modeller som säljer bäst och dyrast. |
 | 🟡 | **Ange inköpspris efter skanningen** | Skriv in priset på kortet och få beslutet omräknat, utan en ny skanning. Det kostar inget, eftersom servern bara räknar om. |
 | 🟡 | **Kandidatknappar för modellnummer i skanningen** | Finns i annonsläget men inte i skanningen. Rätt nummer ger rätt priser. |
 | 🟡 | **Påslag på utpriset** | T.ex. "Lägg ut för" + 10 % för att ge prutmån. Avvaktat, eftersom du valde exakt lägsta pris. |
@@ -31,6 +31,7 @@ Saker vi har pratat om men som **inte** finns i Alpha v1 ([ALPHA-v1.md](ALPHA-v1
 
 | | Punkt | Bakgrund |
 |---|---|---|
+| 🟡 | **Egen bilddatabas för modellnummer** | Godkända annonser (huvudbild + bekräftat nummer) blir referenser. Varje bild görs om till en embedding (t.ex. Vertex AI multimodal embeddings), ny bild jämförs mot alla, och Gemini kontrollerar de 3 närmaste. **Mät först:** sök varje bekräftad bild mot de andra och räkna hur ofta rätt nummer kommer först. Bygg bara vidare om appen har rätt i minst 95 % av fallen där den säger sig vara säker; annars tar Lens över som i dag. Kräver Vertex AI och en nyckel för ett tjänstekonto i Vercel. Känner bara igen modeller du redan fotat. Svårast: samma form i olika färg. |
 | 🟡 | **"Skapa annons" från historik och lager** | Ett kort från en skanning, eller en rad i Lager, ska kunna bli en annons utan att du fotar igen. (Ursprungligen planerat för PR B/C.) |
 | 🟡 | **Prompt för fler kategorier** | Bara Schleich har fast mall. Mallar för t.ex. porslin och andra leksaksmärken när du börjar sälja det. |
 | 🟡 | **Kanalregel efter data** | I dag: Tradera som standard, Vinted för kläder, skor och väskor. Föreslå gränser utifrån Sheet när det finns mer data. |

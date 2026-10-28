@@ -61,6 +61,10 @@
           <span class="home-icon">🧱</span>
           <span><b>Lego i bulk</b><small>Kilopris från sålda partier på Tradera</small></span>
         </button>
+        <button id="h-go-seller" type="button" class="home-btn">
+          <span class="home-icon">🔍</span>
+          <span><b>Konkurrent</b><small>Vad en säljare säljer, priser och säljgrad</small></span>
+        </button>
         <button id="h-go-history" type="button" class="home-btn">
           <span class="home-icon">🕘</span>
           <span><b>Historik</b><small>Alla skanningar</small></span>
@@ -370,6 +374,36 @@
       <p id="l-info" class="hint"></p>
       <ul id="l-lots" class="lego-lots"></ul>
       <button id="l-more" class="secondary" hidden>Visa fler</button>
+    </section>
+
+    <!-- Konkurrent: en säljares annonser på Tradera per modellnummer -->
+    <section id="view-seller" class="view" hidden>
+      <div class="inline-field">
+        <label class="field"><span>Säljarens alias på Tradera</span><input id="k-alias" type="text" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="t.ex. figurbutiken"></label>
+        <button id="k-fetch" type="button" class="primary">Hämta</button>
+      </div>
+      <p id="k-status" class="hint">Aktiva och avslutade annonser senaste året. Såld = fick en köpare (auktion eller Köp nu).</p>
+      <div id="k-body" hidden>
+        <div class="metrics">
+          <div class="metric"><span class="metric-label">Sålda</span><span id="k-sold" class="metric-value big-number">–</span><span id="k-sold-note" class="metric-note"></span></div>
+          <div class="metric"><span class="metric-label">Medianpris sålda</span><span id="k-median" class="metric-value big-number">–</span><span id="k-median-note" class="metric-note"></span></div>
+        </div>
+        <h3>Vanligaste priser (Köp nu)</h3>
+        <div id="k-prices" class="chips wrap"></div>
+        <div class="hist-head">
+          <h3>Modeller</h3>
+        </div>
+        <div id="k-sort" class="chips" role="group" aria-label="Sortera">
+          <button type="button" class="chip on" data-sort="sold">Flest sålda</button>
+          <button type="button" class="chip" data-sort="price">Högst pris</button>
+          <button type="button" class="chip" data-sort="rate">Bäst säljgrad</button>
+          <button type="button" class="chip" data-sort="fast">Snabbast</button>
+        </div>
+        <input id="k-filter" type="search" placeholder="Sök nummer eller namn">
+        <ul id="k-models" class="lego-lots seller-models"></ul>
+        <button id="k-more" class="secondary" hidden>Visa fler</button>
+        <p id="k-info" class="hint"></p>
+      </div>
     </section>
 
     <section id="view-settings" class="view" hidden>

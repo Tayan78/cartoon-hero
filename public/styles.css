@@ -296,6 +296,14 @@ button:disabled { opacity: .4; }
 .meter span.empty { background: var(--red); }
 .home-nav { display: flex; flex-direction: column; gap: 10px; }
 
+/* Konkurrent */
+#view-seller .inline-field { align-items: flex-end; }
+#view-seller .inline-field button { flex: none; min-height: 48px; padding: 0 20px; font-size: 17px; border-radius: 12px; }
+#view-seller .metric-value.big-number { font-size: 26px; white-space: nowrap; }
+.seller-models .row { display: flex; gap: 10px; padding: 10px 0; width: 100%; background: none; border: 0; color: var(--text); font: inherit; text-align: left; }
+.seller-models .sub { list-style: none; margin: 0 0 8px; padding: 0 0 0 12px; border-left: 2px solid var(--line); }
+.seller-models .sub a { padding: 6px 0; }
+
 /* Lego i bulk */
 .lego-sizes { width: 100%; border-collapse: collapse; font-size: 15px; font-variant-numeric: tabular-nums; }
 .lego-sizes th { text-align: left; color: var(--muted); font-weight: 600; font-size: 13px; padding: 4px 0; }
