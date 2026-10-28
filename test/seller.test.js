@@ -84,3 +84,20 @@ test("Rubrik utan nummer: numret läses ur texten, och hämtas om texten saknas 
   assert.equal(r.number_from_text, 2);
   assert.deepEqual(r.detail, { fetched: 2, errors: 0 });
 });
+
+test("Bara Schleich: annonser utan Schleich i rubrik eller text hoppas över (och hämtas inte)", async () => {
+  const fetched = [];
+  const get = async (path) => {
+    if (path.startsWith("/v4/items/seller/")) {
+      return path.includes("filterActive=2")
+        ? [raw({ id: 1 }), raw({ id: 2, shortDescription: "Lego Star Wars 75192" }), raw({ id: 3, shortDescription: "Häst sto", longDescription: "Schleich 13279" }), raw({ id: 4, shortDescription: "Barbie docka" })]
+        : [];
+    }
+    fetched.push(path);
+    return {};
+  };
+  const { fetchSellerItems, SCHLEICH } = await import("../lib/seller.js");
+  const r = await fetchSellerItems("x", { get, userId: 9, only: SCHLEICH, now: NOW });
+  assert.deepEqual(r.items.map((i) => i.id), [1, 3]);
+  assert.deepEqual(fetched, []); // Barbie utan nummer hämtas inte en och en
+});

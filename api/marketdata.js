@@ -1,14 +1,15 @@
 // POST /api/marketdata – marknadsdatabasen (Sheet-flikarna "Säljare" och "Marknad").
+// Logiken ligger i lib/marketdata.js; Apps Script läser och skriver bara flikar.
 //   Från appen (x-app-token):
-//     { action: "discover" }              föreslå konkurrenter (många Schleich-annonser)
-//     { action: "sellers" }               bevakade säljare och deras siffror
-//     { action: "watch", seller, watch }  bevaka eller sluta bevaka en säljare
+//     { action: "discover" }                föreslå konkurrenter (många Schleich-annonser)
+//     { action: "sellers" }                 bevakade säljare och deras siffror
+//     { action: "watch", seller, watch }    bevaka eller sluta bevaka (seller: { id?, alias })
 //     { action: "collect", alias, user_id } samla in en säljare nu
-//   Från Apps Script-timern (x-script-secret): { action: "collect", alias, user_id }
+//   Från Apps Script-timern (x-script-secret): { action: "nightly", state }
 import { timingSafeEqual } from "node:crypto";
 import { checkAuth, json } from "../lib/http.js";
-import { collectSeller, discoverSellers } from "../lib/marketdata.js";
-import { callAppsScript, storageConfigured } from "../lib/storage.js";
+import { collectSeller, discoverSellers, listSellers, runNightly, watchSeller } from "../lib/marketdata.js";
+import { storageConfigured } from "../lib/storage.js";
 import { traderaConfigured, traderaGet } from "../lib/tradera.js";
 
 function scriptAllowed(request) {
@@ -20,6 +21,17 @@ function scriptAllowed(request) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+// Säljarens id från aliaset (när det skrivits in för hand).
+async function resolve(seller) {
+  if (seller.id) return seller;
+  const alias = String(seller.alias ?? "").trim().replace(/^@/, "");
+  if (!alias) throw new Error("Säljare saknas");
+  const user = await traderaGet(`/v4/users/by-alias/${encodeURIComponent(alias)}`).catch(() => null);
+  const id = user?.id ?? user?.userId;
+  if (!id) throw new Error(`Hittade ingen säljare med aliaset "${alias}"`);
+  return { ...seller, id: String(id), alias: user.alias ?? alias };
+}
+
 export async function POST(request) {
   const fromScript = scriptAllowed(request);
   if (!fromScript) {
@@ -27,40 +39,31 @@ export async function POST(request) {
     if (denied) return denied;
   }
   const body = await request.json().catch(() => ({}));
-  if (fromScript && body.action !== "collect") return json({ ok: false, error: "Inte tillåtet" }, 403);
+  if (fromScript && body.action !== "nightly") return json({ ok: false, error: "Inte tillåtet" }, 403);
   if (!traderaConfigured()) return json({ ok: false, error: "Tradera är inte konfigurerat" }, 400);
   if (body.action !== "discover" && !storageConfigured()) return json({ ok: false, error: "Google Sheet är inte konfigurerat" }, 400);
 
   try {
     switch (body.action) {
       case "discover": {
-        const [found, watched] = await Promise.all([discoverSellers(), storageConfigured() ? callAppsScript("marketSellers", {}) : { sellers: [] }]);
-        const ids = new Set((watched.sellers ?? []).filter((s) => s.watched).map((s) => String(s.id)));
+        const [found, sellers] = await Promise.all([discoverSellers(), storageConfigured() ? listSellers().catch(() => []) : []]);
+        const ids = new Set(sellers.filter((s) => s.watched).map((s) => s.id));
         return json({ ok: true, ...found, sellers: found.sellers.map((s) => ({ ...s, watched: ids.has(String(s.id)) })) });
       }
-      case "sellers": {
-        const res = await callAppsScript("marketSellers", {});
-        if (!res.ok) throw new Error(res.error || "Kunde inte läsa Säljare");
-        return json(res);
-      }
+      case "sellers":
+        return json({ ok: true, sellers: await listSellers() });
       case "watch": {
-        const s = { ...(body.seller ?? {}) };
-        // Bara alias (inskrivet för hand): slå upp säljarens id hos Tradera.
-        if (!s.id && s.alias) {
-          const user = await traderaGet(`/v4/users/by-alias/${encodeURIComponent(String(s.alias).trim().replace(/^@/, ""))}`).catch(() => null);
-          s.id = user?.id ?? user?.userId;
-          if (!s.id) return json({ ok: false, error: `Hittade ingen säljare med aliaset "${s.alias}"` }, 400);
-          s.alias = user.alias ?? s.alias;
-        }
-        if (!s.id || !s.alias) return json({ ok: false, error: "Säljare saknas" }, 400);
-        const res = await callAppsScript("marketWatch", { seller: s, watch: body.watch !== false, process_url: new URL(request.url).origin + "/api/marketdata" });
-        if (!res.ok) throw new Error(res.error || "Kunde inte spara säljaren");
-        return json({ ...res, seller: { id: String(s.id), alias: s.alias } });
+        const seller = await resolve({ ...(body.seller ?? {}) });
+        const saved = await watchSeller(seller, body.watch !== false, { url: new URL(request.url).origin + "/api/marketdata" });
+        return json({ ok: true, seller: saved });
       }
       case "collect": {
-        if (!body.alias && !body.user_id) return json({ ok: false, error: "Säljare saknas" }, 400);
-        return json({ ok: true, ...(await collectSeller({ alias: body.alias, user_id: body.user_id })) });
+        const seller = await resolve({ id: body.user_id, alias: body.alias });
+        return json({ ok: true, ...(await collectSeller({ alias: seller.alias, user_id: seller.id })) });
       }
+      case "nightly":
+        if (!fromScript) return json({ ok: false, error: "Inte tillåtet" }, 403);
+        return json({ ok: true, ...(await runNightly(body.state)) });
       default:
         return json({ ok: false, error: "Okänd action" }, 400);
     }

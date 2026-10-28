@@ -1937,7 +1937,7 @@ async function collectNow(s) {
   try {
     const r = await marketApi({ action: "collect", alias: s.alias, user_id: s.id });
     await loadMarketSellers();
-    $("m-status").textContent = `✓ ${r.alias}: ${r.items} annonser – ${r.added} nya, ${r.updated} uppdaterade.`;
+    $("m-status").textContent = `✓ ${r.alias}: ${r.items} Schleich-annonser – ${r.added} nya, ${r.updated} uppdaterade${r.removed ? `, ${r.removed} andra annonser borttagna` : ""}.`;
   } catch (err) {
     $("m-status").textContent = `⚠️ ${s.alias}: ${err.message}`;
   }

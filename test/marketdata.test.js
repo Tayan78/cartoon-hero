@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { collectSeller, discoverSellers, marketRow } from "../lib/marketdata.js";
+import { MARKET_HEADERS, SELLER_HEADERS, collectSeller, discoverSellers, listSellers, marketRow, mergeMarketRow, runNightly, watchSeller } from "../lib/marketdata.js";
+import { fakeAppsScript } from "./helpers/apps-script.js";
 
 const hit = (id, sellerId, o = {}) => ({ id, sellerId, sellerAlias: `s${sellerId}`, shortDescription: "Schleich häst 13279", hasBids: false, sellerDsrAverage: 4.9, ...o });
 
@@ -34,21 +35,68 @@ test("Marknadsrad: status såld/osåld/aktiv", () => {
   assert.deepEqual([active.status, active.id, active.seller_id, active.seller], ["Aktiv", "7", "42", "Daisy93"]);
 });
 
-test("Insamling: kända annonser hoppas över vid texthämtning, raderna skrivs till Sheet", async () => {
-  const calls = [];
-  const store = async (action, payload) => {
-    calls.push({ action, payload });
-    return action === "marketKnown" ? { ok: true, ids: ["1", "2"] } : { ok: true, added: 1, updated: 2 };
+test("Insamling mot riktiga Code.gs: nya rader, prissänkning, såld, rensning och säljarens siffror", async () => {
+  const gs = fakeAppsScript();
+  const seller = { id: "42", alias: "Daisy93", total: 196 };
+  await watchSeller(seller, true, { store: gs.store, url: "https://app/api/marketdata", now: Date.parse("2026-10-28T10:00:00Z") });
+  assert.deepEqual(gs.triggers.map((t) => t.getHandlerFunction()), ["nightly"]);
+  assert.equal(gs.props.NIGHTLY_URL, "https://app/api/marketdata");
+
+  const item = (id, o = {}) => ({ id, title: "Schleich Tinker sto", number: "13279", number_source: "text", type: "köp nu", price: 89, bids: 0, shipping: 49, condition: "", start: "2026-10-01T10:00:00.000Z", end: "2026-10-31T10:00:00.000Z", days: 27, restarts: 0, url: "u", text: "Schleich 13279", sold: false, ended: false, ...o });
+  let skipped;
+  const night = (items) => async (alias, opts) => {
+    skipped = [...opts.skipDetail];
+    return { alias: "Daisy93", user_id: "42", detail: { fetched: 0, errors: 0 }, items };
   };
-  let skip;
-  const fetchItems = async (alias, opts) => {
-    skip = opts.skipDetail;
-    return { alias: "Daisy93", user_id: 42, detail: { fetched: 1, errors: 0 }, items: [1, 2, 3].map((id) => ({ id, title: "x", number: "", sold: false, ended: false })) };
+  const r1 = await collectSeller({ alias: "Daisy93", user_id: "42" }, { store: gs.store, fetchItems: night([item(1), item(2, { number: "", text: "" })]), now: Date.parse("2026-10-28T03:00:00Z") });
+  assert.deepEqual([r1.added, r1.updated, r1.removed], [2, 0, 0]);
+
+  // Gamla rader utan Schleich för samma säljare (från versionen utan filter) + annan säljare.
+  await gs.store("sheetUpsert", { sheet: "Marknad", headers: MARKET_HEADERS, key: "Annons-ID", rows: [{ "Annons-ID": "90", "Säljar-ID": "42", Rubrik: "Lego 2 kg" }, { "Annons-ID": "91", "Säljar-ID": "77", Rubrik: "Playmobil" }] });
+
+  // Natt 2: annons 1 sänkt till 69 och såld (utan text i svaret), ny annons 3.
+  const r2 = await collectSeller({ alias: "Daisy93", user_id: "42" }, { store: gs.store, fetchItems: night([item(1, { price: 69, sold: true, ended: true, number: "", text: "" }), item(2, { number: "", text: "" }), item(3, { price: 50 })]), now: Date.parse("2026-10-29T03:00:00Z") });
+  assert.deepEqual([r2.added, r2.updated, r2.removed], [1, 2, 1]);
+  assert.deepEqual(skipped.sort(), ["1"]); // annons 1 har redan text/nummer
+
+  const rows = Object.fromEntries(gs.table("Marknad").map((r) => [String(r["Annons-ID"]), r]));
+  assert.deepEqual(Object.keys(rows).sort(), ["1", "2", "3", "91"]);
+  const a = rows["1"];
+  assert.deepEqual([a.Status, a.Pris, a["Första pris"], a["Lägsta pris"], a.Prisändringar, a.Modellnummer, a.Text], ["Såld", 69, 89, 69, 1, "13279", "Schleich 13279"]);
+  assert.equal(a["Såld upptäckt"], "2026-10-29T03:00:00.000Z");
+  assert.equal(a["Först sedd"], "2026-10-28T03:00:00.000Z");
+
+  const [s] = await listSellers({ store: gs.store });
+  assert.deepEqual([s.alias, s.watched, s.in_db, s.sold_in_db, s.collected], ["Daisy93", true, 3, 1, "2026-10-29T03:00:00.000Z"]);
+
+  await watchSeller(seller, false, { store: gs.store, url: "https://app/api/marketdata" });
+  assert.equal(gs.triggers.length, 0);
+});
+
+test("Auktioner: bud räknas inte som prisändring", () => {
+  const old = { Pris: 50, "Lägsta pris": 50, Prisändringar: 0, Status: "Aktiv" };
+  const row = mergeMarketRow(old, { id: "1", type: "auktion", price: 80, status: "Aktiv" }, "t");
+  assert.equal(row.Prisändringar, undefined);
+  assert.equal(row["Lägsta pris"], undefined);
+  assert.equal(mergeMarketRow(old, { id: "1", type: "köp nu", price: 40, status: "Aktiv" }, "t").Prisändringar, 1);
+});
+
+test("Nattkörning: äldst först, fel sparas på säljaren, fortsätter med state", async () => {
+  const gs = fakeAppsScript();
+  for (const [id, alias] of [["1", "A"], ["2", "B"], ["3", "C"]]) await watchSeller({ id, alias }, true, { store: gs.store, url: "u" });
+  await gs.store("sheetUpsert", { sheet: "Säljare", headers: SELLER_HEADERS, key: "Säljar-ID", rows: [{ "Säljar-ID": "1", "Senast insamlad": "2026-10-27T03:00:00Z" }] });
+  const order = [];
+  const collect = async ({ user_id }) => {
+    order.push(user_id);
+    if (user_id === "2") throw new Error("Tradera 500: fel");
   };
-  const r = await collectSeller({ alias: "Daisy93", user_id: 42 }, { store, fetchItems });
-  assert.deepEqual([...skip], ["1", "2"]);
-  assert.equal(calls[1].action, "marketUpsert");
-  assert.equal(calls[1].payload.rows.length, 3);
-  assert.deepEqual([r.items, r.added, r.updated], [3, 1, 2]);
-  await assert.rejects(collectSeller({ alias: "x", user_id: 1 }, { store: async () => ({ ok: false, error: "Okänd action" }), fetchItems }), /Okänd action/);
+  let t = 0;
+  const clock = () => (t += 50_000); // två säljare hinns per anrop
+  const first = await runNightly(null, { store: gs.store, collect, clock, budgetMs: 90_000 });
+  assert.deepEqual([first.ran, first.more], [2, true]);
+  const second = await runNightly(first.state, { store: gs.store, collect, clock, budgetMs: 90_000 });
+  assert.deepEqual([second.ran, second.more], [1, false]);
+  assert.deepEqual(order, ["2", "3", "1"]); // aldrig insamlade först, sedan äldst
+  const sellers = await listSellers({ store: gs.store });
+  assert.equal(sellers.find((s) => s.id === "2").error, "Tradera 500: fel");
 });
