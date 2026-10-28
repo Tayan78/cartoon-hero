@@ -78,7 +78,7 @@ const getSettings = () => {
 };
 
 // ---------- vyer ----------
-const views = ["home", "scan", "result", "history", "capture", "groups", "review", "settings", "lego", "seller"];
+const views = ["home", "scan", "result", "history", "capture", "groups", "review", "settings", "lego", "seller", "market"];
 const TITLES = {
   home: "Loppisskannern",
   scan: "Skanna",
@@ -90,6 +90,7 @@ const TITLES = {
   settings: "Inställningar",
   lego: "Lego i bulk",
   seller: "Konkurrent",
+  market: "Marknadsdata",
 };
 let currentView = "home";
 // Flikraden: vilken flik som lyser för varje vy.
@@ -1564,6 +1565,7 @@ $("h-go-groups").addEventListener("click", openGroups);
 $("h-go-history").addEventListener("click", openHistory);
 $("h-go-lego").addEventListener("click", openLego);
 $("h-go-seller").addEventListener("click", openSeller);
+$("h-go-market").addEventListener("click", openMarket);
 $("h-go-settings").addEventListener("click", () => openSettings());
 
 const sek = (n) => `${n.toFixed(2).replace(".", ",")} kr`;
@@ -1836,6 +1838,130 @@ for (const b of document.querySelectorAll("#l-period .chip")) {
   });
 }
 
+// ---------- Marknadsdata ----------
+// Bevakade säljare samlas in varje natt (Apps Script-timer → /api/marketdata).
+let marketSellers = [];
+let marketFound = store.get("market_found", null);
+
+async function marketApi(body) {
+  const res = await fetch("/api/marketdata", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-app-token": getToken() },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok) throw new Error(data.error || `Fel ${res.status}`);
+  return data;
+}
+
+function openMarket() {
+  show("market");
+  renderFound();
+  loadMarketSellers();
+}
+
+async function loadMarketSellers() {
+  $("m-status").textContent = "Hämtar…";
+  try {
+    marketSellers = (await marketApi({ action: "sellers" })).sellers ?? [];
+    $("m-status").textContent = marketSellers.some((s) => s.watched) ? "" : "Inga bevakade säljare ännu. Lägg till med alias eller via Hitta konkurrenter.";
+    renderWatched();
+    renderFound();
+  } catch (err) {
+    $("m-status").textContent = `⚠️ ${err.message}${/okänd action/i.test(err.message) ? " – klistra in den nya Apps Script-koden och driftsätt en ny version." : ""}`;
+  }
+}
+
+const smallBtn = (text, cls, onClick) => {
+  const b = Object.assign(document.createElement("button"), { type: "button", className: cls, textContent: text });
+  b.addEventListener("click", onClick);
+  return b;
+};
+
+function renderWatched() {
+  const watched = marketSellers.filter((s) => s.watched);
+  $("m-watched").replaceChildren(
+    ...watched.map((s) => {
+      const li = Object.assign(document.createElement("li"), { className: "m-row" });
+      const t = Object.assign(document.createElement("div"), { className: "t" });
+      const when = s.collected ? new Date(s.collected).toLocaleString("sv-SE", { dateStyle: "short", timeStyle: "short" }) : "inte ännu";
+      t.append(
+        Object.assign(document.createElement("b"), { textContent: s.alias }),
+        Object.assign(document.createElement("small"), { textContent: `${s.in_db} annonser i databasen (${s.sold_in_db} sålda) · insamlad ${when}` }),
+      );
+      if (s.error) t.append(Object.assign(document.createElement("small"), { className: "err", textContent: ` · ⚠️ ${s.error}` }));
+      const acts = Object.assign(document.createElement("div"), { className: "acts" });
+      acts.append(smallBtn("Samla nu", "chip", () => collectNow(s)), smallBtn("✕", "chip", () => watchSeller(s, false)));
+      li.append(t, acts);
+      return li;
+    }),
+  );
+}
+
+function renderFound() {
+  if (!marketFound) return;
+  const watchedIds = new Set(marketSellers.filter((s) => s.watched).map((s) => String(s.id)));
+  $("m-discover-status").textContent = `${marketFound.sellers.length} säljare med minst 15 annonser (av ${marketFound.sellers_found} säljare och ${marketFound.scanned} annonser).`;
+  $("m-found").replaceChildren(
+    ...marketFound.sellers.map((s) => {
+      const li = Object.assign(document.createElement("li"), { className: "m-row" });
+      const t = Object.assign(document.createElement("div"), { className: "t" });
+      t.append(
+        Object.assign(document.createElement("b"), { textContent: s.alias }),
+        Object.assign(document.createElement("small"), {
+          textContent: `${s.total} annonser (${s.active} aktiva, ${s.ended} avslutade) · ${s.number_share} % nummer i rubriken${s.rating ? ` · betyg ${String(s.rating).replace(".", ",")}` : ""}`,
+        }),
+      );
+      const on = watchedIds.has(String(s.id));
+      li.append(t, on ? Object.assign(document.createElement("span"), { className: "chip on", textContent: "✓ Bevakas" }) : smallBtn("Bevaka", "chip", () => watchSeller(s, true)));
+      return li;
+    }),
+  );
+}
+
+async function watchSeller(s, watch) {
+  if (!watch && !confirm(`Sluta bevaka ${s.alias}? Annonserna som redan samlats in ligger kvar i Sheet.`)) return;
+  $("m-status").textContent = watch ? `Lägger till ${s.alias}…` : `Tar bort ${s.alias}…`;
+  try {
+    const res = await marketApi({ action: "watch", seller: { id: s.id, alias: s.alias, total: s.total, active: s.active, ended: s.ended, number_share: s.number_share, rating: s.rating }, watch });
+    await loadMarketSellers();
+    // Första insamlingen direkt, så att databasen inte står tom till i natt.
+    if (watch) await collectNow(res.seller ?? s);
+  } catch (err) {
+    $("m-status").textContent = `⚠️ ${err.message}`;
+  }
+}
+
+async function collectNow(s) {
+  $("m-status").textContent = `Samlar in ${s.alias} från Tradera… (första gången kan det ta en halv minut)`;
+  try {
+    const r = await marketApi({ action: "collect", alias: s.alias, user_id: s.id });
+    await loadMarketSellers();
+    $("m-status").textContent = `✓ ${r.alias}: ${r.items} annonser – ${r.added} nya, ${r.updated} uppdaterade.`;
+  } catch (err) {
+    $("m-status").textContent = `⚠️ ${s.alias}: ${err.message}`;
+  }
+}
+
+$("m-refresh").addEventListener("click", loadMarketSellers);
+$("m-add").addEventListener("click", () => {
+  const alias = $("m-alias").value.trim();
+  if (alias) watchSeller({ alias }, true).then(() => ($("m-alias").value = ""));
+});
+$("m-discover").addEventListener("click", async () => {
+  $("m-discover").disabled = true;
+  $("m-discover-status").textContent = "Söker igenom Schleich-annonser på Tradera… (10–30 sekunder)";
+  try {
+    marketFound = await marketApi({ action: "discover" });
+    store.set("market_found", marketFound);
+    renderFound();
+  } catch (err) {
+    $("m-discover-status").textContent = `⚠️ ${err.message}`;
+  } finally {
+    $("m-discover").disabled = false;
+  }
+});
+
 // ---------- Konkurrent ----------
 // En säljares annonser per modellnummer. Senaste hämtningen sparas i telefonen.
 let seller = store.get("seller", null);
@@ -1895,8 +2021,7 @@ function renderSeller() {
     (s.number_ambiguous ? `, ${s.number_ambiguous} osäkra (flera nummer i texten)` : "") +
     (s.with_description != null ? `. Annonstext för ${s.with_description} av ${s.total}` : "") +
     (s.detail?.fetched ? ` (${s.detail.fetched} hämtade en och en${s.detail.errors ? `, ${s.detail.errors} fel` : ""})` : "") +
-    `. Hämtat ${when}.` +
-    (s.samples?.length ? `\n\nExempel utan nummer:\n${s.samples.map((x) => `• ${x.title}: ${x.text || "(ingen text)"}`).join("\n")}` : "");
+    `. Hämtat ${when}.`;
   $("k-sold").textContent = String(s.sold);
   $("k-sold-note").textContent = s.sell_through != null ? `${s.sell_through} % av de avslutade såldes` : "";
   $("k-median").textContent = s.median_sold ? kr(s.median_sold) : "–";

@@ -296,6 +296,16 @@ button:disabled { opacity: .4; }
 .meter span.empty { background: var(--red); }
 .home-nav { display: flex; flex-direction: column; gap: 10px; }
 
+/* Marknadsdata */
+#view-market .inline-field { align-items: flex-end; }
+#view-market .inline-field button { flex: none; min-height: 48px; padding: 0 20px; font-size: 17px; border-radius: 12px; }
+.m-row { display: flex; gap: 10px; align-items: center; padding: 10px 0; }
+.m-row .t { flex: 1; min-width: 0; }
+.m-row .t b { display: block; font-weight: 600; }
+.m-row .t small { color: var(--muted); font-size: 13px; }
+.m-row .acts { display: flex; gap: 6px; flex: none; }
+.m-row .err { color: var(--red); }
+
 /* Konkurrent */
 #view-seller .inline-field { align-items: flex-end; }
 #view-seller .inline-field button { flex: none; min-height: 48px; padding: 0 20px; font-size: 17px; border-radius: 12px; }
