@@ -78,7 +78,7 @@ const getSettings = () => {
 };
 
 // ---------- vyer ----------
-const views = ["home", "scan", "result", "history", "capture", "groups", "review", "settings", "lego"];
+const views = ["home", "scan", "result", "history", "capture", "groups", "review", "settings", "lego", "seller"];
 const TITLES = {
   home: "Loppisskannern",
   scan: "Skanna",
@@ -89,6 +89,7 @@ const TITLES = {
   review: "Granska annons",
   settings: "Inställningar",
   lego: "Lego i bulk",
+  seller: "Konkurrent",
 };
 let currentView = "home";
 // Flikraden: vilken flik som lyser för varje vy.
@@ -1562,6 +1563,7 @@ $("h-go-capture").addEventListener("click", () => openCapture(null, "home"));
 $("h-go-groups").addEventListener("click", openGroups);
 $("h-go-history").addEventListener("click", openHistory);
 $("h-go-lego").addEventListener("click", openLego);
+$("h-go-seller").addEventListener("click", openSeller);
 $("h-go-settings").addEventListener("click", () => openSettings());
 
 const sek = (n) => `${n.toFixed(2).replace(".", ",")} kr`;
@@ -1831,6 +1833,139 @@ for (const b of document.querySelectorAll("#l-period .chip")) {
     legoPeriod = b.dataset.period;
     legoShown = 50;
     renderLego();
+  });
+}
+
+// ---------- Konkurrent ----------
+// En säljares annonser per modellnummer. Senaste hämtningen sparas i telefonen.
+let seller = store.get("seller", null);
+let sellerSort = "sold";
+let sellerShown = 40;
+const sellerOpen = new Set();
+
+function openSeller() {
+  show("seller");
+  $("k-alias").value = seller?.alias ?? store.get("seller_alias", "");
+  renderSeller();
+}
+
+async function fetchSeller() {
+  const alias = $("k-alias").value.trim();
+  if (!alias) return ($("k-status").textContent = "Skriv säljarens alias (namnet som syns på Tradera).");
+  store.set("seller_alias", alias);
+  $("k-status").textContent = "Hämtar säljarens annonser från Tradera…";
+  $("k-fetch").disabled = true;
+  try {
+    const res = await fetch("/api/seller", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-app-token": getToken() },
+      body: JSON.stringify({ alias }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) throw new Error(data.error || `Fel ${res.status}`);
+    seller = data;
+    store.set("seller", data);
+    sellerOpen.clear();
+    sellerShown = 40;
+    renderSeller();
+  } catch (err) {
+    $("k-status").textContent = `⚠️ ${err.message}`;
+  } finally {
+    $("k-fetch").disabled = false;
+  }
+}
+
+const SELLER_SORT = {
+  sold: (a, b) => b.sold - a.sold || (b.median_sold ?? 0) - (a.median_sold ?? 0),
+  price: (a, b) => (b.median_sold ?? -1) - (a.median_sold ?? -1),
+  rate: (a, b) => (b.ended >= 3) - (a.ended >= 3) || (b.sell_through ?? -1) - (a.sell_through ?? -1) || b.sold - a.sold,
+  fast: (a, b) => (a.days_to_sell ?? 9999) - (b.days_to_sell ?? 9999) || b.sold - a.sold,
+};
+
+function renderSeller() {
+  for (const b of document.querySelectorAll("#k-sort .chip")) b.classList.toggle("on", b.dataset.sort === sellerSort);
+  $("k-body").hidden = !seller;
+  if (!seller) return;
+  const s = seller;
+  const when = new Date(s.fetched_at).toLocaleString("sv-SE", { dateStyle: "short", timeStyle: "short" });
+  $("k-status").textContent = `${s.alias}: ${s.total} annonser (${s.active} aktiva, ${s.ended} avslutade). Hämtat ${when}.`;
+  $("k-sold").textContent = String(s.sold);
+  $("k-sold-note").textContent = s.sell_through != null ? `${s.sell_through} % av de avslutade såldes` : "";
+  $("k-median").textContent = s.median_sold ? kr(s.median_sold) : "–";
+  $("k-median-note").textContent = s.days_to_sell != null ? `median ${s.days_to_sell} dagar till försäljning` : "";
+  $("k-prices").replaceChildren(
+    ...s.prices.map((p) => Object.assign(document.createElement("span"), { className: "chip", textContent: `${kr(p.price)} × ${p.count}` })),
+  );
+  const q = $("k-filter").value.trim().toLowerCase();
+  const models = s.models.filter((m) => !q || m.number.includes(q) || m.title.toLowerCase().includes(q)).sort(SELLER_SORT[sellerSort]);
+  $("k-models").replaceChildren(
+    ...models.slice(0, sellerShown).map((m) => {
+      const li = document.createElement("li");
+      const row = Object.assign(document.createElement("button"), { type: "button", className: "row" });
+      const t = Object.assign(document.createElement("div"), { className: "t" });
+      t.append(
+        Object.assign(document.createElement("b"), {
+          textContent: `${m.number} · ${m.title.replace(m.number, "").replace(/^schleich\s+/i, "").replace(/\s+/g, " ").trim()}`,
+        }),
+        Object.assign(document.createElement("small"), {
+          textContent:
+            `${m.sold} sålda av ${m.ended} avslutade${m.sell_through != null ? ` (${m.sell_through} %)` : ""}` +
+            (m.days_to_sell != null ? ` · ${m.days_to_sell} d` : "") +
+            (m.active ? ` · ${m.active} aktiva à ${kr(m.active_price)}` : ""),
+        }),
+      );
+      const k = Object.assign(document.createElement("div"), { className: "k", textContent: m.median_sold ? kr(m.median_sold) : "–" });
+      k.append(Object.assign(document.createElement("small"), { textContent: m.low != null && m.high !== m.low ? `${m.low}–${m.high}` : "" }));
+      row.append(t, k);
+      row.addEventListener("click", () => {
+        if (sellerOpen.has(m.number)) sellerOpen.delete(m.number);
+        else sellerOpen.add(m.number);
+        renderSeller();
+      });
+      li.append(row);
+      if (sellerOpen.has(m.number)) {
+        const sub = Object.assign(document.createElement("ul"), { className: "sub" });
+        for (const i of s.items.filter((x) => x.number === m.number)) {
+          const a = Object.assign(document.createElement("a"), { href: i.url, target: "_blank", rel: "noopener" });
+          const it = Object.assign(document.createElement("div"), { className: "t" });
+          it.append(
+            Object.assign(document.createElement("b"), { textContent: i.title }),
+            Object.assign(document.createElement("small"), {
+              textContent: `${i.sold ? "såld" : i.ended ? "ej såld" : "aktiv"} · ${i.type}${i.bids ? ` · ${i.bids} bud` : ""} · ${String(i.end).slice(0, 10)}`,
+            }),
+          );
+          a.append(it, Object.assign(document.createElement("div"), { className: "k", textContent: i.price ? kr(i.price) : "–" }));
+          const subLi = document.createElement("li");
+          subLi.append(a);
+          sub.append(subLi);
+        }
+        li.append(sub);
+      }
+      return li;
+    }),
+  );
+  $("k-more").hidden = models.length <= sellerShown;
+  const types = Object.entries(s.types).map(([t, n]) => `${n} ${t}`).join(", ");
+  $("k-info").textContent =
+    `${s.models.length} modellnummer. ${s.total - s.with_number} annonser saknar nummer i rubriken och visas inte i listan. ` +
+    `Typer: ${types}. Äldsta: ${String(s.oldest).slice(0, 10)}.` +
+    (s.with_status < s.total ? ` Status saknades för ${s.total - s.with_status} annonser – där räknas bud eller minskat antal som sålt.` : "");
+}
+
+$("k-fetch").addEventListener("click", fetchSeller);
+$("k-alias").addEventListener("keydown", (e) => e.key === "Enter" && fetchSeller());
+$("k-filter").addEventListener("input", () => {
+  sellerShown = 40;
+  renderSeller();
+});
+$("k-more").addEventListener("click", () => {
+  sellerShown += 40;
+  renderSeller();
+});
+for (const b of document.querySelectorAll("#k-sort .chip")) {
+  b.addEventListener("click", () => {
+    sellerSort = b.dataset.sort;
+    renderSeller();
   });
 }
 
