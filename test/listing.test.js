@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { candidateNumbers, channelFor, checkListingText, formatYears, researchListing, schleichTitle } from "../lib/listing.js";
+import { candidateNumbers, channelFor, checkListingText, formatYears, minPriceFor, researchListing, schleichTitle } from "../lib/listing.js";
 import { mockDefect, mockLens, mockListingText, mockSimple, mockTradera } from "../lib/mock.js";
 import { DEFAULT_CLOSING } from "../lib/settings.js";
 
@@ -152,4 +152,25 @@ test("bilder: Gemini tittar först bara på huvudbilden, upp till 3 om modellen 
   const l = await researchListing({ images: eight }, { ...deps, lens, gemini: gemini(true), write });
   assert.deepEqual(calls, [["0"], ["0", "1", "2"]], "oklar modell: upp till 3 bilder");
   assert.match(l.flags.join(" "), /3 bilder användes/);
+});
+
+test("lägsta pris: föl/ponny 49 kr, häst 69 kr, övriga djur ingen gräns", () => {
+  assert.deepEqual(minPriceFor("Schleich Haflinger föl 13814"), { min: 49, kind: "föl/ponny" });
+  assert.deepEqual(minPriceFor("Schleich Shetlandsponny hingst 13756"), { min: 49, kind: "föl/ponny" });
+  assert.deepEqual(minPriceFor("Schleich Tinker sto 13279 (2003-08)"), { min: 69, kind: "häst" });
+  assert.deepEqual(minPriceFor("Schleich Pinto ettåring häst 13695"), { min: 69, kind: "häst" });
+  assert.equal(minPriceFor("Schleich Fjällrävsunge 14639"), null);
+  assert.equal(minPriceFor("Schleich Storkpar 14000"), null); // "sto" bara som eget ord
+});
+
+test("berikning: billig marknad höjs till lägsta pris och flaggas", async () => {
+  const cheap = async () => ({
+    listings: [{ title: "Schleich Pinto 13695", url: "https://www.tradera.com/item/1", platform: "Tradera", price: 25, currency: "SEK", price_sek: 25, sold: false, via: "tradera" }],
+    total: 1,
+    queries: [],
+  });
+  const l = await researchListing({ images: [{ mediaType: "image/jpeg", data: "" }] }, { ...deps, lens: async () => null, tradera: cheap });
+  assert.equal(l.price, 69);
+  assert.equal(l.list_basis, "lägsta pris för häst");
+  assert.ok(l.flags.some((f) => /lägsta pris för häst: 69 kr/.test(f)));
 });
