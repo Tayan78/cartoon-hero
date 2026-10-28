@@ -1888,7 +1888,12 @@ function renderSeller() {
   if (!seller) return;
   const s = seller;
   const when = new Date(s.fetched_at).toLocaleString("sv-SE", { dateStyle: "short", timeStyle: "short" });
-  $("k-status").textContent = `${s.alias}: ${s.total} annonser (${s.active} aktiva, ${s.ended} avslutade). Hämtat ${when}.`;
+  $("k-status").textContent =
+    `${s.alias}: ${s.total} annonser (${s.active} aktiva, ${s.ended} avslutade), äldsta slutdatum ${String(s.oldest).slice(0, 10)}. ` +
+    `Modellnummer i ${s.with_number} av ${s.total}` +
+    (s.number_from_text ? ` (${s.number_from_text} ur annonstexten)` : "") +
+    (s.number_ambiguous ? `, ${s.number_ambiguous} osäkra (flera nummer i texten)` : "") +
+    `. Hämtat ${when}.`;
   $("k-sold").textContent = String(s.sold);
   $("k-sold-note").textContent = s.sell_through != null ? `${s.sell_through} % av de avslutade såldes` : "";
   $("k-median").textContent = s.median_sold ? kr(s.median_sold) : "–";
@@ -1947,7 +1952,8 @@ function renderSeller() {
   $("k-more").hidden = models.length <= sellerShown;
   const types = Object.entries(s.types).map(([t, n]) => `${n} ${t}`).join(", ");
   $("k-info").textContent =
-    `${s.models.length} modellnummer. ${s.total - s.with_number} annonser saknar nummer i rubriken och visas inte i listan. ` +
+    `${s.models.length} modellnummer. ${s.total - s.with_number} annonser saknar nummer och visas inte i listan. ` +
+    (s.with_description != null ? `Annonstext fanns för ${s.with_description} av ${s.total}. ` : "") +
     `Typer: ${types}. Äldsta: ${String(s.oldest).slice(0, 10)}.` +
     (s.with_status < s.total ? ` Status saknades för ${s.total - s.with_status} annonser – där räknas bud eller minskat antal som sålt.` : "");
 }
