@@ -205,3 +205,18 @@ function withShipping(lot, shipping) {
   const total = lot.price + shipping;
   return { ...lot, shipping, total, per_figure: Math.round(total / lot.count) };
 }
+
+test("Nischerna hålls isär: sålda smurfar räknas aldrig in i Schleich-djur, och tvärtom", () => {
+  const rows = [
+    ...Array.from({ length: 10 }, () => row("Schleich Tinker sto 13279", "Såld", 70)),
+    ...Array.from({ length: 10 }, () => row("Schleich Smurf med blomma 20044", "Såld", 20, "smurfar")),
+    row("Schleich Smurf fiskare", "Såld", 15, "djur"), // fel nisch i Sheet – rubriken avgör ändå
+    row("Smurf i båt", "Såld", 18, ""), // utan nisch i Sheet
+  ];
+  const d = singleStats(rows, djur);
+  assert.equal(d.all.n, 10);
+  assert.equal(d.all.median, 70);
+  const s = singleStats(rows, smurfar);
+  assert.equal(s.all.n, 11); // 10 märkta smurfar + den utan nisch; den felmärkta räknas inte i någon
+  assert.equal(s.all.median, 20);
+});
