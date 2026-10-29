@@ -220,3 +220,20 @@ test("Nischerna hålls isär: sålda smurfar räknas aldrig in i Schleich-djur, 
   assert.equal(s.all.n, 11); // 10 märkta smurfar + den utan nisch; den felmärkta räknas inte i någon
   assert.equal(s.all.median, 20);
 });
+
+test("Auktion med Köp nu-pris: räknas som auktion (utropet), Köp nu visas bredvid och blir fynd om det är under gränsen", () => {
+  const singles = singleStats(marketRows, djur, { fee_percent: 10, fee_fixed: 0 });
+  const bench = { all: { n: 0 }, hästar: { n: 0 }, blandat: { n: 0 } };
+  // Verkligt fall: "Stort Schleich-paket 11 st", utrop 149 kr, Köp nu 399 kr, frakt 59 kr.
+  const raw = { id: 77, shortDescription: "Stort Schleich-paket 11 st – Äldre samlarfigurer 2001-2006", itemType: "Auction", bidCount: 0, hasBids: false, maxBid: 0, nextBid: 149, buyItNowPrice: 399 };
+  const lot = toLot(raw, false);
+  assert.deepEqual([lot.price_kind, lot.price, lot.buy_now], ["bud", 149, 399]);
+  const withShip = { ...lot, shipping: 59, total: 208 };
+  const [a] = rankDeals([withShip], bench, { singles }); // 11 × 61 = 671 kr netto, betala högst 335
+  assert.deepEqual([a.value, a.pay_max, a.max_bid, a.under_max], [671, 335, 276, true]);
+  assert.deepEqual([a.buy_now_total, a.buy_now_ok, a.deal], [458, false, false]); // Köp nu för dyrt
+  const [cheap] = rankDeals([{ ...withShip, buy_now: 249 }], bench, { singles }); // 308 kr ≤ 335
+  assert.deepEqual([cheap.buy_now_ok, cheap.deal, cheap.price_kind], [true, true, "bud"]);
+  // Ren Köp nu-annons är fortfarande Köp nu.
+  assert.equal(toLot({ ...raw, itemType: "PureBuyItNow", nextBid: 0 }, false).price_kind, "köp nu");
+});
