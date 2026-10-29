@@ -1843,6 +1843,8 @@ for (const b of document.querySelectorAll("#l-period .chip")) {
 // ---------- Fynd: Schleich-partier ----------
 // Aktiva partier jämförda med vad partier sålts för per figur. Senaste
 // hämtningen sparas i telefonen; ny hämtning när den är äldre än 3 timmar.
+const LOTS_VERSION = 2; // samma som lib/lots.js – äldre sparade listor hämtas om
+const lotsStale = (d) => !d || d.version !== LOTS_VERSION || Date.now() - Date.parse(d.fetched_at) > 3 * 60 * 60 * 1000;
 let lotsNiche = store.get("lots_niche", "djur");
 let lotsData = store.get(`lots_${lotsNiche}`, null);
 let lotsFilter = "deals";
@@ -1850,7 +1852,7 @@ let lotsFilter = "deals";
 function openLots() {
   show("lots");
   renderLots();
-  if (!lotsData || Date.now() - Date.parse(lotsData.fetched_at) > 3 * 60 * 60 * 1000) fetchLots();
+  if (lotsStale(lotsData)) fetchLots();
 }
 
 async function fetchLots() {
@@ -1960,7 +1962,11 @@ function renderLots() {
       let k;
       if (auction) {
         k = Object.assign(document.createElement("div"), { className: `k${l.under_max ? " good" : ""}`, textContent: l.max_bid != null ? `max ${kr(l.max_bid)}` : "–" });
-        k.append(Object.assign(document.createElement("small"), { textContent: l.max_bid == null ? "frakt okänd" : l.under_max ? "under gränsen" : "över gränsen" }));
+        k.append(
+          Object.assign(document.createElement("small"), {
+            textContent: l.max_bid != null ? (l.under_max ? "under gränsen" : "över gränsen") : l.shipping == null ? "frakt okänd" : "värde saknas",
+          }),
+        );
       } else if (l.basis === "styckvis") {
         k = Object.assign(document.createElement("div"), { className: `k${l.color === "green" ? " good" : ""}`, textContent: l.multiple != null ? `${String(l.multiple).replace(".", ",")}×` : "–" });
         k.append(Object.assign(document.createElement("small"), { textContent: COLOR_TEXT[l.color] ?? "" }));
@@ -2014,7 +2020,7 @@ for (const b of document.querySelectorAll("#f-niche .chip")) {
     store.set("lots_niche", lotsNiche);
     lotsData = store.get(`lots_${lotsNiche}`, null);
     renderLots();
-    if (!lotsData || Date.now() - Date.parse(lotsData.fetched_at) > 3 * 60 * 60 * 1000) fetchLots();
+    if (lotsStale(lotsData)) fetchLots();
   });
 }
 for (const b of document.querySelectorAll("#f-filter .chip")) {
