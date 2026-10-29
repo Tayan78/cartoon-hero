@@ -1843,7 +1843,7 @@ for (const b of document.querySelectorAll("#l-period .chip")) {
 // ---------- Fynd: Schleich-partier ----------
 // Aktiva partier jämförda med vad partier sålts för per figur. Senaste
 // hämtningen sparas i telefonen; ny hämtning när den är äldre än 3 timmar.
-const LOTS_VERSION = 3; // samma som lib/lots.js – äldre sparade listor hämtas om
+const LOTS_VERSION = 4; // samma som lib/lots.js – äldre sparade listor hämtas om
 const lotsStale = (d) => !d || d.version !== LOTS_VERSION || Date.now() - Date.parse(d.fetched_at) > 3 * 60 * 60 * 1000;
 let lotsNiche = store.get("lots_niche", "djur");
 let lotsData = store.get(`lots_${lotsNiche}`, null);
@@ -1934,7 +1934,8 @@ function renderLots() {
         : d.deals;
   const under = d.deals.filter((l) => l.under_max).length;
   $("f-auction-count").textContent = under ? `(${under})` : "";
-  const shipText = (l) => (l.shipping != null ? ` + frakt ${kr(l.shipping)}` : l.pickup_only ? " · bara avhämtning" : " · frakt okänd");
+  const shipText = (l) =>
+    (l.shipping != null ? ` + frakt ${kr(l.shipping)}` : l.pickup_only ? " · bara avhämtning" : " · frakt okänd") + (l.buyer_fee ? ` + köparskydd ${kr(l.buyer_fee)}` : "");
   const valueText = (l) =>
     l.basis === "styckvis" ? ` · värt ca ${kr(l.value)} netto styckvis (${l.per_figure_value} kr/figur)` : l.value ? ` · värt ca ${kr(l.value)} som parti` : "";
   $("f-list").replaceChildren(
@@ -1989,7 +1990,7 @@ function renderLots() {
     `${d.scanned} annonser från ${d.queries?.length ?? 1} partisökningar: ${d.lots} partier, varav ${d.active_lots} aktiva. ` +
     (d.truncated?.length ? `⚠️ För många träffar, alla hämtades inte: ${d.truncated.join(", ")}. ` : "") +
     `${d.without_count} aktiva partier saknar antal i rubriken och visas inte. ` +
-    "Pris inkl. billigaste frakt (fraktsätt för 0 kr räknas inte). Värdet antar att alla figurer i partiet säljs till medianpriset – säljgraden visar hur stor andel som brukar säljas. " +
+    "Pris inkl. billigaste frakt (fraktsätt för 0 kr räknas inte) och Traderas köparskydd (2 kr + 5 % av pris + frakt, max 499 kr). Värdet antar att alla figurer i partiet säljs till medianpriset – säljgraden visar hur stor andel som brukar säljas. " +
     "Tryck på ett parti för att öppna det på Tradera.";
 }
 
