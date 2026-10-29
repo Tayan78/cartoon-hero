@@ -1861,7 +1861,7 @@ async function fetchLots() {
     const res = await fetch("/api/marketdata", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-app-token": getToken() },
-      body: JSON.stringify({ action: "lots", niche }),
+      body: JSON.stringify({ action: "lots", niche, settings: getSettings() }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.ok) throw new Error(data.error || `Fel ${res.status}`);
@@ -1878,8 +1878,33 @@ async function fetchLots() {
 
 const perFig = (s) => (s?.n ? `${s.median} kr/figur` : "–");
 const spreadFig = (s) => (s?.n ? `${s.p25}–${s.p75} kr · ${s.n} partier` : "för få sålda partier");
+const MIN_SINGLES = 10; // samma gräns som lib/lots.js
 
-const GROUP_LABELS = { hästar: "Hästar", blandat: "Blandat", smurfar: "Smurfar" };
+const GROUP_LABELS = { hästar: "Hästar", blandat: "Övriga djur", smurfar: "Smurfar" };
+const COLOR_TEXT = { green: "Köp", yellow: "Tveksamt", red: "Låt bli" };
+
+function lotMetric(d, g) {
+  const s = d.singles?.[g];
+  const lot = d.benchmark?.[g];
+  const m = Object.assign(document.createElement("div"), { className: `metric${(d.groups ?? []).length === 1 ? " wide" : ""}` });
+  if (s?.n >= MIN_SINGLES) {
+    m.append(
+      Object.assign(document.createElement("span"), { className: "metric-label", textContent: `${GROUP_LABELS[g] ?? g}, sålda styckvis` }),
+      Object.assign(document.createElement("span"), { className: "metric-value big-number", textContent: `${s.median} kr` }),
+      Object.assign(document.createElement("span"), {
+        className: "metric-note",
+        textContent: `${s.p25}–${s.p75} kr · ${s.n} sålda · netto ${s.net} kr efter avgift${s.sell_through != null ? ` · säljgrad ${s.sell_through} %` : ""}` + (lot?.n ? ` · partier går för ${lot.median} kr/figur` : ""),
+      }),
+    );
+  } else {
+    m.append(
+      Object.assign(document.createElement("span"), { className: "metric-label", textContent: `${GROUP_LABELS[g] ?? g}, sålda partier` }),
+      Object.assign(document.createElement("span"), { className: "metric-value big-number", textContent: perFig(lot) }),
+      Object.assign(document.createElement("span"), { className: "metric-note", textContent: `${spreadFig(lot)} · för lite styckförsäljning i Marknad (${s?.n ?? 0} sålda)` }),
+    );
+  }
+  return m;
+}
 
 function renderLots() {
   for (const b of document.querySelectorAll("#f-filter .chip")) b.classList.toggle("on", b.dataset.filter === lotsFilter);
@@ -1893,26 +1918,23 @@ function renderLots() {
   }
   const d = lotsData;
   const when = new Date(d.fetched_at).toLocaleString("sv-SE", { dateStyle: "short", timeStyle: "short" });
-  $("f-status").textContent = `Aktiva partier jämförda med vad partier sålts för per figur, inklusive frakt (avslutade auktioner med bud). Hämtat ${when}.`;
-  $("f-metrics").replaceChildren(
-    ...(d.groups ?? ["hästar", "blandat"]).map((g) => {
-      const m = Object.assign(document.createElement("div"), { className: `metric${(d.groups ?? []).length === 1 ? " wide" : ""}` });
-      m.append(
-        Object.assign(document.createElement("span"), { className: "metric-label", textContent: `${GROUP_LABELS[g] ?? g}, sålda partier` }),
-        Object.assign(document.createElement("span"), { className: "metric-value big-number", textContent: perFig(d.benchmark[g]) }),
-        Object.assign(document.createElement("span"), { className: "metric-note", textContent: spreadFig(d.benchmark[g]) }),
-      );
-      return m;
-    }),
-  );
-  // Köp nu-fynd: högst 60 % av normalt, med känd frakt. Auktioner: nuvarande bud,
-  // de som slutar först överst (slutpriset blir oftast högre).
+  $("f-status").textContent =
+    `Värdet bygger på vad enskilda figurer sålts för hos de säljare du bevakar (fliken Marknad), minus Traderas avgift. ` +
+    `Betala högst = dina köpregler för småfigurer (grön vid ${String(d.rules?.small_green ?? 2).replace(".", ",")}×). Hämtat ${when}.`;
+  $("f-metrics").replaceChildren(...(d.groups ?? ["hästar", "blandat"]).map((g) => lotMetric(d, g)));
+  // Köp nu-fynd: grönt enligt köpreglerna, med känd frakt. Auktioner: under
+  // budtaket först, sedan de som slutar först.
   const list =
     lotsFilter === "deals"
-      ? d.deals.filter((l) => l.deal)
+      ? d.deals.filter((l) => l.deal).sort((a, b) => (b.multiple ?? 0) - (a.multiple ?? 0))
       : lotsFilter === "auctions"
-        ? d.deals.filter((l) => l.price_kind === "bud").sort((a, b) => String(a.end).localeCompare(String(b.end)))
+        ? d.deals.filter((l) => l.price_kind === "bud").sort((a, b) => Number(b.under_max) - Number(a.under_max) || String(a.end).localeCompare(String(b.end)))
         : d.deals;
+  const under = d.deals.filter((l) => l.under_max).length;
+  $("f-auction-count").textContent = under ? `(${under})` : "";
+  const shipText = (l) => (l.shipping != null ? ` + frakt ${kr(l.shipping)}` : l.pickup_only ? " · bara avhämtning" : " · frakt okänd");
+  const valueText = (l) =>
+    l.basis === "styckvis" ? ` · värt ca ${kr(l.value)} netto styckvis (${l.per_figure_value} kr/figur)` : l.value ? ` · värt ca ${kr(l.value)} som parti` : "";
   $("f-list").replaceChildren(
     ...list.map((l) => {
       const li = document.createElement("li");
@@ -1921,18 +1943,31 @@ function renderLots() {
       img.addEventListener("error", () => (img.style.visibility = "hidden"));
       if (l.thumbnail) img.src = l.thumbnail;
       else img.style.visibility = "hidden";
+      const auction = l.price_kind === "bud";
       const t = Object.assign(document.createElement("div"), { className: "t" });
       t.append(
         Object.assign(document.createElement("b"), { textContent: l.title }),
         Object.assign(document.createElement("small"), {
-          textContent:
-            `${l.count} figurer · ${l.price_kind} ${kr(l.price)}${l.price_kind === "bud" ? ` (${l.bids} bud)` : ""}` +
-            (l.shipping != null ? ` + frakt ${kr(l.shipping)} = ${kr(l.total)}` : l.pickup_only ? " · bara avhämtning" : " · frakt okänd") +
-            ` · slutar ${String(l.end).slice(0, 10)} · normalt ${l.ref_median} kr/figur`,
+          textContent: auction
+            ? `${l.count} figurer · bud nu ${kr(l.price)} (${l.bids} bud)${shipText(l)}${valueText(l)}` +
+              (l.max_bid != null ? ` · bjud högst ${kr(l.max_bid)}` : "") +
+              ` · slutar ${new Date(l.end).toLocaleString("sv-SE", { dateStyle: "short", timeStyle: "short" })}`
+            : `${l.count} figurer · köp nu ${kr(l.price)}${shipText(l)}${l.shipping != null ? ` = ${kr(l.total)}` : ""}${valueText(l)}` +
+              (l.pay_max != null ? ` · betala högst ${kr(l.pay_max)} inkl. frakt` : "") +
+              ` · slutar ${String(l.end).slice(0, 10)}`,
         }),
       );
-      const k = Object.assign(document.createElement("div"), { className: `k${l.deal ? " good" : ""}`, textContent: `${l.per_figure} kr/fig` });
-      k.append(Object.assign(document.createElement("small"), { textContent: `${Math.round(l.share * 100)} %` }));
+      let k;
+      if (auction) {
+        k = Object.assign(document.createElement("div"), { className: `k${l.under_max ? " good" : ""}`, textContent: l.max_bid != null ? `max ${kr(l.max_bid)}` : "–" });
+        k.append(Object.assign(document.createElement("small"), { textContent: l.max_bid == null ? "frakt okänd" : l.under_max ? "under gränsen" : "över gränsen" }));
+      } else if (l.basis === "styckvis") {
+        k = Object.assign(document.createElement("div"), { className: `k${l.color === "green" ? " good" : ""}`, textContent: l.multiple != null ? `${String(l.multiple).replace(".", ",")}×` : "–" });
+        k.append(Object.assign(document.createElement("small"), { textContent: COLOR_TEXT[l.color] ?? "" }));
+      } else {
+        k = Object.assign(document.createElement("div"), { className: `k${l.deal ? " good" : ""}`, textContent: `${l.per_figure} kr/fig` });
+        k.append(Object.assign(document.createElement("small"), { textContent: `${Math.round(l.share * 100)} %` }));
+      }
       a.append(img, t, k);
       li.append(a);
       return li;
@@ -1943,7 +1978,8 @@ function renderLots() {
     `${d.scanned} annonser från ${d.queries?.length ?? 1} partisökningar: ${d.lots} partier, varav ${d.active_lots} aktiva. ` +
     (d.truncated?.length ? `⚠️ För många träffar, alla hämtades inte: ${d.truncated.join(", ")}. ` : "") +
     `${d.without_count} aktiva partier saknar antal i rubriken och visas inte. ` +
-    "Kr per figur räknas på pris + billigaste frakt (fraktsätt för 0 kr räknas inte). Fynd är bara Köp nu – ett bud är inte slutpriset. Tryck på ett parti för att öppna det på Tradera.";
+    "Pris inkl. billigaste frakt (fraktsätt för 0 kr räknas inte). Värdet antar att alla figurer i partiet säljs till medianpriset – säljgraden visar hur stor andel som brukar säljas. " +
+    "Tryck på ett parti för att öppna det på Tradera.";
 }
 
 $("f-refresh").addEventListener("click", fetchLots);

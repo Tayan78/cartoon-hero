@@ -16,6 +16,7 @@ import { waitUntil } from "@vercel/functions";
 import { checkAuth, json } from "../lib/http.js";
 import { collectSeller, discoverSellers, listSellers, runStatus, runStep, startRun, watchSeller } from "../lib/marketdata.js";
 import { checkLot, findLots } from "../lib/lots.js";
+import { mergeSettings } from "../lib/settings.js";
 import { storageConfigured } from "../lib/storage.js";
 import { traderaConfigured, traderaGet } from "../lib/tradera.js";
 
@@ -73,7 +74,7 @@ export async function POST(request) {
       case "lots_check":
         return json({ ok: true, ...(await checkLot(body.link)) });
       case "lots":
-        return json({ ok: true, ...(await findLots({ niche: body.niche })) });
+        return json({ ok: true, ...(await findLots({ niche: body.niche, settings: mergeSettings(body.settings) })) });
       case "sellers":
         return json({ ok: true, sellers: await listSellers() });
       case "watch": {
