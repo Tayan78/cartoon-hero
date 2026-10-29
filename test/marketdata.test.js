@@ -122,3 +122,27 @@ test("Bakgrundskörning: en i taget, äldst först, fel på säljaren, status oc
   assert.deepEqual([stale.running, stale.status], [false, "Avbruten"]);
   assert.equal((await startRun(null, { store: gs.store, now: t + 4 * 60 * 1000 })).started, true);
 });
+
+test("Nischer: smurfar behålls och märks, annat tas bort, säljarens nischer sparas", async () => {
+  const gs = fakeAppsScript();
+  await watchSeller({ id: "5", alias: "SmurfSäljaren", niche: "smurfar" }, true, { store: gs.store, url: "u" });
+  await watchSeller({ id: "5", alias: "SmurfSäljaren", niche: "djur" }, true, { store: gs.store, url: "u" });
+  assert.deepEqual((await listSellers({ store: gs.store }))[0].niches, ["smurfar", "djur"]);
+  const it = (id, title) => ({ id, title, number: "", number_source: "", type: "köp nu", price: 30, bids: 0, shipping: 49, condition: "", start: "", end: "", days: 1, restarts: 0, url: "u", text: "", sold: false, ended: false });
+  await gs.store("sheetUpsert", { sheet: "Marknad", headers: MARKET_HEADERS, key: "Annons-ID", rows: [{ "Annons-ID": "9", "Säljar-ID": "5", Rubrik: "Barbie docka" }] });
+  await collectSeller({ alias: "SmurfSäljaren", user_id: "5" }, { store: gs.store, fetchItems: async () => ({ alias: "SmurfSäljaren", user_id: "5", detail: {}, items: [it(1, "Smurf med blomma Schleich 20044"), it(2, "Schleich Tinker sto 13279")] }) });
+  const rows = Object.fromEntries(gs.table("Marknad").map((r) => [String(r["Annons-ID"]), r.Nisch]));
+  assert.deepEqual(rows, { 1: "smurfar", 2: "djur" });
+});
+
+test("Hitta konkurrenter per nisch: sökord och bara nischens annonser räknas", async () => {
+  const words = [];
+  const search = async (body) => {
+    words.push(body.searchWords);
+    return { totalNumberOfPages: 1, items: [hit(1, 1, { shortDescription: "Smurfar 10 st" }), hit(2, 1, { shortDescription: "Smurf bok" }), hit(3, 1, { shortDescription: "Schleich häst 13279" })] };
+  };
+  const r = await discoverSellers({ niche: "smurfar", search, minListings: 1 });
+  assert.deepEqual([...new Set(words)], ["smurf"]);
+  assert.equal(r.sellers[0].total, 2); // smurfannonserna, inte Schleich-hästen
+  assert.equal(r.sellers[0].niche, "smurfar");
+});

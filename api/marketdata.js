@@ -6,7 +6,7 @@
 //     { action: "watch", seller, watch }    bevaka eller sluta bevaka (seller: { id?, alias })
 //     { action: "collect_all", only? }     starta insamling i bakgrunden (alla, eller only = [id])
 //     { action: "status" }                  pågående insamling + säljarna
-//     { action: "lots" }                    Schleich-partier: kr per figur och fynd (lib/lots.js)
+//     { action: "lots", niche }             partier (djur/smurfar): kr per figur inkl. frakt och fynd (lib/lots.js)
 //   Från Apps Script-timern (x-script-secret): { action: "nightly" }
 //   Från servern själv (x-script-secret):     { action: "continue", state } – nästa steg
 // Insamlingen körs med waitUntil: svaret kommer direkt och arbetet fortsätter.
@@ -65,12 +65,12 @@ export async function POST(request) {
   try {
     switch (body.action) {
       case "discover": {
-        const [found, sellers] = await Promise.all([discoverSellers(), storageConfigured() ? listSellers().catch(() => []) : []]);
+        const [found, sellers] = await Promise.all([discoverSellers({ niche: body.niche }), storageConfigured() ? listSellers().catch(() => []) : []]);
         const ids = new Set(sellers.filter((s) => s.watched).map((s) => s.id));
         return json({ ok: true, ...found, sellers: found.sellers.map((s) => ({ ...s, watched: ids.has(String(s.id)) })) });
       }
       case "lots":
-        return json({ ok: true, ...(await findLots()) });
+        return json({ ok: true, ...(await findLots({ niche: body.niche })) });
       case "sellers":
         return json({ ok: true, sellers: await listSellers() });
       case "watch": {
