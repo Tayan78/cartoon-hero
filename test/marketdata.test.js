@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MARKET_HEADERS, SELLER_HEADERS, collectSeller, discoverSellers, listSellers, marketRow, mergeMarketRow, runNightly, watchSeller } from "../lib/marketdata.js";
+import { MARKET_HEADERS, SELLER_HEADERS, collectSeller, discoverSellers, listSellers, marketRow, mergeMarketRow, runStatus, runStep, startRun, watchSeller } from "../lib/marketdata.js";
 import { fakeAppsScript } from "./helpers/apps-script.js";
 
 const hit = (id, sellerId, o = {}) => ({ id, sellerId, sellerAlias: `s${sellerId}`, shortDescription: "Schleich häst 13279", hasBids: false, sellerDsrAverage: 4.9, ...o });
@@ -81,7 +81,7 @@ test("Auktioner: bud räknas inte som prisändring", () => {
   assert.equal(mergeMarketRow(old, { id: "1", type: "köp nu", price: 40, status: "Aktiv" }, "t").Prisändringar, 1);
 });
 
-test("Nattkörning: äldst först, fel sparas på säljaren, fortsätter med state", async () => {
+test("Bakgrundskörning: en i taget, äldst först, fel på säljaren, status och bara vissa säljare", async () => {
   const gs = fakeAppsScript();
   for (const [id, alias] of [["1", "A"], ["2", "B"], ["3", "C"]]) await watchSeller({ id, alias }, true, { store: gs.store, url: "u" });
   await gs.store("sheetUpsert", { sheet: "Säljare", headers: SELLER_HEADERS, key: "Säljar-ID", rows: [{ "Säljar-ID": "1", "Senast insamlad": "2026-10-27T03:00:00Z" }] });
@@ -90,13 +90,35 @@ test("Nattkörning: äldst först, fel sparas på säljaren, fortsätter med sta
     order.push(user_id);
     if (user_id === "2") throw new Error("Tradera 500: fel");
   };
-  let t = 0;
-  const clock = () => (t += 50_000); // två säljare hinns per anrop
-  const first = await runNightly(null, { store: gs.store, collect, clock, budgetMs: 90_000 });
+  const now = Date.parse("2026-10-29T06:00:00Z");
+  let t = now;
+  const clock = () => (t += 20_000); // två säljare hinns per steg (50 s)
+
+  const run = await startRun(null, { store: gs.store, now });
+  assert.equal(run.started, true);
+  assert.equal((await startRun(null, { store: gs.store, now })).started, false); // en körning åt gången
+  assert.equal((await runStatus({ store: gs.store, now })).running, true);
+
+  const first = await runStep(run.state, { store: gs.store, collect, clock });
   assert.deepEqual([first.ran, first.more], [2, true]);
-  const second = await runNightly(first.state, { store: gs.store, collect, clock, budgetMs: 90_000 });
+  const mid = await runStatus({ store: gs.store, now: t });
+  assert.deepEqual([mid.running, mid.done, mid.left], [true, 2, 1]);
+  const second = await runStep(first.state, { store: gs.store, collect, clock });
   assert.deepEqual([second.ran, second.more], [1, false]);
   assert.deepEqual(order, ["2", "3", "1"]); // aldrig insamlade först, sedan äldst
-  const sellers = await listSellers({ store: gs.store });
-  assert.equal(sellers.find((s) => s.id === "2").error, "Tradera 500: fel");
+  const end = await runStatus({ store: gs.store, now: t });
+  assert.deepEqual([end.running, end.status], [false, "Klar"]);
+  assert.equal((await listSellers({ store: gs.store })).find((s) => s.id === "2").error, "Tradera 500: fel");
+
+  // Bara en säljare (Samla nu).
+  order.length = 0;
+  const one = await startRun(["3"], { store: gs.store, now: t });
+  const step = await runStep(one.state, { store: gs.store, collect, clock });
+  assert.deepEqual([order, step.more], [["3"], false]);
+
+  // Stannad körning (inget livstecken på 3 min) räknas inte som pågående.
+  await startRun(null, { store: gs.store, now: t });
+  const stale = await runStatus({ store: gs.store, now: t + 4 * 60 * 1000 });
+  assert.deepEqual([stale.running, stale.status], [false, "Avbruten"]);
+  assert.equal((await startRun(null, { store: gs.store, now: t + 4 * 60 * 1000 })).started, true);
 });
