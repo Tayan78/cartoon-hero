@@ -1947,6 +1947,31 @@ function renderLots() {
 }
 
 $("f-refresh").addEventListener("click", fetchLots);
+$("f-check").addEventListener("click", async () => {
+  const link = $("f-check-link").value.trim();
+  if (!link) return;
+  const out = $("f-check-out");
+  out.textContent = "Kontrollerar annonsen och alla partisökningar… (upp till en halv minut)";
+  try {
+    const res = await fetch("/api/marketdata", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-app-token": getToken() },
+      body: JSON.stringify({ action: "lots_check", link }),
+    });
+    const r = await res.json().catch(() => ({}));
+    if (!res.ok || !r.ok) throw new Error(r.error || `Fel ${res.status}`);
+    const hits = r.found.filter((f) => f.page);
+    out.textContent = [
+      `"${r.title}"`,
+      `Nisch: ${r.niche ?? "ingen"} · antal: ${r.count ?? "okänt"} · frakt: ${r.shipping.shipping != null ? kr(r.shipping.shipping) : "okänd"}${r.ended ? " · avslutad" : ""}`,
+      r.is_lot ? "✓ Filtren godkänner partiet." : `✗ Filtren: ${r.reasons.join("; ")}.`,
+      hits.length ? `✓ Hittas av: ${hits.map((f) => `${f.query} (sida ${f.page})`).join(", ")}.` : "✗ Ingen av partisökningarna hittar annonsen.",
+      `Sökningar utan träff: ${r.found.filter((f) => !f.page).map((f) => `${f.query}${f.pages > 10 ? " – för många sidor" : ""}`).join(", ") || "inga"}.`,
+    ].join("\n");
+  } catch (err) {
+    out.textContent = `⚠️ ${err.message}`;
+  }
+});
 for (const b of document.querySelectorAll("#f-niche .chip")) {
   b.addEventListener("click", () => {
     lotsNiche = b.dataset.niche;

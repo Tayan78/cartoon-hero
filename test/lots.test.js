@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { addShipping, benchmark, countFigures, findLots, isLot, rankDeals, shippingOf, toLot } from "../lib/lots.js";
+import { addShipping, benchmark, checkLot, countFigures, findLots, isLot, rankDeals, shippingOf, toLot } from "../lib/lots.js";
 import { NICHES, nicheOf } from "../lib/niches.js";
 
 const djur = NICHES.djur;
@@ -107,4 +107,23 @@ test("Sökning som har fler sidor än vi hämtar flaggas", async () => {
   const search = async (body) => ({ totalNumberOfPages: body.searchWords === "schleich djur" && !body.itemStatus ? 25 : 1, items: [] });
   const r = await findLots({ niche: "djur", search, get: async () => ({}) });
   assert.deepEqual(r.truncated, ["schleich djur"]);
+});
+
+test("Det verkliga partiet '42 st Schleich-djur.': filtren godkänner det, kontrollen visar vilka sökningar som hittar det", async () => {
+  const title = "42 st Schleich-djur.";
+  assert.ok(isLot(title, djur));
+  assert.equal(countFigures(title), 42);
+  const bodies = [];
+  // Låtsas att sökningen bara hittar den med bindestreck eller inom kategorin.
+  const search = async (body) => {
+    bodies.push(body);
+    const hit = body.searchWords === "schleich-djur" || (body.categoryId === 1000532 && body.searchWords === "st");
+    return { totalNumberOfPages: 1, items: hit ? [{ id: 758257789, shortDescription: title }] : [] };
+  };
+  const get = async () => ({ id: 758257789, shortDescription: title, endDate: "2099-11-07T20:47:00Z", shippingOptions: [{ cost: 59 }] });
+  const r = await checkLot("https://www.tradera.com/item/1000532/758257789/42-st-schleich-djur-", { search, get });
+  assert.deepEqual([r.id, r.niche, r.count, r.is_lot, r.shipping.shipping], ["758257789", "djur", 42, true, 59]);
+  assert.deepEqual(r.found.filter((f) => f.page).map((f) => f.query), ["schleich-djur", "st i kategori 1000532"]);
+  assert.ok(bodies.some((b) => b.categoryId === 1000532));
+  await assert.rejects(checkLot("hej", { search, get }), /Tradera-länk/);
 });
