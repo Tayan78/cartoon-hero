@@ -1942,25 +1942,55 @@ async function watchSeller(s, watch) {
   }
 }
 
-async function collectNow(s) {
+// Insamlingar körs en åt gången (Google Sheet låter bara en skriva åt gången;
+// flera samtidigt gav "Lock timeout"). Tryck läggs i kö.
+const collectQueue = [];
+let collectRunning = false;
+
+function collectNow(s) {
   const id = String(s.id ?? "");
+  if (collecting.has(id)) return;
   collecting.add(id);
-  collectResult.set(id, { text: "Hämtar från Tradera… (upp till en halv minut)" });
+  collectResult.set(id, { text: collectRunning ? "I kö…" : "Hämtar från Tradera… (upp till en halv minut)" });
+  collectQueue.push(s);
   renderWatched();
-  try {
-    const r = await marketApi({ action: "collect", alias: s.alias, user_id: s.id });
-    collectResult.set(id, {
-      text: `✓ ${r.items} Schleich-annonser – ${r.added} nya, ${r.updated} uppdaterade${r.removed ? `, ${r.removed} andra borttagna` : ""}`,
-    });
-  } catch (err) {
-    collectResult.set(id, { error: true, text: `⚠️ ${err.message}` });
-  } finally {
-    collecting.delete(id);
+  runCollectQueue();
+}
+
+async function runCollectQueue() {
+  if (collectRunning) return;
+  collectRunning = true;
+  while (collectQueue.length) {
+    const s = collectQueue.shift();
+    const id = String(s.id);
+    const before = marketSellers.find((x) => x.id === id)?.collected ?? "";
+    collectResult.set(id, { text: "Hämtar från Tradera… (upp till en halv minut)" });
+    renderWatched();
+    try {
+      const r = await marketApi({ action: "collect", alias: s.alias, user_id: s.id });
+      collectResult.set(id, {
+        text: `✓ ${r.items} Schleich-annonser – ${r.added} nya, ${r.updated} uppdaterade${r.removed ? `, ${r.removed} andra borttagna` : ""}`,
+      });
+      collecting.delete(id);
+      await loadMarketSellers();
+    } catch (err) {
+      collecting.delete(id);
+      await loadMarketSellers();
+      // Svaret kom inte fram (t.ex. "Load failed"), men insamlingen kan ha gått igenom.
+      const after = marketSellers.find((x) => x.id === id)?.collected ?? "";
+      const done = isNetworkError(err) && after && after !== before;
+      collectResult.set(id, done ? { text: "✓ Insamlad (svaret kom inte fram, men insamlingen gick igenom)" } : { error: true, text: `⚠️ ${err.message} – tryck Samla nu igen` });
+    }
+    renderWatched();
   }
-  await loadMarketSellers();
+  collectRunning = false;
 }
 
 $("m-refresh").addEventListener("click", loadMarketSellers);
+$("m-collect-all").addEventListener("click", () => {
+  // Den som väntat längst först, som nattkörningen.
+  for (const s of [...marketSellers].filter((x) => x.watched).sort((a, b) => String(a.collected).localeCompare(String(b.collected)))) collectNow(s);
+});
 $("m-add").addEventListener("click", () => {
   const alias = $("m-alias").value.trim();
   if (alias) watchSeller({ alias }, true).then(() => ($("m-alias").value = ""));
