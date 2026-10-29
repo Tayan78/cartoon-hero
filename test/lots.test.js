@@ -92,12 +92,19 @@ test("Hämtning per nisch: aktiva och avslutade, frakt inräknad, utan dubblette
   };
   const get = async () => ({ shippingOptions: [{ cost: 50 }] });
   const r = await findLots({ niche: "djur", search, get });
-  assert.deepEqual([...new Set(queries)], ["schleich"]);
-  assert.deepEqual([r.scanned, r.lots, r.active_lots, r.sold_lots, r.shipping_fetched], [10, 9, 1, 8, 9]);
+  assert.ok(queries.includes("schleich st") && queries.includes("schleich djur"));
+  assert.ok(!queries.includes("schleich")); // ingen bred sökning som kapas
+  assert.deepEqual([r.scanned, r.lots, r.active_lots, r.sold_lots, r.shipping_fetched], [10, 9, 1, 8, 9]); // samma annonser i alla sökningar = inga dubbletter
   assert.equal(r.benchmark.hästar.median, 30); // (250 + 50) / 10
   assert.deepEqual([r.deals[0].id, r.deals[0].total, r.deals[0].per_figure, r.deals[0].deal], [1, 150, 15, true]);
 
   queries.length = 0;
   await findLots({ niche: "smurfar", search: async (b) => (queries.push(b.searchWords), { items: [] }), get });
-  assert.deepEqual([...new Set(queries)], ["smurf"]);
+  assert.ok(queries.every((q) => /^smurf/.test(q)));
+});
+
+test("Sökning som har fler sidor än vi hämtar flaggas", async () => {
+  const search = async (body) => ({ totalNumberOfPages: body.searchWords === "schleich djur" && !body.itemStatus ? 25 : 1, items: [] });
+  const r = await findLots({ niche: "djur", search, get: async () => ({}) });
+  assert.deepEqual(r.truncated, ["schleich djur"]);
 });

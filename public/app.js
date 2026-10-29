@@ -1940,7 +1940,8 @@ function renderLots() {
   );
   $("f-info").textContent =
     `${list.length ? "" : lotsFilter === "deals" ? "Inga Köp nu-fynd just nu. " : lotsFilter === "auctions" ? "Inga auktioner med antal just nu. " : ""}` +
-    `${d.scanned} annonser genomsökta: ${d.lots} partier, varav ${d.active_lots} aktiva. ` +
+    `${d.scanned} annonser från ${d.queries?.length ?? 1} partisökningar: ${d.lots} partier, varav ${d.active_lots} aktiva. ` +
+    (d.truncated?.length ? `⚠️ För många träffar, alla hämtades inte: ${d.truncated.join(", ")}. ` : "") +
     `${d.without_count} aktiva partier saknar antal i rubriken och visas inte. ` +
     "Kr per figur räknas på pris + billigaste frakt (fraktsätt för 0 kr räknas inte). Fynd är bara Köp nu – ett bud är inte slutpriset. Tryck på ett parti för att öppna det på Tradera.";
 }
