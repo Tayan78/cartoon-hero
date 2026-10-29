@@ -1842,6 +1842,10 @@ for (const b of document.querySelectorAll("#l-period .chip")) {
 // Bevakade säljare samlas in varje natt (Apps Script-timer → /api/marketdata).
 let marketSellers = [];
 let marketFound = store.get("market_found", null);
+// Insamling som pågår (säljar-id) och senaste resultatet per säljare – visas på
+// säljarens egen rad, så att det syns även när listan är lång.
+const collecting = new Set();
+const collectResult = new Map();
 
 async function marketApi(body) {
   const res = await fetch("/api/marketdata", {
@@ -1869,6 +1873,7 @@ async function loadMarketSellers() {
     renderFound();
   } catch (err) {
     $("m-status").textContent = `⚠️ ${err.message}${/okänd action/i.test(err.message) ? " – klistra in den nya Apps Script-koden och driftsätt en ny version." : ""}`;
+    renderWatched(); // visa insamlingens resultat även när listan inte kunde läsas om
   }
 }
 
@@ -1889,9 +1894,14 @@ function renderWatched() {
         Object.assign(document.createElement("b"), { textContent: s.alias }),
         Object.assign(document.createElement("small"), { textContent: `${s.in_db} annonser i databasen (${s.sold_in_db} sålda) · insamlad ${when}` }),
       );
-      if (s.error) t.append(Object.assign(document.createElement("small"), { className: "err", textContent: ` · ⚠️ ${s.error}` }));
+      const result = collectResult.get(s.id);
+      if (result) t.append(Object.assign(document.createElement("small"), { className: `result${result.error ? " err" : ""}`, textContent: result.text }));
+      else if (s.error) t.append(Object.assign(document.createElement("small"), { className: "result err", textContent: `⚠️ ${s.error}` }));
       const acts = Object.assign(document.createElement("div"), { className: "acts" });
-      acts.append(smallBtn("Samla nu", "chip", () => collectNow(s)), smallBtn("✕", "chip", () => watchSeller(s, false)));
+      const busy = collecting.has(s.id);
+      const collectBtn = smallBtn(busy ? "Samlar…" : "Samla nu", "chip", () => collectNow(s));
+      collectBtn.disabled = busy;
+      acts.append(collectBtn, smallBtn("✕", "chip", () => watchSeller(s, false)));
       li.append(t, acts);
       return li;
     }),
@@ -1933,14 +1943,21 @@ async function watchSeller(s, watch) {
 }
 
 async function collectNow(s) {
-  $("m-status").textContent = `Samlar in ${s.alias} från Tradera… (första gången kan det ta en halv minut)`;
+  const id = String(s.id ?? "");
+  collecting.add(id);
+  collectResult.set(id, { text: "Hämtar från Tradera… (upp till en halv minut)" });
+  renderWatched();
   try {
     const r = await marketApi({ action: "collect", alias: s.alias, user_id: s.id });
-    await loadMarketSellers();
-    $("m-status").textContent = `✓ ${r.alias}: ${r.items} Schleich-annonser – ${r.added} nya, ${r.updated} uppdaterade${r.removed ? `, ${r.removed} andra annonser borttagna` : ""}.`;
+    collectResult.set(id, {
+      text: `✓ ${r.items} Schleich-annonser – ${r.added} nya, ${r.updated} uppdaterade${r.removed ? `, ${r.removed} andra borttagna` : ""}`,
+    });
   } catch (err) {
-    $("m-status").textContent = `⚠️ ${s.alias}: ${err.message}`;
+    collectResult.set(id, { error: true, text: `⚠️ ${err.message}` });
+  } finally {
+    collecting.delete(id);
   }
+  await loadMarketSellers();
 }
 
 $("m-refresh").addEventListener("click", loadMarketSellers);
