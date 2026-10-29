@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { addShipping, benchmark, checkLot, countFigures, findLots, isLot, rankDeals, shippingOf, singleStats, toLot } from "../lib/lots.js";
+import { addShipping, benchmark, buyerFee, checkLot, countFigures, findLots, isLot, maxOrderFor, rankDeals, shippingOf, singleStats, toLot, withBuyerFee } from "../lib/lots.js";
 import { NICHES, nicheOf } from "../lib/niches.js";
 
 const djur = NICHES.djur;
@@ -50,19 +50,19 @@ test("Frakt: billigaste fraktsättet räknas in i kr per figur", async () => {
   assert.deepEqual(shippingOf({ shippingOptions: [{ cost: 0 }, { cost: 54 }] }), { shipping: 54, pickup_only: false }); // 0 kr räknas inte
   assert.equal(shippingOf({ shippingOptions: [{ cost: 0 }] }).shipping, null);
   const lots = [toLot(item({ id: 1, buyItNowPrice: 100, hasBids: false, bidCount: 0 }), false), toLot(item({ id: 2, shortDescription: "Schleich paket blandat" }), false)];
-  assert.equal(lots[0].per_figure, 10); // utan frakt
+  assert.equal(lots[0].per_figure, 11); // utan frakt: 100 + köparskydd 7 = 107 kr / 10
   const asked = [];
   const { lots: out, fetched } = await addShipping(lots, { get: async (path) => (asked.push(path), { shippingOptions: [{ cost: 60 }] }) });
   assert.deepEqual(asked, ["/v4/items/1"]); // bara partier med antal
   assert.equal(fetched, 1);
-  assert.deepEqual([out[0].shipping, out[0].total, out[0].per_figure], [60, 160, 16]);
+  assert.deepEqual([out[0].shipping, out[0].buyer_fee, out[0].total, out[0].per_figure], [60, 7, 167, 17]); // 100 + köparskydd 7 (bara på priset) + frakt 60
 });
 
 test("Normalpris per figur från sålda partier, fynd jämförs mot gruppens median", () => {
   const sold = Array.from({ length: 8 }, (_, i) => toLot(item({ id: i + 1, maxBid: 200 + 20 * i }), true));
   const unsold = toLot(item({ id: 50, hasBids: false, bidCount: 0, maxBid: 0, buyItNowPrice: 900 }), true);
   const bench = benchmark([...sold, unsold], djur);
-  assert.deepEqual(bench.hästar, { n: 8, p25: 24, median: 27, p75: 31 });
+  assert.deepEqual(bench.hästar, { n: 8, p25: 25, median: 29, p75: 33 }); // inkl. köparskydd
   assert.equal(bench.blandat.n, 0);
   const active = [
     toLot(item({ id: 100, buyItNowPrice: 120, hasBids: false, bidCount: 0, maxBid: 0 }), false),
@@ -71,7 +71,7 @@ test("Normalpris per figur från sålda partier, fynd jämförs mot gruppens med
   ];
   const known = active.map((l) => ({ ...l, shipping: 0 }));
   const deals = rankDeals(known, bench);
-  assert.deepEqual(deals.map((d) => [d.id, d.per_figure, d.share, d.deal]), [[100, 12, 0.44, true], [101, 30, 1.11, false]]);
+  assert.deepEqual(deals.map((d) => [d.id, d.per_figure, d.share, d.deal]), [[100, 13, 0.45, true], [101, 32, 1.1, false]]);
   // Okänd frakt (t.ex. bara avhämtning) blir aldrig fynd, hur billigt det än ser ut.
   assert.equal(rankDeals(active, bench)[0].deal, false);
   // Ett bud är inte slutpriset: auktioner blir aldrig fynd.
@@ -95,8 +95,8 @@ test("Hämtning per nisch: aktiva och avslutade, frakt inräknad, utan dubblette
   assert.ok(queries.includes("schleich st") && queries.includes("schleich djur"));
   assert.ok(!queries.includes("schleich")); // ingen bred sökning som kapas
   assert.deepEqual([r.scanned, r.lots, r.active_lots, r.sold_lots, r.shipping_fetched], [10, 9, 1, 8, 9]); // samma annonser i alla sökningar = inga dubbletter
-  assert.equal(r.benchmark.hästar.median, 30); // (250 + 50) / 10
-  assert.deepEqual([r.deals[0].id, r.deals[0].total, r.deals[0].per_figure, r.deals[0].deal], [1, 150, 15, true]);
+  assert.equal(r.benchmark.hästar.median, 32); // (250 + köparskydd 15 + frakt 50) / 10
+  assert.deepEqual([r.deals[0].id, r.deals[0].total, r.deals[0].per_figure, r.deals[0].deal], [1, 157, 16, true]); // 100 + köparskydd 7 + frakt 50
 
   queries.length = 0;
   await findLots({ niche: "smurfar", search: async (b) => (queries.push(b.searchWords), { items: [] }), get });
@@ -134,7 +134,7 @@ test("Auktion: värde, budtak och under/över gränsen", () => {
   const [a] = rankDeals([lot({})], bench);
   assert.equal(a.price_kind, "bud");
   assert.equal(a.value, 1596); // 42 × 38
-  assert.equal(a.max_bid, 898); // 60 % av 1596 = 957, minus 59 kr frakt
+  assert.equal(a.max_bid, 853); // 60 % av 1596 = 957 − frakt 59 = 898 → bud 853 + köparskydd 45
   assert.equal(a.under_max, true);
   assert.equal(a.deal, false); // auktioner är inte "Köp nu-fynd"
   const [high] = rankDeals([lot({ price: 1000 })], bench);
@@ -176,7 +176,7 @@ test("Partiets värde styckvis: köpreglerna ger betala högst, budtak och grön
   assert.equal(a.basis, "styckvis");
   assert.equal(a.value, 42 * 61); // 2 562 kr netto styckvis
   assert.equal(a.pay_max, 1281); // grön vid 2×
-  assert.equal(a.max_bid, 1281 - 59);
+  assert.equal(a.max_bid, 1162); // 1281 − frakt 59 = 1222 → bud 1162 + köparskydd 60
   assert.equal(a.under_max, true);
   const buyNow = (price) => withShipping(toLot(item({ id: 10, shortDescription: "Schleich paket 10 st hästar", hasBids: false, bidCount: 0, maxBid: 0, buyItNowPrice: price }), false), 59);
   const [cheap] = rankDeals([buyNow(200)], bench, { singles }); // 259 kr för 660 kr netto = 2,5×
@@ -230,10 +230,22 @@ test("Auktion med Köp nu-pris: räknas som auktion (utropet), Köp nu visas bre
   assert.deepEqual([lot.price_kind, lot.price, lot.buy_now], ["bud", 149, 399]);
   const withShip = { ...lot, shipping: 59, total: 208 };
   const [a] = rankDeals([withShip], bench, { singles }); // 11 × 61 = 671 kr netto, betala högst 335
-  assert.deepEqual([a.value, a.pay_max, a.max_bid, a.under_max], [671, 335, 276, true]);
-  assert.deepEqual([a.buy_now_total, a.buy_now_ok, a.deal], [458, false, false]); // Köp nu för dyrt
+  assert.deepEqual([a.value, a.pay_max, a.max_bid, a.under_max], [671, 335, 261, true]); // 261 + köparskydd 15 + frakt 59 = 335
+  assert.deepEqual([a.buy_now_total, a.buy_now_ok, a.deal], [480, false, false]); // 399 + köparskydd 22 + frakt 59 – för dyrt
   const [cheap] = rankDeals([{ ...withShip, buy_now: 249 }], bench, { singles }); // 308 kr ≤ 335
   assert.deepEqual([cheap.buy_now_ok, cheap.deal, cheap.price_kind], [true, true, "bud"]);
   // Ren Köp nu-annons är fortfarande Köp nu.
   assert.equal(toLot({ ...raw, itemType: "PureBuyItNow", nextBid: 0 }, false).price_kind, "köp nu");
+});
+
+test("Köparskydd: 2 kr + 5 % av priset (inte frakten), max 499 kr, och budtaket ryms inkl. avgiften", () => {
+  assert.equal(buyerFee(149), 9); // Traderas exempel: 149 kr → 158 kr med köparskydd
+  assert.equal(buyerFee(2), 2); // 2 kr → 4 kr
+  assert.equal(buyerFee(20000), 499); // tak
+  assert.equal(buyerFee(0), 0);
+  for (const budget of [50, 335, 957, 1281, 12000]) {
+    const order = maxOrderFor(budget);
+    assert.ok(withBuyerFee(order) <= budget, `budget ${budget}`);
+    assert.ok(withBuyerFee(order + 1) > budget, `budget ${budget} +1`);
+  }
 });
