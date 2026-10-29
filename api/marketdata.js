@@ -6,6 +6,7 @@
 //     { action: "watch", seller, watch }    bevaka eller sluta bevaka (seller: { id?, alias })
 //     { action: "collect_all", only? }     starta insamling i bakgrunden (alla, eller only = [id])
 //     { action: "status" }                  pågående insamling + säljarna
+//     { action: "lots" }                    Schleich-partier: kr per figur och fynd (lib/lots.js)
 //   Från Apps Script-timern (x-script-secret): { action: "nightly" }
 //   Från servern själv (x-script-secret):     { action: "continue", state } – nästa steg
 // Insamlingen körs med waitUntil: svaret kommer direkt och arbetet fortsätter.
@@ -13,6 +14,7 @@ import { timingSafeEqual } from "node:crypto";
 import { waitUntil } from "@vercel/functions";
 import { checkAuth, json } from "../lib/http.js";
 import { collectSeller, discoverSellers, listSellers, runStatus, runStep, startRun, watchSeller } from "../lib/marketdata.js";
+import { findLots } from "../lib/lots.js";
 import { storageConfigured } from "../lib/storage.js";
 import { traderaConfigured, traderaGet } from "../lib/tradera.js";
 
@@ -58,7 +60,7 @@ export async function POST(request) {
   if (fromScript && !["nightly", "continue"].includes(body.action)) return json({ ok: false, error: "Inte tillåtet" }, 403);
   const origin = new URL(request.url).origin;
   if (!traderaConfigured()) return json({ ok: false, error: "Tradera är inte konfigurerat" }, 400);
-  if (body.action !== "discover" && !storageConfigured()) return json({ ok: false, error: "Google Sheet är inte konfigurerat" }, 400);
+  if (!["discover", "lots"].includes(body.action) && !storageConfigured()) return json({ ok: false, error: "Google Sheet är inte konfigurerat" }, 400);
 
   try {
     switch (body.action) {
@@ -67,6 +69,8 @@ export async function POST(request) {
         const ids = new Set(sellers.filter((s) => s.watched).map((s) => s.id));
         return json({ ok: true, ...found, sellers: found.sellers.map((s) => ({ ...s, watched: ids.has(String(s.id)) })) });
       }
+      case "lots":
+        return json({ ok: true, ...(await findLots()) });
       case "sellers":
         return json({ ok: true, sellers: await listSellers() });
       case "watch": {
