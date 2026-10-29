@@ -17,6 +17,9 @@ test("Parti eller inte, per nisch", () => {
   assert.ok(isLot("Smurfar paket blandat", smurfar));
   assert.ok(!isLot("Smurfar böcker 10 st", smurfar));
   assert.ok(!isLot("Smurf gosedjur paket", smurfar));
+  assert.ok(!isLot("Schleich staket beige 3 st", djur));
+  assert.ok(!isLot("Schleich hinder 5 st", djur));
+  assert.ok(!isLot("SMURFARNAS TABLETTASKAR 3 st", smurfar));
 });
 
 test("Nisch för en annons", () => {
@@ -44,6 +47,8 @@ const item = (o) => ({ id: 1, shortDescription: "Schleich paket 10 st hästar", 
 test("Frakt: billigaste fraktsättet räknas in i kr per figur", async () => {
   assert.deepEqual(shippingOf({ shippingOptions: [{ cost: 89 }, { cost: 59 }] }), { shipping: 59, pickup_only: false });
   assert.deepEqual(shippingOf({ shippingOptions: [], acceptsPickup: true }), { shipping: null, pickup_only: true });
+  assert.deepEqual(shippingOf({ shippingOptions: [{ cost: 0 }, { cost: 54 }] }), { shipping: 54, pickup_only: false }); // 0 kr räknas inte
+  assert.equal(shippingOf({ shippingOptions: [{ cost: 0 }] }).shipping, null);
   const lots = [toLot(item({ id: 1, buyItNowPrice: 100, hasBids: false, bidCount: 0 }), false), toLot(item({ id: 2, shortDescription: "Schleich paket blandat" }), false)];
   assert.equal(lots[0].per_figure, 10); // utan frakt
   const asked = [];
@@ -69,6 +74,10 @@ test("Normalpris per figur från sålda partier, fynd jämförs mot gruppens med
   assert.deepEqual(deals.map((d) => [d.id, d.per_figure, d.share, d.deal]), [[100, 12, 0.44, true], [101, 30, 1.11, false]]);
   // Okänd frakt (t.ex. bara avhämtning) blir aldrig fynd, hur billigt det än ser ut.
   assert.equal(rankDeals(active, bench)[0].deal, false);
+  // Ett bud är inte slutpriset: auktioner blir aldrig fynd.
+  const auction = { ...toLot(item({ id: 103, maxBid: 50, hasBids: false, bidCount: 0 }), false), shipping: 0 };
+  assert.equal(auction.price_kind, "bud");
+  assert.equal(rankDeals([auction], bench)[0].deal, false);
 });
 
 test("Hämtning per nisch: aktiva och avslutade, frakt inräknad, utan dubbletter", async () => {
@@ -83,12 +92,19 @@ test("Hämtning per nisch: aktiva och avslutade, frakt inräknad, utan dubblette
   };
   const get = async () => ({ shippingOptions: [{ cost: 50 }] });
   const r = await findLots({ niche: "djur", search, get });
-  assert.deepEqual([...new Set(queries)], ["schleich"]);
-  assert.deepEqual([r.scanned, r.lots, r.active_lots, r.sold_lots, r.shipping_fetched], [10, 9, 1, 8, 9]);
+  assert.ok(queries.includes("schleich st") && queries.includes("schleich djur"));
+  assert.ok(!queries.includes("schleich")); // ingen bred sökning som kapas
+  assert.deepEqual([r.scanned, r.lots, r.active_lots, r.sold_lots, r.shipping_fetched], [10, 9, 1, 8, 9]); // samma annonser i alla sökningar = inga dubbletter
   assert.equal(r.benchmark.hästar.median, 30); // (250 + 50) / 10
   assert.deepEqual([r.deals[0].id, r.deals[0].total, r.deals[0].per_figure, r.deals[0].deal], [1, 150, 15, true]);
 
   queries.length = 0;
   await findLots({ niche: "smurfar", search: async (b) => (queries.push(b.searchWords), { items: [] }), get });
-  assert.deepEqual([...new Set(queries)], ["smurf"]);
+  assert.ok(queries.every((q) => /^smurf/.test(q)));
+});
+
+test("Sökning som har fler sidor än vi hämtar flaggas", async () => {
+  const search = async (body) => ({ totalNumberOfPages: body.searchWords === "schleich djur" && !body.itemStatus ? 25 : 1, items: [] });
+  const r = await findLots({ niche: "djur", search, get: async () => ({}) });
+  assert.deepEqual(r.truncated, ["schleich djur"]);
 });
