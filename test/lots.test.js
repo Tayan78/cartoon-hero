@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { addShipping, benchmark, checkLot, countFigures, findLots, isLot, rankDeals, shippingOf, toLot } from "../lib/lots.js";
+import { addShipping, benchmark, checkLot, countFigures, findLots, isLot, rankDeals, shippingOf, singleStats, toLot } from "../lib/lots.js";
 import { NICHES, nicheOf } from "../lib/niches.js";
 
 const djur = NICHES.djur;
@@ -149,3 +149,59 @@ test("Lågt bud på stort parti (0 kr per figur efter avrundning) försvinner in
   assert.equal(l.per_figure, 0);
   assert.equal(rankDeals([l], bench).length, 1);
 });
+
+// Sålda/osålda enskilda figurer i Marknad (som från sheetRead).
+const row = (title, status, pris, nisch = "djur") => ({ Rubrik: title, Status: status, Pris: pris, Nisch: nisch });
+const marketRows = [
+  ...Array.from({ length: 10 }, (_, i) => row("Schleich Tinker sto 13279", "Såld", 50 + 5 * i)), // 50–95, median 72,5 → 73
+  ...Array.from({ length: 10 }, () => row("Schleich Tinker sto 13279", "Osåld", 89)),
+  ...Array.from({ length: 12 }, (_, i) => row("Schleich Lejon 14726", "Såld", 40 + 5 * i)), // median 67,5 → 68
+  row("Schleich paket 10 st hästar", "Såld", 500), // parti – räknas inte
+  row("Schleich staket", "Såld", 30), // tillbehör – räknas inte
+  row("Smurf med blomma", "Såld", 25, "smurfar"), // annan nisch
+];
+
+test("Styckförsäljning: median, netto efter avgift och säljgrad per grupp", () => {
+  const s = singleStats(marketRows, djur, { fee_percent: 10, fee_fixed: 0 });
+  assert.deepEqual([s.hästar.n, s.hästar.median, s.hästar.net, s.hästar.sell_through], [10, 73, 66, 50]);
+  assert.deepEqual([s.blandat.n, s.blandat.median, s.blandat.net, s.blandat.sell_through], [12, 68, 61, 100]);
+  assert.equal(s.all.n, 22);
+});
+
+test("Partiets värde styckvis: köpreglerna ger betala högst, budtak och grönt/gult/rött", () => {
+  const singles = singleStats(marketRows, djur, { fee_percent: 10, fee_fixed: 0 });
+  const bench = { all: { n: 0 }, hästar: { n: 0 }, blandat: { n: 0 } };
+  const auction = { ...toLot(item({ id: 9, shortDescription: "42 st Schleich-djur.", maxBid: 2, bidCount: 1 }), false), shipping: 59 };
+  const [a] = rankDeals([auction], bench, { singles });
+  assert.equal(a.basis, "styckvis");
+  assert.equal(a.value, 42 * 61); // 2 562 kr netto styckvis
+  assert.equal(a.pay_max, 1281); // grön vid 2×
+  assert.equal(a.max_bid, 1281 - 59);
+  assert.equal(a.under_max, true);
+  const buyNow = (price) => withShipping(toLot(item({ id: 10, shortDescription: "Schleich paket 10 st hästar", hasBids: false, bidCount: 0, maxBid: 0, buyItNowPrice: price }), false), 59);
+  const [cheap] = rankDeals([buyNow(200)], bench, { singles }); // 259 kr för 660 kr netto = 2,5×
+  assert.deepEqual([cheap.color, cheap.deal, cheap.multiple], ["green", true, 2.5]);
+  const [mid] = rankDeals([buyNow(400)], bench, { singles }); // 459 kr = 1,4×
+  assert.deepEqual([mid.color, mid.deal], ["yellow", false]);
+  const [dear] = rankDeals([buyNow(700)], bench, { singles });
+  assert.equal(dear.color, "red");
+});
+
+test("Hämtning läser styckförsäljningen från Marknad; utan den används partipriset", async () => {
+  const search = async (body) => ({ totalNumberOfPages: 1, items: body.itemStatus ? [] : [item({ id: 1, buyItNowPrice: 200, hasBids: false, bidCount: 0, maxBid: 0 })] });
+  const get = async () => ({ shippingOptions: [{ cost: 59 }] });
+  const reads = [];
+  const store = async (action, p) => (reads.push(p.filter.equals), { ok: true, rows: marketRows.filter((r) => r.Status === p.filter.equals) });
+  const r = await findLots({ niche: "djur", search, get, store });
+  assert.deepEqual(reads.sort(), ["Osåld", "Såld"]);
+  assert.equal(r.singles.hästar.n, 10);
+  assert.deepEqual([r.deals[0].basis, r.deals[0].deal], ["styckvis", true]);
+  const fallback = await findLots({ niche: "djur", search, get, store: async () => ({ ok: false }) });
+  assert.equal(fallback.singles, null);
+  assert.equal(fallback.deals[0].basis, "partier");
+});
+
+function withShipping(lot, shipping) {
+  const total = lot.price + shipping;
+  return { ...lot, shipping, total, per_figure: Math.round(total / lot.count) };
+}
