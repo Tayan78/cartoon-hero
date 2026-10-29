@@ -301,6 +301,9 @@ button:disabled { opacity: .4; }
 .lots-list a { align-items: center; }
 .lots-list img { width: 56px; height: 56px; object-fit: cover; border-radius: 8px; flex: none; background: var(--surface-2); }
 .lots-list .k.good { color: var(--green); }
+#view-lots .inline-field { align-items: flex-end; }
+#view-lots .inline-field button { flex: none; min-height: 48px; padding: 0 16px; border-radius: 12px; }
+#f-check-out { white-space: pre-line; }
 
 /* Marknadsdata */
 #view-market .inline-field { align-items: flex-end; }
