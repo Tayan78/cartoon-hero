@@ -78,7 +78,7 @@ const getSettings = () => {
 };
 
 // ---------- vyer ----------
-const views = ["home", "scan", "result", "history", "capture", "groups", "review", "settings", "lego", "seller", "market"];
+const views = ["home", "scan", "result", "history", "capture", "groups", "review", "settings", "lego", "seller", "market", "lots"];
 const TITLES = {
   home: "Loppisskannern",
   scan: "Skanna",
@@ -91,6 +91,7 @@ const TITLES = {
   lego: "Lego i bulk",
   seller: "Konkurrent",
   market: "Marknadsdata",
+  lots: "Fynd",
 };
 let currentView = "home";
 // Flikraden: vilken flik som lyser för varje vy.
@@ -1566,6 +1567,7 @@ $("h-go-history").addEventListener("click", openHistory);
 $("h-go-lego").addEventListener("click", openLego);
 $("h-go-seller").addEventListener("click", openSeller);
 $("h-go-market").addEventListener("click", openMarket);
+$("h-go-lots").addEventListener("click", openLots);
 $("h-go-settings").addEventListener("click", () => openSettings());
 
 const sek = (n) => `${n.toFixed(2).replace(".", ",")} kr`;
@@ -1835,6 +1837,92 @@ for (const b of document.querySelectorAll("#l-period .chip")) {
     legoPeriod = b.dataset.period;
     legoShown = 50;
     renderLego();
+  });
+}
+
+// ---------- Fynd: Schleich-partier ----------
+// Aktiva partier jämförda med vad partier sålts för per figur. Senaste
+// hämtningen sparas i telefonen; ny hämtning när den är äldre än 3 timmar.
+let lotsData = store.get("lots", null);
+let lotsFilter = "deals";
+
+function openLots() {
+  show("lots");
+  renderLots();
+  if (!lotsData || Date.now() - Date.parse(lotsData.fetched_at) > 3 * 60 * 60 * 1000) fetchLots();
+}
+
+async function fetchLots() {
+  $("f-status").textContent = "Söker igenom Schleich-annonser på Tradera… (10–30 sekunder)";
+  $("f-refresh").disabled = true;
+  try {
+    const res = await fetch("/api/marketdata", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-app-token": getToken() },
+      body: JSON.stringify({ action: "lots" }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) throw new Error(data.error || `Fel ${res.status}`);
+    lotsData = data;
+    store.set("lots", data);
+    renderLots();
+  } catch (err) {
+    $("f-status").textContent = `⚠️ ${err.message}`;
+  } finally {
+    $("f-refresh").disabled = false;
+  }
+}
+
+const perFig = (s) => (s?.n ? `${s.median} kr/figur` : "–");
+const spreadFig = (s) => (s?.n ? `${s.p25}–${s.p75} kr · ${s.n} partier` : "för få sålda partier");
+
+function renderLots() {
+  for (const b of document.querySelectorAll("#f-filter .chip")) b.classList.toggle("on", b.dataset.filter === lotsFilter);
+  if (!lotsData) return;
+  const d = lotsData;
+  const when = new Date(d.fetched_at).toLocaleString("sv-SE", { dateStyle: "short", timeStyle: "short" });
+  $("f-status").textContent = `Aktiva partier jämförda med vad partier sålts för per figur (avslutade auktioner med bud). Hämtat ${when}.`;
+  $("f-horses").textContent = perFig(d.benchmark.hästar);
+  $("f-horses-note").textContent = spreadFig(d.benchmark.hästar);
+  $("f-mixed").textContent = perFig(d.benchmark.blandat);
+  $("f-mixed-note").textContent = spreadFig(d.benchmark.blandat);
+  const list = d.deals.filter((l) => lotsFilter === "all" || l.deal);
+  $("f-list").replaceChildren(
+    ...list.map((l) => {
+      const li = document.createElement("li");
+      const a = Object.assign(document.createElement("a"), { href: l.url, target: "_blank", rel: "noopener" });
+      const img = Object.assign(document.createElement("img"), { alt: "", loading: "lazy" });
+      img.addEventListener("error", () => (img.style.visibility = "hidden"));
+      if (l.thumbnail) img.src = l.thumbnail;
+      else img.style.visibility = "hidden";
+      const t = Object.assign(document.createElement("div"), { className: "t" });
+      t.append(
+        Object.assign(document.createElement("b"), { textContent: l.title }),
+        Object.assign(document.createElement("small"), {
+          textContent:
+            `${l.count} figurer · ${l.price_kind} ${kr(l.price)}${l.price_kind === "bud" ? ` (${l.bids} bud)` : ""}` +
+            ` · slutar ${String(l.end).slice(0, 10)} · normalt ${l.ref_median} kr/figur`,
+        }),
+      );
+      const k = Object.assign(document.createElement("div"), { className: `k${l.deal ? " good" : ""}`, textContent: `${l.per_figure} kr/fig` });
+      k.append(Object.assign(document.createElement("small"), { textContent: `${Math.round(l.share * 100)} %` }));
+      a.append(img, t, k);
+      li.append(a);
+      return li;
+    }),
+  );
+  $("f-info").textContent =
+    `${list.length ? "" : lotsFilter === "deals" ? "Inga fynd just nu. " : ""}` +
+    `${d.scanned} Schleich-annonser genomsökta: ${d.lots} partier, varav ${d.active_lots} aktiva. ` +
+    `${d.without_count} aktiva partier saknar antal i rubriken och visas inte. ` +
+    "Budpriser är nuvarande bud – slutpriset blir oftast högre. Frakt ingår inte. Tryck på ett parti för att öppna det på Tradera.";
+}
+
+$("f-refresh").addEventListener("click", fetchLots);
+for (const b of document.querySelectorAll("#f-filter .chip")) {
+  b.addEventListener("click", () => {
+    lotsFilter = b.dataset.filter;
+    renderLots();
   });
 }
 

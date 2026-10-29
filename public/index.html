@@ -65,6 +65,10 @@
           <span class="home-icon">🔍</span>
           <span><b>Konkurrent</b><small>Vad en säljare säljer, priser och säljgrad</small></span>
         </button>
+        <button id="h-go-lots" type="button" class="home-btn">
+          <span class="home-icon">💎</span>
+          <span><b>Fynd: Schleich-partier</b><small>Partier billigt per figur jämfört med marknaden</small></span>
+        </button>
         <button id="h-go-market" type="button" class="home-btn">
           <span class="home-icon">📊</span>
           <span><b>Marknadsdata</b><small>Bevaka konkurrenter, samlas in varje natt</small></span>
@@ -432,6 +436,25 @@
       <button id="m-discover" class="secondary big">🔍 Hitta konkurrenter</button>
       <p id="m-discover-status" class="hint"></p>
       <ul id="m-found" class="lego-lots"></ul>
+    </section>
+
+    <!-- Fynd: underprisade Schleich-partier (kr per figur) -->
+    <section id="view-lots" class="view" hidden>
+      <div class="hist-head">
+        <h2>Schleich-partier</h2>
+        <button id="f-refresh" type="button" class="chip">↻ Hämta igen</button>
+      </div>
+      <p id="f-status" class="hint">Aktiva partier på Tradera jämförda med vad partier sålts för per figur.</p>
+      <div class="metrics">
+        <div class="metric"><span class="metric-label">Hästar, sålda partier</span><span id="f-horses" class="metric-value big-number">–</span><span id="f-horses-note" class="metric-note"></span></div>
+        <div class="metric"><span class="metric-label">Blandat, sålda partier</span><span id="f-mixed" class="metric-value big-number">–</span><span id="f-mixed-note" class="metric-note"></span></div>
+      </div>
+      <div id="f-filter" class="chips" role="group" aria-label="Visa">
+        <button type="button" class="chip on" data-filter="deals">Fynd (högst 60 %)</button>
+        <button type="button" class="chip" data-filter="all">Alla med antal</button>
+      </div>
+      <ul id="f-list" class="lego-lots lots-list"></ul>
+      <p id="f-info" class="hint"></p>
     </section>
 
     <section id="view-settings" class="view" hidden>
