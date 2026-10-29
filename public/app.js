@@ -1911,8 +1911,11 @@ function renderLots() {
     lotsFilter === "deals"
       ? d.deals.filter((l) => l.deal)
       : lotsFilter === "auctions"
-        ? d.deals.filter((l) => l.price_kind === "bud").sort((a, b) => String(a.end).localeCompare(String(b.end)))
+        ? // Under budtaket först, sedan de som slutar först.
+          d.deals.filter((l) => l.price_kind === "bud").sort((a, b) => Number(b.under_max) - Number(a.under_max) || String(a.end).localeCompare(String(b.end)))
         : d.deals;
+  const under = d.deals.filter((l) => l.under_max).length;
+  $("f-auction-count").textContent = under ? `(${under})` : "";
   $("f-list").replaceChildren(
     ...list.map((l) => {
       const li = document.createElement("li");
@@ -1926,13 +1929,26 @@ function renderLots() {
         Object.assign(document.createElement("b"), { textContent: l.title }),
         Object.assign(document.createElement("small"), {
           textContent:
-            `${l.count} figurer · ${l.price_kind} ${kr(l.price)}${l.price_kind === "bud" ? ` (${l.bids} bud)` : ""}` +
-            (l.shipping != null ? ` + frakt ${kr(l.shipping)} = ${kr(l.total)}` : l.pickup_only ? " · bara avhämtning" : " · frakt okänd") +
-            ` · slutar ${String(l.end).slice(0, 10)} · normalt ${l.ref_median} kr/figur`,
+            l.price_kind === "bud"
+              ? `${l.count} figurer · bud nu ${kr(l.price)} (${l.bids} bud)` +
+                (l.shipping != null ? ` + frakt ${kr(l.shipping)}` : l.pickup_only ? " · bara avhämtning" : " · frakt okänd") +
+                (l.value ? ` · värt ca ${kr(l.value)} inkl. frakt` : "") +
+                (l.max_bid != null ? ` · bjud högst ${kr(l.max_bid)} för ett fynd` : "") +
+                ` · slutar ${new Date(l.end).toLocaleString("sv-SE", { dateStyle: "short", timeStyle: "short" })}`
+              : `${l.count} figurer · ${l.price_kind} ${kr(l.price)}` +
+                (l.shipping != null ? ` + frakt ${kr(l.shipping)} = ${kr(l.total)}` : l.pickup_only ? " · bara avhämtning" : " · frakt okänd") +
+                ` · slutar ${String(l.end).slice(0, 10)} · normalt ${l.ref_median} kr/figur`,
         }),
       );
-      const k = Object.assign(document.createElement("div"), { className: `k${l.deal ? " good" : ""}`, textContent: `${l.per_figure} kr/fig` });
-      k.append(Object.assign(document.createElement("small"), { textContent: `${Math.round(l.share * 100)} %` }));
+      const auction = l.price_kind === "bud";
+      const k = auction
+        ? Object.assign(document.createElement("div"), { className: `k${l.under_max ? " good" : ""}`, textContent: l.max_bid != null ? `max ${kr(l.max_bid)}` : "–" })
+        : Object.assign(document.createElement("div"), { className: `k${l.deal ? " good" : ""}`, textContent: `${l.per_figure} kr/fig` });
+      k.append(
+        Object.assign(document.createElement("small"), {
+          textContent: auction ? (l.max_bid == null ? "frakt okänd" : l.under_max ? "under gränsen" : "över gränsen") : `${Math.round(l.share * 100)} %`,
+        }),
+      );
       a.append(img, t, k);
       li.append(a);
       return li;
@@ -1943,7 +1959,9 @@ function renderLots() {
     `${d.scanned} annonser från ${d.queries?.length ?? 1} partisökningar: ${d.lots} partier, varav ${d.active_lots} aktiva. ` +
     (d.truncated?.length ? `⚠️ För många träffar, alla hämtades inte: ${d.truncated.join(", ")}. ` : "") +
     `${d.without_count} aktiva partier saknar antal i rubriken och visas inte. ` +
-    "Kr per figur räknas på pris + billigaste frakt (fraktsätt för 0 kr räknas inte). Fynd är bara Köp nu – ett bud är inte slutpriset. Tryck på ett parti för att öppna det på Tradera.";
+    "Kr per figur räknas på pris + billigaste frakt (fraktsätt för 0 kr räknas inte). " +
+    "Köp nu-fynd: högst 60 % av normalt. Auktioner: värde = antal × normalpris per figur; bjud högst = 60 % av värdet minus frakten. " +
+    "Tryck på ett parti för att öppna det på Tradera.";
 }
 
 $("f-refresh").addEventListener("click", fetchLots);

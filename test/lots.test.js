@@ -127,3 +127,25 @@ test("Det verkliga partiet '42 st Schleich-djur.': filtren godkänner det, kontr
   assert.ok(bodies.some((b) => b.categoryId === 1000532));
   await assert.rejects(checkLot("hej", { search, get }), /Tradera-länk/);
 });
+
+test("Auktion: värde, budtak och under/över gränsen", () => {
+  const bench = { all: { n: 20, median: 38 }, hästar: { n: 0 }, blandat: { n: 20, median: 38 } };
+  const lot = (o) => ({ ...toLot(item({ id: 9, shortDescription: "42 st Schleich-djur.", maxBid: 2, bidCount: 1, buyItNowPrice: 0 }), false), shipping: 59, ...o });
+  const [a] = rankDeals([lot({})], bench);
+  assert.equal(a.price_kind, "bud");
+  assert.equal(a.value, 1596); // 42 × 38
+  assert.equal(a.max_bid, 898); // 60 % av 1596 = 957, minus 59 kr frakt
+  assert.equal(a.under_max, true);
+  assert.equal(a.deal, false); // auktioner är inte "Köp nu-fynd"
+  const [high] = rankDeals([lot({ price: 1000 })], bench);
+  assert.equal(high.under_max, false);
+  const [unknown] = rankDeals([lot({ shipping: null })], bench);
+  assert.deepEqual([unknown.max_bid, unknown.under_max], [null, false]);
+});
+
+test("Lågt bud på stort parti (0 kr per figur efter avrundning) försvinner inte ur listan", () => {
+  const bench = { all: { n: 20, median: 38 }, hästar: { n: 0 }, blandat: { n: 20, median: 38 } };
+  const l = toLot(item({ id: 9, shortDescription: "42 st Schleich-djur.", maxBid: 2, bidCount: 1, buyItNowPrice: 0 }), false);
+  assert.equal(l.per_figure, 0);
+  assert.equal(rankDeals([l], bench).length, 1);
+});
