@@ -67,7 +67,7 @@
         </button>
         <button id="h-go-lots" type="button" class="home-btn">
           <span class="home-icon">💎</span>
-          <span><b>Fynd: Schleich-partier</b><small>Partier billigt per figur jämfört med marknaden</small></span>
+          <span><b>Fynd: partier</b><small>Schleich-djur och Smurfar – billigt per figur inkl. frakt</small></span>
         </button>
         <button id="h-go-market" type="button" class="home-btn">
           <span class="home-icon">📊</span>
@@ -432,7 +432,11 @@
       </div>
 
       <h3>Hitta konkurrenter</h3>
-      <p class="hint">Söker igenom aktiva och avslutade Schleich-annonser och listar säljare med minst 15 annonser.</p>
+      <div id="m-niche" class="chips" role="group" aria-label="Nisch">
+        <button type="button" class="chip on" data-niche="djur">Schleich-djur</button>
+        <button type="button" class="chip" data-niche="smurfar">Smurfar</button>
+      </div>
+      <p class="hint">Söker igenom aktiva och avslutade annonser i nischen och listar säljare med minst 15 annonser. Insamlingen tar med båda nischerna för alla bevakade säljare.</p>
       <button id="m-discover" class="secondary big">🔍 Hitta konkurrenter</button>
       <p id="m-discover-status" class="hint"></p>
       <ul id="m-found" class="lego-lots"></ul>
@@ -441,14 +445,14 @@
     <!-- Fynd: underprisade Schleich-partier (kr per figur) -->
     <section id="view-lots" class="view" hidden>
       <div class="hist-head">
-        <h2>Schleich-partier</h2>
-        <button id="f-refresh" type="button" class="chip">↻ Hämta igen</button>
+        <div id="f-niche" class="chips" role="group" aria-label="Nisch">
+          <button type="button" class="chip on" data-niche="djur">Schleich-djur</button>
+          <button type="button" class="chip" data-niche="smurfar">Smurfar</button>
+        </div>
+        <button id="f-refresh" type="button" class="chip">↻</button>
       </div>
-      <p id="f-status" class="hint">Aktiva partier på Tradera jämförda med vad partier sålts för per figur.</p>
-      <div class="metrics">
-        <div class="metric"><span class="metric-label">Hästar, sålda partier</span><span id="f-horses" class="metric-value big-number">–</span><span id="f-horses-note" class="metric-note"></span></div>
-        <div class="metric"><span class="metric-label">Blandat, sålda partier</span><span id="f-mixed" class="metric-value big-number">–</span><span id="f-mixed-note" class="metric-note"></span></div>
-      </div>
+      <p id="f-status" class="hint">Aktiva partier på Tradera jämförda med vad partier sålts för per figur, inklusive frakt.</p>
+      <div id="f-metrics" class="metrics"></div>
       <div id="f-filter" class="chips" role="group" aria-label="Visa">
         <button type="button" class="chip on" data-filter="deals">Fynd (högst 60 %)</button>
         <button type="button" class="chip" data-filter="all">Alla med antal</button>

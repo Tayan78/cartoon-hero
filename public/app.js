@@ -1843,7 +1843,8 @@ for (const b of document.querySelectorAll("#l-period .chip")) {
 // ---------- Fynd: Schleich-partier ----------
 // Aktiva partier jämförda med vad partier sålts för per figur. Senaste
 // hämtningen sparas i telefonen; ny hämtning när den är äldre än 3 timmar.
-let lotsData = store.get("lots", null);
+let lotsNiche = store.get("lots_niche", "djur");
+let lotsData = store.get(`lots_${lotsNiche}`, null);
 let lotsFilter = "deals";
 
 function openLots() {
@@ -1853,18 +1854,20 @@ function openLots() {
 }
 
 async function fetchLots() {
-  $("f-status").textContent = "Söker igenom Schleich-annonser på Tradera… (10–30 sekunder)";
+  const niche = lotsNiche;
+  $("f-status").textContent = "Söker igenom annonser och hämtar frakten för partierna… (20–60 sekunder)";
   $("f-refresh").disabled = true;
   try {
     const res = await fetch("/api/marketdata", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-app-token": getToken() },
-      body: JSON.stringify({ action: "lots" }),
+      body: JSON.stringify({ action: "lots", niche }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.ok) throw new Error(data.error || `Fel ${res.status}`);
+    store.set(`lots_${niche}`, data);
+    if (niche !== lotsNiche) return; // bytte nisch under tiden
     lotsData = data;
-    store.set("lots", data);
     renderLots();
   } catch (err) {
     $("f-status").textContent = `⚠️ ${err.message}`;
@@ -1876,16 +1879,32 @@ async function fetchLots() {
 const perFig = (s) => (s?.n ? `${s.median} kr/figur` : "–");
 const spreadFig = (s) => (s?.n ? `${s.p25}–${s.p75} kr · ${s.n} partier` : "för få sålda partier");
 
+const GROUP_LABELS = { hästar: "Hästar", blandat: "Blandat", smurfar: "Smurfar" };
+
 function renderLots() {
   for (const b of document.querySelectorAll("#f-filter .chip")) b.classList.toggle("on", b.dataset.filter === lotsFilter);
-  if (!lotsData) return;
+  for (const b of document.querySelectorAll("#f-niche .chip")) b.classList.toggle("on", b.dataset.niche === lotsNiche);
+  if (currentView === "lots") $("top-title").textContent = `Fynd: ${lotsNiche === "smurfar" ? "Smurfar" : "Schleich-djur"}`;
+  if (!lotsData) {
+    $("f-metrics").replaceChildren();
+    $("f-list").replaceChildren();
+    $("f-info").textContent = "";
+    return;
+  }
   const d = lotsData;
   const when = new Date(d.fetched_at).toLocaleString("sv-SE", { dateStyle: "short", timeStyle: "short" });
-  $("f-status").textContent = `Aktiva partier jämförda med vad partier sålts för per figur (avslutade auktioner med bud). Hämtat ${when}.`;
-  $("f-horses").textContent = perFig(d.benchmark.hästar);
-  $("f-horses-note").textContent = spreadFig(d.benchmark.hästar);
-  $("f-mixed").textContent = perFig(d.benchmark.blandat);
-  $("f-mixed-note").textContent = spreadFig(d.benchmark.blandat);
+  $("f-status").textContent = `Aktiva partier jämförda med vad partier sålts för per figur, inklusive frakt (avslutade auktioner med bud). Hämtat ${when}.`;
+  $("f-metrics").replaceChildren(
+    ...(d.groups ?? ["hästar", "blandat"]).map((g) => {
+      const m = Object.assign(document.createElement("div"), { className: `metric${(d.groups ?? []).length === 1 ? " wide" : ""}` });
+      m.append(
+        Object.assign(document.createElement("span"), { className: "metric-label", textContent: `${GROUP_LABELS[g] ?? g}, sålda partier` }),
+        Object.assign(document.createElement("span"), { className: "metric-value big-number", textContent: perFig(d.benchmark[g]) }),
+        Object.assign(document.createElement("span"), { className: "metric-note", textContent: spreadFig(d.benchmark[g]) }),
+      );
+      return m;
+    }),
+  );
   const list = d.deals.filter((l) => lotsFilter === "all" || l.deal);
   $("f-list").replaceChildren(
     ...list.map((l) => {
@@ -1901,6 +1920,7 @@ function renderLots() {
         Object.assign(document.createElement("small"), {
           textContent:
             `${l.count} figurer · ${l.price_kind} ${kr(l.price)}${l.price_kind === "bud" ? ` (${l.bids} bud)` : ""}` +
+            (l.shipping != null ? ` + frakt ${kr(l.shipping)} = ${kr(l.total)}` : l.pickup_only ? " · bara avhämtning" : " · frakt okänd") +
             ` · slutar ${String(l.end).slice(0, 10)} · normalt ${l.ref_median} kr/figur`,
         }),
       );
@@ -1913,12 +1933,21 @@ function renderLots() {
   );
   $("f-info").textContent =
     `${list.length ? "" : lotsFilter === "deals" ? "Inga fynd just nu. " : ""}` +
-    `${d.scanned} Schleich-annonser genomsökta: ${d.lots} partier, varav ${d.active_lots} aktiva. ` +
+    `${d.scanned} annonser genomsökta: ${d.lots} partier, varav ${d.active_lots} aktiva. ` +
     `${d.without_count} aktiva partier saknar antal i rubriken och visas inte. ` +
-    "Budpriser är nuvarande bud – slutpriset blir oftast högre. Frakt ingår inte. Tryck på ett parti för att öppna det på Tradera.";
+    "Kr per figur räknas på pris + billigaste frakt. Budpriser är nuvarande bud – slutpriset blir oftast högre. Tryck på ett parti för att öppna det på Tradera.";
 }
 
 $("f-refresh").addEventListener("click", fetchLots);
+for (const b of document.querySelectorAll("#f-niche .chip")) {
+  b.addEventListener("click", () => {
+    lotsNiche = b.dataset.niche;
+    store.set("lots_niche", lotsNiche);
+    lotsData = store.get(`lots_${lotsNiche}`, null);
+    renderLots();
+    if (!lotsData || Date.now() - Date.parse(lotsData.fetched_at) > 3 * 60 * 60 * 1000) fetchLots();
+  });
+}
 for (const b of document.querySelectorAll("#f-filter .chip")) {
   b.addEventListener("click", () => {
     lotsFilter = b.dataset.filter;
@@ -1929,7 +1958,8 @@ for (const b of document.querySelectorAll("#f-filter .chip")) {
 // ---------- Marknadsdata ----------
 // Bevakade säljare samlas in varje natt (Apps Script-timer → /api/marketdata).
 let marketSellers = [];
-let marketFound = store.get("market_found", null);
+let marketNiche = store.get("market_niche", "djur");
+let marketFound = store.get(`market_found_${marketNiche}`, null);
 // Insamlingen körs i bakgrunden på servern. Appen visar bara status (fliken
 // Körningar) och uppdaterar listan var 5:e sekund medan den pågår.
 let marketRun = null;
@@ -1996,7 +2026,9 @@ function renderWatched() {
       const when = s.collected ? new Date(s.collected).toLocaleString("sv-SE", { dateStyle: "short", timeStyle: "short" }) : "inte ännu";
       t.append(
         Object.assign(document.createElement("b"), { textContent: s.alias }),
-        Object.assign(document.createElement("small"), { textContent: `${s.in_db} annonser i databasen (${s.sold_in_db} sålda) · insamlad ${when}` }),
+        Object.assign(document.createElement("small"), {
+          textContent: `${s.in_db} annonser i databasen (${s.sold_in_db} sålda) · insamlad ${when}${s.niches?.length ? ` · ${s.niches.map((n) => NICHE_LABELS[n] ?? n).join(", ")}` : ""}`,
+        }),
       );
       // Insamlad under pågående körning = klar; annars väntar den på sin tur.
       const fresh = marketRun?.started && s.collected >= marketRun.started;
@@ -2013,8 +2045,15 @@ function renderWatched() {
   );
 }
 
+const NICHE_LABELS = { djur: "Schleich-djur", smurfar: "Smurfar" };
+
 function renderFound() {
-  if (!marketFound) return;
+  for (const b of document.querySelectorAll("#m-niche .chip")) b.classList.toggle("on", b.dataset.niche === marketNiche);
+  if (!marketFound) {
+    $("m-discover-status").textContent = "";
+    $("m-found").replaceChildren();
+    return;
+  }
   const watchedIds = new Set(marketSellers.filter((s) => s.watched).map((s) => String(s.id)));
   $("m-discover-status").textContent = `${marketFound.sellers.length} säljare med minst 15 annonser (av ${marketFound.sellers_found} säljare och ${marketFound.scanned} annonser).`;
   $("m-found").replaceChildren(
@@ -2038,7 +2077,7 @@ async function watchSeller(s, watch) {
   if (!watch && !confirm(`Sluta bevaka ${s.alias}? Annonserna som redan samlats in ligger kvar i Sheet.`)) return;
   $("m-status").textContent = watch ? `Lägger till ${s.alias}…` : `Tar bort ${s.alias}…`;
   try {
-    const res = await marketApi({ action: "watch", seller: { id: s.id, alias: s.alias, total: s.total, active: s.active, ended: s.ended, number_share: s.number_share, rating: s.rating }, watch });
+    const res = await marketApi({ action: "watch", seller: { id: s.id, alias: s.alias, total: s.total, active: s.active, ended: s.ended, number_share: s.number_share, rating: s.rating, niche: s.niche }, watch });
     await loadMarketSellers();
     // Första insamlingen direkt, så att databasen inte står tom till i natt.
     if (watch) await collectNow(res.seller ?? s);
@@ -2064,6 +2103,14 @@ async function startCollect(only = null) {
 const collectNow = (s) => startCollect([String(s.id)]);
 
 $("m-refresh").addEventListener("click", loadMarketSellers);
+for (const b of document.querySelectorAll("#m-niche .chip")) {
+  b.addEventListener("click", () => {
+    marketNiche = b.dataset.niche;
+    store.set("market_niche", marketNiche);
+    marketFound = store.get(`market_found_${marketNiche}`, null);
+    renderFound();
+  });
+}
 $("m-collect-all").addEventListener("click", () => startCollect());
 $("m-add").addEventListener("click", () => {
   const alias = $("m-alias").value.trim();
@@ -2073,8 +2120,10 @@ $("m-discover").addEventListener("click", async () => {
   $("m-discover").disabled = true;
   $("m-discover-status").textContent = "Söker igenom Schleich-annonser på Tradera… (10–30 sekunder)";
   try {
-    marketFound = await marketApi({ action: "discover" });
-    store.set("market_found", marketFound);
+    const niche = marketNiche;
+    const found = await marketApi({ action: "discover", niche });
+    store.set(`market_found_${niche}`, found);
+    if (niche === marketNiche) marketFound = found;
     renderFound();
   } catch (err) {
     $("m-discover-status").textContent = `⚠️ ${err.message}`;
