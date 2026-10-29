@@ -1843,7 +1843,7 @@ for (const b of document.querySelectorAll("#l-period .chip")) {
 // ---------- Fynd: Schleich-partier ----------
 // Aktiva partier jämförda med vad partier sålts för per figur. Senaste
 // hämtningen sparas i telefonen; ny hämtning när den är äldre än 3 timmar.
-const LOTS_VERSION = 2; // samma som lib/lots.js – äldre sparade listor hämtas om
+const LOTS_VERSION = 3; // samma som lib/lots.js – äldre sparade listor hämtas om
 const lotsStale = (d) => !d || d.version !== LOTS_VERSION || Date.now() - Date.parse(d.fetched_at) > 3 * 60 * 60 * 1000;
 let lotsNiche = store.get("lots_niche", "djur");
 let lotsData = store.get(`lots_${lotsNiche}`, null);
@@ -1928,7 +1928,7 @@ function renderLots() {
   // budtaket först, sedan de som slutar först.
   const list =
     lotsFilter === "deals"
-      ? d.deals.filter((l) => l.deal).sort((a, b) => (b.multiple ?? 0) - (a.multiple ?? 0))
+      ? d.deals.filter((l) => l.deal).sort((a, b) => (b.buy_now_ok ? b.buy_now_multiple : b.multiple ?? 0) - (a.buy_now_ok ? a.buy_now_multiple : a.multiple ?? 0))
       : lotsFilter === "auctions"
         ? d.deals.filter((l) => l.price_kind === "bud").sort((a, b) => Number(b.under_max) - Number(a.under_max) || String(a.end).localeCompare(String(b.end)))
         : d.deals;
@@ -1951,8 +1951,9 @@ function renderLots() {
         Object.assign(document.createElement("b"), { textContent: l.title }),
         Object.assign(document.createElement("small"), {
           textContent: auction
-            ? `${l.count} figurer · bud nu ${kr(l.price)} (${l.bids} bud)${shipText(l)}${valueText(l)}` +
+            ? `${l.count} figurer · ${l.bids ? `bud nu ${kr(l.price)} (${l.bids} bud)` : `utrop ${kr(l.price)} (inga bud)`}${shipText(l)}${valueText(l)}` +
               (l.max_bid != null ? ` · bjud högst ${kr(l.max_bid)}` : "") +
+              (l.buy_now ? ` · köp nu ${kr(l.buy_now)}${l.buy_now_total != null ? ` (${l.buy_now_ok ? "under gränsen – köp direkt" : "för dyrt"})` : ""}` : "") +
               ` · slutar ${new Date(l.end).toLocaleString("sv-SE", { dateStyle: "short", timeStyle: "short" })}`
             : `${l.count} figurer · köp nu ${kr(l.price)}${shipText(l)}${l.shipping != null ? ` = ${kr(l.total)}` : ""}${valueText(l)}` +
               (l.pay_max != null ? ` · betala högst ${kr(l.pay_max)} inkl. frakt` : "") +
@@ -1960,7 +1961,11 @@ function renderLots() {
         }),
       );
       let k;
-      if (auction) {
+      if (auction && lotsFilter === "deals" && l.buy_now_ok) {
+        // Köp nu-priset på en auktion är under gränsen: visa det som ett Köp nu-fynd.
+        k = Object.assign(document.createElement("div"), { className: "k good", textContent: l.buy_now_multiple != null ? `${String(l.buy_now_multiple).replace(".", ",")}×` : "köp nu" });
+        k.append(Object.assign(document.createElement("small"), { textContent: `köp nu ${kr(l.buy_now)}` }));
+      } else if (auction) {
         k = Object.assign(document.createElement("div"), { className: `k${l.under_max ? " good" : ""}`, textContent: l.max_bid != null ? `max ${kr(l.max_bid)}` : "–" });
         k.append(
           Object.assign(document.createElement("small"), {
