@@ -1842,10 +1842,10 @@ for (const b of document.querySelectorAll("#l-period .chip")) {
 // Bevakade säljare samlas in varje natt (Apps Script-timer → /api/marketdata).
 let marketSellers = [];
 let marketFound = store.get("market_found", null);
-// Insamling som pågår (säljar-id) och senaste resultatet per säljare – visas på
-// säljarens egen rad, så att det syns även när listan är lång.
-const collecting = new Set();
-const collectResult = new Map();
+// Insamlingen körs i bakgrunden på servern. Appen visar bara status (fliken
+// Körningar) och uppdaterar listan var 5:e sekund medan den pågår.
+let marketRun = null;
+let marketPoll = null;
 
 async function marketApi(body) {
   const res = await fetch("/api/marketdata", {
@@ -1865,16 +1865,32 @@ function openMarket() {
 }
 
 async function loadMarketSellers() {
-  $("m-status").textContent = "Hämtar…";
+  if (!marketSellers.length) $("m-status").textContent = "Hämtar…";
   try {
-    marketSellers = (await marketApi({ action: "sellers" })).sellers ?? [];
-    $("m-status").textContent = marketSellers.some((s) => s.watched) ? "" : "Inga bevakade säljare ännu. Lägg till med alias eller via Hitta konkurrenter.";
+    const data = await marketApi({ action: "status" });
+    marketSellers = data.sellers ?? [];
+    marketRun = data.run ?? null;
+    renderRun();
     renderWatched();
     renderFound();
   } catch (err) {
-    $("m-status").textContent = `⚠️ ${err.message}${/okänd action/i.test(err.message) ? " – klistra in den nya Apps Script-koden och driftsätt en ny version." : ""}`;
-    renderWatched(); // visa insamlingens resultat även när listan inte kunde läsas om
+    $("m-status").textContent = `⚠️ ${err.message}`;
   }
+  // Uppdatera av sig själv medan en insamling pågår och vyn visas.
+  clearTimeout(marketPoll);
+  if (marketRun?.running && !$("view-market").hidden) marketPoll = setTimeout(loadMarketSellers, 5000);
+}
+
+const hhmm = (iso) => (iso ? new Date(iso).toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" }) : "");
+
+function renderRun() {
+  const r = marketRun;
+  $("m-collect-all").disabled = Boolean(r?.running);
+  if (!marketSellers.some((s) => s.watched)) return ($("m-status").textContent = "Inga bevakade säljare ännu. Lägg till med alias eller via Hitta konkurrenter.");
+  if (r?.running) return ($("m-status").textContent = `⏳ Insamling pågår i bakgrunden – ${r.done} klara${r.left ? `, ${r.left} kvar` : ""}. Du kan stänga appen.`);
+  if (r?.status === "Klar") return ($("m-status").textContent = `✓ Senaste insamlingen klar ${hhmm(r.last)}.`);
+  if (r?.status === "Avbruten") return ($("m-status").textContent = `⚠️ Senaste insamlingen stannade ${hhmm(r.last)}. Tryck Samla alla för att fortsätta.`);
+  $("m-status").textContent = "";
 }
 
 const smallBtn = (text, cls, onClick) => {
@@ -1894,12 +1910,13 @@ function renderWatched() {
         Object.assign(document.createElement("b"), { textContent: s.alias }),
         Object.assign(document.createElement("small"), { textContent: `${s.in_db} annonser i databasen (${s.sold_in_db} sålda) · insamlad ${when}` }),
       );
-      const result = collectResult.get(s.id);
-      if (result) t.append(Object.assign(document.createElement("small"), { className: `result${result.error ? " err" : ""}`, textContent: result.text }));
-      else if (s.error) t.append(Object.assign(document.createElement("small"), { className: "result err", textContent: `⚠️ ${s.error}` }));
+      // Insamlad under pågående körning = klar; annars väntar den på sin tur.
+      const fresh = marketRun?.started && s.collected >= marketRun.started;
+      if (marketRun?.running) t.append(Object.assign(document.createElement("small"), { className: "result", textContent: fresh ? "✓ Insamlad nu" : "Väntar på sin tur…" }));
+      if (s.error) t.append(Object.assign(document.createElement("small"), { className: "result err", textContent: `⚠️ ${s.error}` }));
       const acts = Object.assign(document.createElement("div"), { className: "acts" });
-      const busy = collecting.has(s.id);
-      const collectBtn = smallBtn(busy ? "Samlar…" : "Samla nu", "chip", () => collectNow(s));
+      const busy = Boolean(marketRun?.running);
+      const collectBtn = smallBtn(busy ? "Pågår…" : "Samla nu", "chip", () => collectNow(s));
       collectBtn.disabled = busy;
       acts.append(collectBtn, smallBtn("✕", "chip", () => watchSeller(s, false)));
       li.append(t, acts);
@@ -1942,55 +1959,24 @@ async function watchSeller(s, watch) {
   }
 }
 
-// Insamlingar körs en åt gången (Google Sheet låter bara en skriva åt gången;
-// flera samtidigt gav "Lock timeout"). Tryck läggs i kö.
-const collectQueue = [];
-let collectRunning = false;
-
-function collectNow(s) {
-  const id = String(s.id ?? "");
-  if (collecting.has(id)) return;
-  collecting.add(id);
-  collectResult.set(id, { text: collectRunning ? "I kö…" : "Hämtar från Tradera… (upp till en halv minut)" });
-  collectQueue.push(s);
-  renderWatched();
-  runCollectQueue();
-}
-
-async function runCollectQueue() {
-  if (collectRunning) return;
-  collectRunning = true;
-  while (collectQueue.length) {
-    const s = collectQueue.shift();
-    const id = String(s.id);
-    const before = marketSellers.find((x) => x.id === id)?.collected ?? "";
-    collectResult.set(id, { text: "Hämtar från Tradera… (upp till en halv minut)" });
-    renderWatched();
-    try {
-      const r = await marketApi({ action: "collect", alias: s.alias, user_id: s.id });
-      collectResult.set(id, {
-        text: `✓ ${r.items} Schleich-annonser – ${r.added} nya, ${r.updated} uppdaterade${r.removed ? `, ${r.removed} andra borttagna` : ""}`,
-      });
-      collecting.delete(id);
-      await loadMarketSellers();
-    } catch (err) {
-      collecting.delete(id);
-      await loadMarketSellers();
-      // Svaret kom inte fram (t.ex. "Load failed"), men insamlingen kan ha gått igenom.
-      const after = marketSellers.find((x) => x.id === id)?.collected ?? "";
-      const done = isNetworkError(err) && after && after !== before;
-      collectResult.set(id, done ? { text: "✓ Insamlad (svaret kom inte fram, men insamlingen gick igenom)" } : { error: true, text: `⚠️ ${err.message} – tryck Samla nu igen` });
-    }
-    renderWatched();
+// Startar insamling i bakgrunden: en säljare (Samla nu) eller alla (Samla alla).
+// Servern svarar direkt; listan uppdateras medan den pågår.
+async function startCollect(only = null) {
+  $("m-status").textContent = "Startar insamling…";
+  try {
+    const res = await marketApi({ action: "collect_all", ...(only ? { only } : {}) });
+    if (res.running) $("m-status").textContent = "En insamling pågår redan – vänta tills den är klar.";
+  } catch (err) {
+    $("m-status").textContent = `⚠️ ${err.message}`;
+    return;
   }
-  collectRunning = false;
+  await loadMarketSellers();
 }
+
+const collectNow = (s) => startCollect([String(s.id)]);
 
 $("m-refresh").addEventListener("click", loadMarketSellers);
-$("m-collect-all").addEventListener("click", () => {
-  // Den som väntat längst först, som nattkörningen.
-  for (const s of [...marketSellers].filter((x) => x.watched).sort((a, b) => String(a.collected).localeCompare(String(b.collected)))) collectNow(s);
-});
+$("m-collect-all").addEventListener("click", () => startCollect());
 $("m-add").addEventListener("click", () => {
   const alias = $("m-alias").value.trim();
   if (alias) watchSeller({ alias }, true).then(() => ($("m-alias").value = ""));

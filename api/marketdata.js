@@ -4,11 +4,15 @@
 //     { action: "discover" }                föreslå konkurrenter (många Schleich-annonser)
 //     { action: "sellers" }                 bevakade säljare och deras siffror
 //     { action: "watch", seller, watch }    bevaka eller sluta bevaka (seller: { id?, alias })
-//     { action: "collect", alias, user_id } samla in en säljare nu
-//   Från Apps Script-timern (x-script-secret): { action: "nightly", state }
+//     { action: "collect_all", only? }     starta insamling i bakgrunden (alla, eller only = [id])
+//     { action: "status" }                  pågående insamling + säljarna
+//   Från Apps Script-timern (x-script-secret): { action: "nightly" }
+//   Från servern själv (x-script-secret):     { action: "continue", state } – nästa steg
+// Insamlingen körs med waitUntil: svaret kommer direkt och arbetet fortsätter.
 import { timingSafeEqual } from "node:crypto";
+import { waitUntil } from "@vercel/functions";
 import { checkAuth, json } from "../lib/http.js";
-import { collectSeller, discoverSellers, listSellers, runNightly, watchSeller } from "../lib/marketdata.js";
+import { collectSeller, discoverSellers, listSellers, runStatus, runStep, startRun, watchSeller } from "../lib/marketdata.js";
 import { storageConfigured } from "../lib/storage.js";
 import { traderaConfigured, traderaGet } from "../lib/tradera.js";
 
@@ -32,6 +36,18 @@ async function resolve(seller) {
   return { ...seller, id: String(id), alias: user.alias ?? alias };
 }
 
+// Kör ett steg och startar nästa steg som ett nytt anrop (varje anrop får ca 2 min).
+async function chain(state, origin) {
+  const out = await runStep(state);
+  if (!out.more) return;
+  await fetch(`${origin}/api/marketdata`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-script-secret": process.env.APPS_SCRIPT_SECRET },
+    body: JSON.stringify({ action: "continue", state: out.state }),
+    signal: AbortSignal.timeout(15000),
+  }).catch(() => {});
+}
+
 export async function POST(request) {
   const fromScript = scriptAllowed(request);
   if (!fromScript) {
@@ -39,7 +55,8 @@ export async function POST(request) {
     if (denied) return denied;
   }
   const body = await request.json().catch(() => ({}));
-  if (fromScript && body.action !== "nightly") return json({ ok: false, error: "Inte tillåtet" }, 403);
+  if (fromScript && !["nightly", "continue"].includes(body.action)) return json({ ok: false, error: "Inte tillåtet" }, 403);
+  const origin = new URL(request.url).origin;
   if (!traderaConfigured()) return json({ ok: false, error: "Tradera är inte konfigurerat" }, 400);
   if (body.action !== "discover" && !storageConfigured()) return json({ ok: false, error: "Google Sheet är inte konfigurerat" }, 400);
 
@@ -61,9 +78,23 @@ export async function POST(request) {
         const seller = await resolve({ id: body.user_id, alias: body.alias });
         return json({ ok: true, ...(await collectSeller({ alias: seller.alias, user_id: seller.id })) });
       }
-      case "nightly":
+      case "collect_all":
+      case "nightly": {
+        if (body.action === "nightly" && !fromScript) return json({ ok: false, error: "Inte tillåtet" }, 403);
+        const only = Array.isArray(body.only) && body.only.length ? body.only.map(String) : null;
+        const run = await startRun(only);
+        if (run.started) waitUntil(chain(run.state, origin).catch(() => {}));
+        // more: false – Apps Script-timern behöver inte vänta, servern fortsätter själv.
+        return json({ ok: true, started: run.started, running: !run.started, run: run.status ?? null, more: false });
+      }
+      case "continue":
         if (!fromScript) return json({ ok: false, error: "Inte tillåtet" }, 403);
-        return json({ ok: true, ...(await runNightly(body.state)) });
+        waitUntil(chain(body.state, origin).catch(() => {}));
+        return json({ ok: true });
+      case "status": {
+        const [run, sellers] = await Promise.all([runStatus(), listSellers()]);
+        return json({ ok: true, run, sellers });
+      }
       default:
         return json({ ok: false, error: "Okänd action" }, 400);
     }
