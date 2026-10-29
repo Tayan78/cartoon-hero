@@ -307,6 +307,7 @@ button:disabled { opacity: .4; }
 .m-row .result { display: block; margin-top: 2px; color: var(--green); }
 .m-row .result.err { color: var(--red); }
 .m-row .acts button:disabled { opacity: 0.6; }
+.acts-inline { display: flex; gap: 6px; }
 
 /* Konkurrent */
 #view-seller .inline-field { align-items: flex-end; }
