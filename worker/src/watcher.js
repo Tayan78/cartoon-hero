@@ -4,7 +4,7 @@
 // 1 sökning var 10:e sekund = 8 640 per dygn.
 import { DurableObject } from "cloudflare:workers";
 import { searchAdvanced, traderaGet } from "../../lib/tradera.js";
-import { WATCH_NICHES, candidates, evaluate, notification, pickOrderBy, searchBody } from "./watch.js";
+import { WATCH_NICHES, candidates, evaluate, notification, pageOrder, pickOrderBy, searchBody } from "./watch.js";
 
 const INTERVAL_MS = 10_000;
 const SEEN_MAX = 5000; // senast sedda annonser (räcker gott för 50 per sökning)
@@ -50,9 +50,10 @@ export class Watcher extends DurableObject {
   async poll() {
     const s = this.ctx.storage;
     let orderBy = await s.get("order_by");
-    if (orderBy === undefined) {
+    // Version 2 av valet kontrollerar även att sidan verkligen är sorterad.
+    if (orderBy === undefined || (await s.get("order_check")) !== 2) {
       orderBy = await pickOrderBy(searchAdvanced);
-      await s.put("order_by", orderBy);
+      await s.put({ order_by: orderBy, order_check: 2 });
     }
     const data = await searchAdvanced(searchBody(orderBy));
     const items = data?.items ?? data?.Items ?? [];
@@ -61,6 +62,8 @@ export class Watcher extends DurableObject {
     const stats = (await s.get("stats")) ?? { polls: 0, items: 0, candidates: 0, deals: 0 };
     stats.polls++;
     stats.last_poll = new Date().toISOString();
+    // Syns i /status: högsta annons-id (ska öka när nya läggs ut) och om sidan är sorterad.
+    stats.page = pageOrder(items);
 
     // Första körningen: allt som redan ligger ute räknas som sett (ingen notisflod).
     if (!(await s.get("initialized"))) {
