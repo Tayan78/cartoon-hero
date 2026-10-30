@@ -1843,7 +1843,7 @@ for (const b of document.querySelectorAll("#l-period .chip")) {
 // ---------- Fynd: Schleich-partier ----------
 // Aktiva partier jämförda med vad partier sålts för per figur. Senaste
 // hämtningen sparas i telefonen; ny hämtning när den är äldre än 3 timmar.
-const LOTS_VERSION = 5; // samma som lib/lots.js – äldre sparade listor hämtas om
+const LOTS_VERSION = 6; // samma som lib/lots.js – äldre sparade listor hämtas om
 const lotsStale = (d) => !d || d.version !== LOTS_VERSION || Date.now() - Date.parse(d.fetched_at) > 3 * 60 * 60 * 1000;
 let lotsNiche = store.get("lots_niche", "djur");
 let lotsData = store.get(`lots_${lotsNiche}`, null);
@@ -1936,6 +1936,13 @@ function renderLots() {
   $("f-auction-count").textContent = under ? `(${under})` : "";
   const shipText = (l) =>
     (l.buyer_fee ? ` + köparskydd ${kr(l.buyer_fee)}` : "") + (l.shipping != null ? ` + frakt ${kr(l.shipping)}` : l.pickup_only ? " · bara avhämtning" : " · frakt okänd");
+  // Antal från rubriken, eller räknat på bilderna (värderas på det lägsta).
+  const countText = (l) => {
+    const e = l.count_estimate;
+    if (!e) return `${l.count} figurer`;
+    const span = e.min === e.max ? `${e.min}` : `${e.min}–${e.max}`;
+    return `≈ ${span} figurer (räknat på bilderna${e.confidence === "low" ? ", osäkert" : ""}, värderat på ${l.count})`;
+  };
   const valueText = (l) =>
     l.basis === "styckvis" ? ` · värt ca ${kr(l.value)} netto styckvis (${l.per_figure_value} kr/figur)` : l.value ? ` · värt ca ${kr(l.value)} som parti` : "";
   $("f-list").replaceChildren(
@@ -1952,11 +1959,11 @@ function renderLots() {
         Object.assign(document.createElement("b"), { textContent: l.title }),
         Object.assign(document.createElement("small"), {
           textContent: auction
-            ? `${l.count} figurer · ${l.bids ? `bud nu ${kr(l.price)} (${l.bids} bud)` : `utrop ${kr(l.price)} (inga bud)`}${shipText(l)}${valueText(l)}` +
+            ? `${countText(l)} · ${l.bids ? `bud nu ${kr(l.price)} (${l.bids} bud)` : `utrop ${kr(l.price)} (inga bud)`}${shipText(l)}${valueText(l)}` +
               (l.max_bid != null ? ` · bjud högst ${kr(l.max_bid)}` : "") +
               (l.buy_now ? ` · köp nu ${kr(l.buy_now)}${l.buy_now_total != null ? ` (${l.buy_now_ok ? "under gränsen – köp direkt" : "för dyrt"})` : ""}` : "") +
               ` · slutar ${new Date(l.end).toLocaleString("sv-SE", { dateStyle: "short", timeStyle: "short" })}`
-            : `${l.count} figurer · köp nu ${kr(l.price)}${shipText(l)}${l.shipping != null ? ` = ${kr(l.total)}` : ""}${valueText(l)}` +
+            : `${countText(l)} · köp nu ${kr(l.price)}${shipText(l)}${l.shipping != null ? ` = ${kr(l.total)}` : ""}${valueText(l)}` +
               (l.pay_max != null ? ` · betala högst ${kr(l.pay_max)} inkl. frakt` : "") +
               ` · slutar ${String(l.end).slice(0, 10)}`,
         }),
@@ -1989,7 +1996,9 @@ function renderLots() {
     `${list.length ? "" : lotsFilter === "deals" ? "Inga Köp nu-fynd just nu. " : lotsFilter === "auctions" ? "Inga auktioner med antal just nu. " : ""}` +
     `${d.scanned} annonser från ${d.queries?.length ?? 1} partisökningar: ${d.lots} partier, varav ${d.active_lots} aktiva. ` +
     (d.truncated?.length ? `⚠️ För många träffar, alla hämtades inte: ${d.truncated.join(", ")}. ` : "") +
-    `${d.without_count} aktiva partier saknar antal i rubriken och visas inte. ` +
+    (d.image_counted ? `${d.image_counted} partier utan antal i rubriken är räknade på bilderna (≈). ` : "") +
+    (d.count_pending ? `${d.count_pending} väntar på bildräkning – hämta igen om en stund. ` : "") +
+    (d.without_count - (d.count_pending ?? 0) > 0 ? `${d.without_count - (d.count_pending ?? 0)} aktiva partier saknar antal och gick inte att räkna – de visas inte. ` : "") +
     "Pris inkl. billigaste frakt (fraktsätt för 0 kr räknas inte) och Traderas köparskydd (2 kr + 5 % av priset, max 499 kr). Värdet antar att alla figurer i partiet säljs till medianpriset – säljgraden visar hur stor andel som brukar säljas. " +
     "Tryck på ett parti för att öppna det på Tradera.";
 }
