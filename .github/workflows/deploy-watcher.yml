@@ -21,6 +21,8 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: cloudflare/wrangler-action@v3
@@ -39,3 +41,12 @@ jobs:
           TRADERA_APP_KEY: ${{ secrets.TRADERA_APP_KEY }}
           APP_TOKEN: ${{ secrets.APP_TOKEN }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+      # Valfri: ntfy-konto (Settings → Access tokens) så att ntfy räknar gränser per
+      # konto i stället för per IP – Cloudflares IP-adresser delas med många andra.
+      - name: ntfy-token
+        if: env.NTFY_TOKEN != ''
+        working-directory: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: printf '%s' "$NTFY_TOKEN" | npx --yes wrangler@4.150.0 secret put NTFY_TOKEN

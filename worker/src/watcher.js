@@ -127,7 +127,10 @@ export class Watcher extends DurableObject {
     try {
       const res = await fetch("https://ntfy.sh/", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(this.env.NTFY_TOKEN ? { Authorization: `Bearer ${this.env.NTFY_TOKEN}` } : {}),
+        },
         body: JSON.stringify({ topic: this.env.NTFY_TOPIC, ...message }),
       });
       if (res.ok) {

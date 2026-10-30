@@ -21,4 +21,4 @@ Adress: `https://loppis-bevakning.<din-subdomän>.workers.dev` – lägg till `?
 Lägg till nischen i `lib/niches.js` och dess id i `WATCH_NICHES` i `worker/src/watch.js`. Värderingen kräver styckförsäljning i fliken Marknad för nischen (bevaka säljare i nischen först).
 
 ## Deploy
-GitHub Actions (`.github/workflows/deploy-watcher.yml`) deployar när `worker/` eller `lib/` ändras på master. Hemligheter i GitHub: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `TRADERA_APP_ID`, `TRADERA_APP_KEY`, `APP_TOKEN`, `NTFY_TOPIC`. Kontrollera dem med Actions → *Kontrollera hemligheter*.
+GitHub Actions (`.github/workflows/deploy-watcher.yml`) deployar när `worker/` eller `lib/` ändras på master. Hemligheter i GitHub: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `TRADERA_APP_ID`, `TRADERA_APP_KEY`, `APP_TOKEN`, `NTFY_TOPIC` och valfritt `NTFY_TOKEN` (access token från ett gratis konto på ntfy.sh – då gäller ntfy:s gränser per konto i stället för per IP, vilket behövs eftersom Cloudflares IP-adresser delas med många). Misslyckas en notis visar `/test` och `/status` (`ntfy_error`) ntfy:s svar. Kontrollera dem med Actions → *Kontrollera hemligheter*.
