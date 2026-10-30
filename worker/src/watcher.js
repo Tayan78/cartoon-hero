@@ -1,6 +1,6 @@
 // Bevakningen: en Durable Object som var 10:e sekund söker de nyaste annonserna i
 // kategorin Miniatyrer & leksaksfigurer och plingar via Telegram (ntfy som reserv) när ett Köp nu-parti
-// är grönt enligt köpreglerna. Traderas gräns är 10 000 anrop per dygn och metod:
+// är värt minst 1,5× priset. Traderas gräns är 10 000 anrop per dygn och metod:
 // 1 sökning var 10:e sekund = 8 640 per dygn.
 import { DurableObject } from "cloudflare:workers";
 import { searchAdvanced, traderaGet } from "../../lib/tradera.js";
