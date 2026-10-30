@@ -27,9 +27,13 @@ test("Värdering: grönt Köp nu-parti blir notis, för dyrt blir det inte", asy
   const getItem = async () => ({ shippingOptions: [{ cost: 59 }] });
   const cheap = candidates([item({ id: 1, buyItNowPrice: 200 })], new Set());
   const [deal] = await evaluate(cheap, { getItem, singles, rules: {} });
-  // 10 × 88 = 880 netto, betala högst 440; 200 + köparskydd 12 + frakt 59 = 271.
-  assert.deepEqual([deal.value, deal.pay_max, deal.total, deal.deal], [880, 440, 271, true]);
-  const dear = candidates([item({ id: 2, buyItNowPrice: 500 })], new Set());
+  // 10 × 88 = 880 netto, betala högst 880 / 1,5 = 586; 200 + köparskydd 12 + frakt 59 = 271.
+  assert.deepEqual([deal.value, deal.pay_max, deal.total, deal.deal], [880, 586, 271, true]);
+  // 400 + 22 + 59 = 481 (1,8×): under 2× men över 1,5× → notis.
+  const mid = candidates([item({ id: 3, buyItNowPrice: 400 })], new Set());
+  assert.equal((await evaluate(mid, { getItem, singles, rules: { small_green: 2 } })).length, 1);
+  // 520 + 28 + 59 = 607 (1,4×) → ingen notis.
+  const dear = candidates([item({ id: 2, buyItNowPrice: 520 })], new Set());
   assert.deepEqual(await evaluate(dear, { getItem, singles, rules: {} }), []);
   assert.deepEqual(await evaluate(cheap, { getItem, singles: null, rules: {} }), []); // utan marknadsdata: ingen notis
   const n = notification(deal, "loppis-abc");

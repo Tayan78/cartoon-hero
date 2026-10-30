@@ -60,11 +60,14 @@ export function candidates(items, seen, niches = WATCH_NICHES) {
   return out;
 }
 
-// Hämtar frakten och värderar. Returnerar partierna som är gröna enligt köpreglerna:
+// Hämtar frakten och värderar. Returnerar partierna som är värda minst WATCH_MULTIPLE:
 // Köp nu-pris (+ köparskydd + frakt) inom "betala högst".
+// Bevakningen plingar redan vid 1,5× (Fynd och appen räknar grönt från 2×).
+export const WATCH_MULTIPLE = 1.5;
+
 export async function evaluate(cands, { getItem, singles, rules }) {
   const deals = [];
-  const merged = mergeRules(rules);
+  const merged = mergeRules({ ...rules, small_green: WATCH_MULTIPLE });
   for (const { lot, niche } of cands) {
     const nicheSingles = singles?.[niche];
     if (!nicheSingles) continue; // utan marknadsdata går det inte att värdera
