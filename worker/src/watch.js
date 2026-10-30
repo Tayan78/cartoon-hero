@@ -19,13 +19,26 @@ const pick = (obj, key) => obj?.[key] ?? obj?.[key[0].toUpperCase() + key.slice(
 export const ORDER_CANDIDATES = ["StartDateDescending", "EndDateDescending"];
 export const searchBody = (orderBy) => ({ categoryId: CATEGORY, itemsPerPage: PAGE_SIZE, pageNumber: 1, ...(orderBy ? { orderBy } : {}) });
 
+// Är sidan sorterad med nyaste först? Traderas annons-id är löpnummer, så nyare
+// annonser har högre id: minst 80 % av grannparen ska vara fallande.
+export function pageOrder(items) {
+  const ids = (items ?? []).map((it) => Number(pick(it, "id"))).filter(Number.isFinite);
+  const pairs = ids.slice(1).map((id, i) => ids[i] > id);
+  return { newest_id: ids.length ? Math.max(...ids) : null, sorted_desc: pairs.length >= 5 && pairs.filter(Boolean).length / pairs.length >= 0.8 };
+}
+
+// Första sorteringen som Tradera både godtar och faktiskt sorterar efter.
+// Godtas namnet men sidan inte är sorterad (Tradera ignorerar det) provas nästa.
 export async function pickOrderBy(search) {
+  let accepted = null;
   for (const orderBy of ORDER_CANDIDATES) {
     const data = await search(searchBody(orderBy)).catch(() => null);
     const errors = pick(data, "errors");
-    if (data && !(Array.isArray(errors) && errors.length)) return orderBy;
+    if (!data || (Array.isArray(errors) && errors.length)) continue;
+    if (pageOrder(pick(data, "items")).sorted_desc) return orderBy;
+    accepted ??= orderBy;
   }
-  return null;
+  return accepted;
 }
 
 // Nya annonser som är partier i en bevakad nisch, har antal och går att köpa direkt

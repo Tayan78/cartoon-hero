@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { candidates, evaluate, notification, pickOrderBy, searchBody } from "../worker/src/watch.js";
+import { candidates, evaluate, notification, pageOrder, pickOrderBy, searchBody } from "../worker/src/watch.js";
 import { singleStats } from "../lib/lots.js";
 import { NICHES } from "../lib/niches.js";
 
@@ -47,10 +47,19 @@ test("Auktion med Köp nu under gränsen: notisen visar Köp nu-priset", async (
   assert.match(notification(deal, "t").title, /Köp nu 250 kr/);
 });
 
-test("Sortering: första namnet Tradera godtar används", async () => {
+const ids = (list) => list.map((id) => ({ id }));
+
+test("Sortering: första som Tradera godtar OCH faktiskt sorterar efter (fallande id)", async () => {
   const tried = [];
-  const search = async (body) => (tried.push(body.orderBy), body.orderBy === "StartDateDescending" ? { errors: [{ code: "OrderByValidationError" }] } : { items: [] });
+  const desc = ids([90, 80, 70, 60, 50, 40]);
+  const search = async (body) => (tried.push(body.orderBy), body.orderBy === "StartDateDescending" ? { errors: [{ code: "OrderByValidationError" }] } : { items: desc });
   assert.equal(await pickOrderBy(search), "EndDateDescending");
   assert.deepEqual(tried, ["StartDateDescending", "EndDateDescending"]);
+  // Godtas men ignoreras (osorterat) → nästa som sorterar väljs.
+  const ignored = async (body) => ({ items: body.orderBy === "StartDateDescending" ? ids([10, 90, 20, 80, 30, 70]) : desc });
+  assert.equal(await pickOrderBy(ignored), "EndDateDescending");
+  // Ingen sorterar: den första som godtogs används ändå.
+  assert.equal(await pickOrderBy(async () => ({ items: ids([10, 90, 20, 80, 30, 70]) })), "StartDateDescending");
+  assert.deepEqual(pageOrder(desc), { newest_id: 90, sorted_desc: true });
   assert.deepEqual(searchBody("EndDateDescending"), { categoryId: 1000532, itemsPerPage: 50, pageNumber: 1, orderBy: "EndDateDescending" });
 });
