@@ -104,7 +104,7 @@ export function notification(deal, topic) {
       `Totalt ${kr(total)} inkl. köparskydd och frakt · värt ca ${kr(deal.value)} netto styckvis · betala högst ${kr(deal.pay_max)}`,
     click: deal.url,
     ...(deal.thumbnail ? { attach: deal.thumbnail } : {}),
-    priority: 5,
+    priority: 4, // 5 = "tidskänslig" på iPhone, som inte plingade hos oss; 4 gör det
     tags: ["moneybag"],
   };
 }

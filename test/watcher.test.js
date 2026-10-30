@@ -35,7 +35,7 @@ test("Värdering: grönt Köp nu-parti blir notis, för dyrt blir det inte", asy
   const n = notification(deal, "loppis-abc");
   assert.equal(n.topic, "loppis-abc");
   assert.equal(n.click, "https://www.tradera.com/item/1");
-  assert.equal(n.priority, 5);
+  assert.equal(n.priority, 4);
   assert.match(n.title, /10 st – Köp nu 200 kr \(3,2×\)/);
   assert.match(n.message, /Totalt 271 kr inkl\. köparskydd och frakt · värt ca 880 kr/);
 });
@@ -69,6 +69,6 @@ test("Testannons: exempelpartiet ger en riktig träffnotis", async () => {
   const n = notification(EXAMPLE_DEAL, "topic");
   assert.equal(n.title, "💎 24 st – Köp nu 349 kr (2,4×)");
   assert.match(n.message, /^TEST – 24 st Schleich/);
-  assert.equal(n.priority, 5);
+  assert.equal(n.priority, 4);
   assert.equal(n.click, EXAMPLE_DEAL.url);
 });
