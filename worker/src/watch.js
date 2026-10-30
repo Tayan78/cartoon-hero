@@ -78,6 +78,19 @@ export async function evaluate(cands, { getItem, singles, rules }) {
 const kr = (n) => `${Math.round(n).toLocaleString("sv-SE")} kr`;
 
 // Notisen till ntfy (JSON-format, så att å/ä/ö fungerar).
+// Påhittat grönt parti för /test?annons=1 – samma notis som en riktig träff ger.
+export const EXAMPLE_DEAL = {
+  count: 24,
+  price_kind: "köp nu",
+  price: 349,
+  total: 438,
+  multiple: 2.4,
+  title: "TEST – 24 st Schleich djur, hästar och blandat",
+  value: 1050,
+  pay_max: 525,
+  url: "https://www.tradera.com/search?q=schleich%20paket",
+};
+
 export function notification(deal, topic) {
   const viaAuction = deal.price_kind === "bud";
   const price = viaAuction ? deal.buy_now : deal.price;

@@ -4,7 +4,7 @@
 // 1 sökning var 10:e sekund = 8 640 per dygn.
 import { DurableObject } from "cloudflare:workers";
 import { searchAdvanced, traderaGet } from "../../lib/tradera.js";
-import { WATCH_NICHES, candidates, evaluate, notification, pageOrder, pickOrderBy, searchBody } from "./watch.js";
+import { EXAMPLE_DEAL, WATCH_NICHES, candidates, evaluate, notification, pageOrder, pickOrderBy, searchBody } from "./watch.js";
 
 const INTERVAL_MS = 10_000;
 const SEEN_MAX = 5000; // senast sedda annonser (räcker gott för 50 per sökning)
@@ -12,14 +12,17 @@ const SINGLES_MAX_AGE = 60 * 60 * 1000; // marknadspriserna hämtas om varje tim
 
 export class Watcher extends DurableObject {
   async fetch(request) {
-    const path = new URL(request.url).pathname;
+    const url = new URL(request.url);
+    const path = url.pathname;
     if (path === "/ensure") {
       await this.ensure();
       return new Response("ok");
     }
     if (path === "/status") return Response.json(await this.status());
     if (path === "/test") {
-      const ok = await this.notify({ title: "✅ Test från Loppisskannern", message: "Bevakningen kan skicka notiser till dig.", priority: 4 });
+      const ok = url.searchParams.has("annons")
+        ? await this.notify(notification(EXAMPLE_DEAL, this.env.NTFY_TOPIC))
+        : await this.notify({ title: "✅ Test från Loppisskannern", message: "Bevakningen kan skicka notiser till dig.", priority: 4 });
       return new Response(ok ? "Testnotis skickad" : "Kunde inte skicka – saknas NTFY_TOPIC?");
     }
     if (path === "/pause" || path === "/resume") {
@@ -27,7 +30,7 @@ export class Watcher extends DurableObject {
       if (path === "/resume") await this.ensure();
       return new Response(path === "/pause" ? "Pausad" : "Igång");
     }
-    return new Response("Loppisskannerns bevakning. /status, /test, /pause, /resume");
+    return new Response("Loppisskannerns bevakning. /status, /test, /test?annons=1, /pause, /resume");
   }
 
   // Startar timern om den inte går (anropas varje minut av Cloudflares schema).

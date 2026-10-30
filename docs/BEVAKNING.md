@@ -14,6 +14,7 @@ Första körningen räknar allt som redan ligger ute som sett, så det kommer in
 Adress: `https://loppis-bevakning.<din-subdomän>.workers.dev` – lägg till `?token=<APP_TOKEN>`:
 - `/status` – går den, senaste sökning, antal sedda, kandidater, notiser, senaste fel
 - `/test` – skickar en testnotis
+- `/test?annons=1` – skickar en påhittad träff (grönt Köp nu-parti) så du ser hur en riktig notis ser ut
 - `/pause`, `/resume`
 
 ## Fler nischer

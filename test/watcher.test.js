@@ -63,3 +63,12 @@ test("Sortering: första som Tradera godtar OCH faktiskt sorterar efter (falland
   assert.deepEqual(pageOrder(desc), { newest_id: 90, sorted_desc: true });
   assert.deepEqual(searchBody("EndDateDescending"), { categoryId: 1000532, itemsPerPage: 50, pageNumber: 1, orderBy: "EndDateDescending" });
 });
+
+test("Testannons: exempelpartiet ger en riktig träffnotis", async () => {
+  const { EXAMPLE_DEAL, notification } = await import("../worker/src/watch.js");
+  const n = notification(EXAMPLE_DEAL, "topic");
+  assert.equal(n.title, "💎 24 st – Köp nu 349 kr (2,4×)");
+  assert.match(n.message, /^TEST – 24 st Schleich/);
+  assert.equal(n.priority, 5);
+  assert.equal(n.click, EXAMPLE_DEAL.url);
+});
