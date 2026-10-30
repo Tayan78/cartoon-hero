@@ -1,0 +1,24 @@
+# Loppisskannerns bevakning (Cloudflare Workers). Deployas av GitHub Actions
+# (.github/workflows/deploy-watcher.yml) när worker/ eller lib/ ändras på master.
+# Hemligheter (sätts av GitHub): TRADERA_APP_ID, TRADERA_APP_KEY, APP_TOKEN, NTFY_TOPIC.
+name = "loppis-bevakning"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+# process.env behövs av lib/tradera.js (Tradera-nycklarna).
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+[vars]
+APP_URL = "https://cartoon-hero-theta.vercel.app"
+
+[[durable_objects.bindings]]
+name = "WATCHER"
+class_name = "Watcher"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Watcher"]
+
+# Varje minut: starta timern om den har stannat.
+[triggers]
+crons = ["* * * * *"]

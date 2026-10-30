@@ -1,0 +1,41 @@
+# Deployar bevakningen (worker/) till Cloudflare när den eller lib/ ändras på master.
+# Hemligheterna kommer från GitHub (Settings → Secrets and variables → Actions).
+name: Deploya bevakningen
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - worker/**
+      - lib/**
+      - .github/workflows/deploy-watcher.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-watcher
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4.150.0"
+          workingDirectory: worker
+          secrets: |
+            TRADERA_APP_ID
+            TRADERA_APP_KEY
+            APP_TOKEN
+            NTFY_TOPIC
+        env:
+          TRADERA_APP_ID: ${{ secrets.TRADERA_APP_ID }}
+          TRADERA_APP_KEY: ${{ secrets.TRADERA_APP_KEY }}
+          APP_TOKEN: ${{ secrets.APP_TOKEN }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}

@@ -6,6 +6,7 @@
 //     { action: "watch", seller, watch }    bevaka eller sluta bevaka (seller: { id?, alias })
 //     { action: "collect_all", only? }     starta insamling i bakgrunden (alla, eller only = [id])
 //     { action: "status" }                  pågående insamling + säljarna
+//     { action: "singles", niches }         styckförsäljning per nisch (till bevakningen i Cloudflare)
 //     { action: "lots_check", link }        varför saknas ett parti? filter + vilka sökningar som hittar det
 //     { action: "lots", niche }             partier (djur/smurfar): kr per figur inkl. frakt och fynd (lib/lots.js)
 //   Från Apps Script-timern (x-script-secret): { action: "nightly" }
@@ -15,7 +16,7 @@ import { timingSafeEqual } from "node:crypto";
 import { waitUntil } from "@vercel/functions";
 import { checkAuth, json } from "../lib/http.js";
 import { collectSeller, discoverSellers, listSellers, runStatus, runStep, startRun, watchSeller } from "../lib/marketdata.js";
-import { checkLot, findLots } from "../lib/lots.js";
+import { checkLot, findLots, singlesForNiches } from "../lib/lots.js";
 import { mergeSettings } from "../lib/settings.js";
 import { storageConfigured } from "../lib/storage.js";
 import { traderaConfigured, traderaGet } from "../lib/tradera.js";
@@ -70,6 +71,11 @@ export async function POST(request) {
         const [found, sellers] = await Promise.all([discoverSellers({ niche: body.niche }), storageConfigured() ? listSellers().catch(() => []) : []]);
         const ids = new Set(sellers.filter((s) => s.watched).map((s) => s.id));
         return json({ ok: true, ...found, sellers: found.sellers.map((s) => ({ ...s, watched: ids.has(String(s.id)) })) });
+      }
+      case "singles": {
+        // Till bevakningen (Cloudflare): styckförsäljning per nisch och köpreglerna.
+        const ids = Array.isArray(body.niches) && body.niches.length ? body.niches.map(String) : ["djur"];
+        return json({ ok: true, ...(await singlesForNiches(ids, { settings: mergeSettings(body.settings) })) });
       }
       case "lots_check":
         return json({ ok: true, ...(await checkLot(body.link)) });
