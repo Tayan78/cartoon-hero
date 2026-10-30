@@ -23,7 +23,7 @@ export class Watcher extends DurableObject {
       const ok = url.searchParams.has("annons")
         ? await this.notify(notification(EXAMPLE_DEAL, this.env.NTFY_TOPIC))
         : await this.notify({ title: "✅ Test från Loppisskannern", message: "Bevakningen kan skicka notiser till dig.", priority: 4 });
-      return new Response(ok ? "Testnotis skickad" : "Kunde inte skicka – saknas NTFY_TOPIC?");
+      return new Response(ok ? "Testnotis skickad" : `Kunde inte skicka: ${await this.ctx.storage.get("notify_error")}`);
     }
     if (path === "/pause" || path === "/resume") {
       await this.ctx.storage.put("paused", path === "/pause");
@@ -117,20 +117,37 @@ export class Watcher extends DurableObject {
     return fresh;
   }
 
+  // Sparar ntfy:s svar vid fel så att /test och /status visar varför.
   async notify(message) {
-    if (!this.env.NTFY_TOPIC) return false;
-    const res = await fetch("https://ntfy.sh/", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ topic: this.env.NTFY_TOPIC, ...message }),
-    });
-    return res.ok;
+    const s = this.ctx.storage;
+    if (!this.env.NTFY_TOPIC) {
+      await s.put("notify_error", "NTFY_TOPIC saknas");
+      return false;
+    }
+    try {
+      const res = await fetch("https://ntfy.sh/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(this.env.NTFY_TOKEN ? { Authorization: `Bearer ${this.env.NTFY_TOKEN}` } : {}),
+        },
+        body: JSON.stringify({ topic: this.env.NTFY_TOPIC, ...message }),
+      });
+      if (res.ok) {
+        await s.delete("notify_error");
+        return true;
+      }
+      await s.put("notify_error", `ntfy ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    } catch (err) {
+      await s.put("notify_error", `ntfy: ${err.message}`);
+    }
+    return false;
   }
 
   async status() {
     const s = this.ctx.storage;
-    const [stats, lastError, orderBy, singles, paused, alarm] = await Promise.all([
-      s.get("stats"), s.get("last_error"), s.get("order_by"), s.get("singles"), s.get("paused"), s.getAlarm(),
+    const [stats, lastError, orderBy, singles, paused, alarm, notifyError] = await Promise.all([
+      s.get("stats"), s.get("last_error"), s.get("order_by"), s.get("singles"), s.get("paused"), s.getAlarm(), s.get("notify_error"),
     ]);
     return {
       running: Boolean(alarm) && !paused,
@@ -142,6 +159,7 @@ export class Watcher extends DurableObject {
       market_prices: singles ? { fetched: new Date(singles.at).toISOString(), niches: Object.fromEntries(Object.entries(singles.singles ?? {}).map(([k, v]) => [k, v?.all?.n ?? 0])) } : null,
       last_error: lastError ?? null,
       ntfy: Boolean(this.env.NTFY_TOPIC),
+      ntfy_error: notifyError ?? null,
     };
   }
 }
