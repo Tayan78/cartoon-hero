@@ -25,6 +25,7 @@ Saker vi har pratat om men som **inte** finns i Alpha v1 ([ALPHA-v1.md](ALPHA-v1
 | 🟡 | **Kandidatknappar för modellnummer i skanningen** | Finns i annonsläget men inte i skanningen. Rätt nummer ger rätt priser. |
 | 🟡 | **Påslag på utpriset** | T.ex. "Lägg ut för" + 10 % för att ge prutmån. Avvaktat, eftersom du valde exakt lägsta pris. |
 | ⚪ | **eBay Browse API** | Riktiga aktiva eBay-annonser i stället för bara det Lens råkar hitta. Kräver ett utvecklarkonto. |
+| 🟡 | **Bildräkning i bevakningen** | Fynd räknar figurerna på bilderna när rubriken saknar antal (fliken *Bildräkning* i arket, värderas på lägsta antalet). Steg 2: när räkningen visat sig träffsäker, låt bevakningen göra samma sak så att även sådana Köp nu-partier plingar. |
 | ⚪ | **Fler småfigursmärken** | Papo, Bullyland, Collecta … Listan finns redan i köpreglerna, men standard är bara Schleich. |
 
 ## C. Annonsläget

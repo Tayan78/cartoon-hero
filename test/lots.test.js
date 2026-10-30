@@ -52,9 +52,10 @@ test("Frakt: billigaste fraktsättet räknas in i kr per figur", async () => {
   const lots = [toLot(item({ id: 1, buyItNowPrice: 100, hasBids: false, bidCount: 0 }), false), toLot(item({ id: 2, shortDescription: "Schleich paket blandat" }), false)];
   assert.equal(lots[0].per_figure, 11); // utan frakt: 100 + köparskydd 7 = 107 kr / 10
   const asked = [];
-  const { lots: out, fetched } = await addShipping(lots, { get: async (path) => (asked.push(path), { shippingOptions: [{ cost: 60 }] }) });
-  assert.deepEqual(asked, ["/v4/items/1"]); // bara partier med antal
-  assert.equal(fetched, 1);
+  const { lots: out, fetched } = await addShipping(lots, { get: async (path) => (asked.push(path), { shippingOptions: [{ cost: 60 }], imageLinks: ["https://img/x.jpg"] }) });
+  assert.deepEqual(asked, ["/v4/items/1", "/v4/items/2"]); // aktiva partier utan antal hämtas för bilderna
+  assert.equal(fetched, 2);
+  assert.deepEqual([out[0].images, out[1].images], [undefined, ["https://img/x.jpg"]]); // bilder bara där antalet saknas
   assert.deepEqual([out[0].shipping, out[0].buyer_fee, out[0].total, out[0].per_figure], [60, 7, 167, 17]); // 100 + köparskydd 7 (bara på priset) + frakt 60
 });
 
