@@ -1,10 +1,10 @@
 // Bevakningen: en Durable Object som var 10:e sekund söker de nyaste annonserna i
-// kategorin Miniatyrer & leksaksfigurer och plingar via ntfy när ett Köp nu-parti
+// kategorin Miniatyrer & leksaksfigurer och plingar via Telegram (ntfy som reserv) när ett Köp nu-parti
 // är grönt enligt köpreglerna. Traderas gräns är 10 000 anrop per dygn och metod:
 // 1 sökning var 10:e sekund = 8 640 per dygn.
 import { DurableObject } from "cloudflare:workers";
 import { searchAdvanced, traderaGet } from "../../lib/tradera.js";
-import { EXAMPLE_DEAL, WATCH_NICHES, candidates, evaluate, notification, pageOrder, pickOrderBy, searchBody } from "./watch.js";
+import { EXAMPLE_DEAL, WATCH_NICHES, candidates, chatFromUpdates, evaluate, notification, pageOrder, pickOrderBy, searchBody, telegramMessage } from "./watch.js";
 
 const INTERVAL_MS = 10_000;
 const SEEN_MAX = 5000; // senast sedda annonser (räcker gott för 50 per sökning)
@@ -20,17 +20,20 @@ export class Watcher extends DurableObject {
     }
     if (path === "/status") return Response.json(await this.status());
     if (path === "/test") {
-      const ok = url.searchParams.has("annons")
+      const via = url.searchParams.has("annons")
         ? await this.notify(notification(EXAMPLE_DEAL, this.env.NTFY_TOPIC))
         : await this.notify({ title: "✅ Test från Loppisskannern", message: "Bevakningen kan skicka notiser till dig.", priority: 4 });
-      return new Response(ok ? "Testnotis skickad" : `Kunde inte skicka: ${await this.ctx.storage.get("notify_error")}`);
+      if (via) return new Response(`Testnotis skickad via ${via}`);
+      const [tg, nt] = await Promise.all([this.ctx.storage.get("telegram_error"), this.ctx.storage.get("notify_error")]);
+      return new Response(`Kunde inte skicka: ${[tg && `Telegram: ${tg}`, nt].filter(Boolean).join(" · ")}`);
     }
+    if (path === "/telegram") return new Response(await this.linkTelegram());
     if (path === "/pause" || path === "/resume") {
       await this.ctx.storage.put("paused", path === "/pause");
       if (path === "/resume") await this.ensure();
       return new Response(path === "/pause" ? "Pausad" : "Igång");
     }
-    return new Response("Loppisskannerns bevakning. /status, /test, /test?annons=1, /pause, /resume");
+    return new Response("Loppisskannerns bevakning. /status, /test, /test?annons=1, /telegram, /pause, /resume");
   }
 
   // Startar timern om den inte går (anropas varje minut av Cloudflares schema).
@@ -117,8 +120,66 @@ export class Watcher extends DurableObject {
     return fresh;
   }
 
-  // Sparar ntfy:s svar vid fel så att /test och /status visar varför.
+  // Telegram i första hand, ntfy som reserv. Felen sparas så att /test och /status visar varför.
+  // Returnerar vägen notisen gick ("Telegram"/"ntfy"), eller null.
   async notify(message) {
+    if (await this.telegram(message)) return "Telegram";
+    return (await this.ntfy(message)) ? "ntfy" : null;
+  }
+
+  async telegramChat() {
+    return this.env.TELEGRAM_CHAT_ID || (await this.ctx.storage.get("telegram_chat"))?.id;
+  }
+
+  async telegramCall(method, body) {
+    const res = await fetch(`https://api.telegram.org/bot${this.env.TELEGRAM_BOT_TOKEN}/${method}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body ?? {}),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!data.ok) throw new Error(`Telegram ${res.status}: ${data.description ?? "okänt fel"}`);
+    return data.result;
+  }
+
+  async telegram(message) {
+    const s = this.ctx.storage;
+    const chat = this.env.TELEGRAM_BOT_TOKEN && (await this.telegramChat());
+    if (!chat) return false;
+    const { method, body } = telegramMessage(message, chat);
+    try {
+      try {
+        await this.telegramCall(method, body);
+      } catch (err) {
+        if (method !== "sendPhoto") throw err;
+        // Telegram kunde inte hämta bilden – skicka utan.
+        const { attach, ...rest } = message;
+        const plain = telegramMessage(rest, chat);
+        await this.telegramCall(plain.method, plain.body);
+      }
+      await s.delete("telegram_error");
+      return true;
+    } catch (err) {
+      await s.put("telegram_error", err.message);
+      return false;
+    }
+  }
+
+  // Kopplar telefonen: skriv något till boten i Telegram och öppna sedan /telegram.
+  async linkTelegram() {
+    if (!this.env.TELEGRAM_BOT_TOKEN) return "TELEGRAM_BOT_TOKEN saknas – lägg in den i GitHub och deploya igen.";
+    try {
+      const chat = chatFromUpdates(await this.telegramCall("getUpdates", { allowed_updates: ["message"] }));
+      if (!chat) return "Hittade inget meddelande till boten. Öppna boten i Telegram, tryck Starta (eller skriv något) och ladda om sidan.";
+      await this.ctx.storage.put("telegram_chat", chat);
+      await this.telegramCall("sendMessage", { chat_id: chat.id, text: "✅ Kopplad! Här kommer notiserna från Loppisskannerns bevakning." });
+      return `Kopplad till ${chat.name}. Kolla Telegram – en bekräftelse är skickad.`;
+    } catch (err) {
+      return `Kunde inte koppla: ${err.message}`;
+    }
+  }
+
+  async ntfy(message) {
     const s = this.ctx.storage;
     if (!this.env.NTFY_TOPIC) {
       await s.put("notify_error", "NTFY_TOPIC saknas");
@@ -146,8 +207,9 @@ export class Watcher extends DurableObject {
 
   async status() {
     const s = this.ctx.storage;
-    const [stats, lastError, orderBy, singles, paused, alarm, notifyError] = await Promise.all([
+    const [stats, lastError, orderBy, singles, paused, alarm, notifyError, tgChat, tgError] = await Promise.all([
       s.get("stats"), s.get("last_error"), s.get("order_by"), s.get("singles"), s.get("paused"), s.getAlarm(), s.get("notify_error"),
+      s.get("telegram_chat"), s.get("telegram_error"),
     ]);
     return {
       running: Boolean(alarm) && !paused,
@@ -158,6 +220,11 @@ export class Watcher extends DurableObject {
       stats: stats ?? null,
       market_prices: singles ? { fetched: new Date(singles.at).toISOString(), niches: Object.fromEntries(Object.entries(singles.singles ?? {}).map(([k, v]) => [k, v?.all?.n ?? 0])) } : null,
       last_error: lastError ?? null,
+      telegram: {
+        bot: Boolean(this.env.TELEGRAM_BOT_TOKEN),
+        linked: this.env.TELEGRAM_CHAT_ID ? "TELEGRAM_CHAT_ID" : tgChat?.name ?? null,
+        error: tgError ?? null,
+      },
       ntfy: Boolean(this.env.NTFY_TOPIC),
       ntfy_error: notifyError ?? null,
     };

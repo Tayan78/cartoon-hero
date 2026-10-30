@@ -77,7 +77,7 @@ export async function evaluate(cands, { getItem, singles, rules }) {
 
 const kr = (n) => `${Math.round(n).toLocaleString("sv-SE")} kr`;
 
-// Notisen till ntfy (JSON-format, så att å/ä/ö fungerar).
+// Notisen (ntfy:s JSON-format, så att å/ä/ö fungerar; Telegram byggs av samma).
 // Påhittat grönt parti för /test?annons=1 – samma notis som en riktig träff ger.
 export const EXAMPLE_DEAL = {
   count: 24,
@@ -107,4 +107,24 @@ export function notification(deal, topic) {
     priority: 4, // 5 = "tidskänslig" på iPhone, som inte plingade hos oss; 4 gör det
     tags: ["moneybag"],
   };
+}
+
+// Telegram: samma notis som till ntfy, som foto med bildtext när det finns en bild,
+// annars som textmeddelande – med en knapp som öppnar annonsen.
+const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+export function telegramMessage(n, chatId) {
+  const text = `<b>${esc(n.title)}</b>\n${esc(n.message)}`;
+  const button = n.click ? { reply_markup: { inline_keyboard: [[{ text: "Öppna annonsen", url: n.click }]] } } : {};
+  if (n.attach) return { method: "sendPhoto", body: { chat_id: chatId, photo: n.attach, caption: text, parse_mode: "HTML", ...button } };
+  return { method: "sendMessage", body: { chat_id: chatId, text, parse_mode: "HTML", link_preview_options: { is_disabled: true }, ...button } };
+}
+
+// Den som senast skrev till boten i en privat chatt (för att koppla telefonen).
+export function chatFromUpdates(updates) {
+  for (const u of [...(updates ?? [])].reverse()) {
+    const chat = (u.message ?? u.edited_message)?.chat;
+    if (chat?.type === "private") return { id: chat.id, name: [chat.first_name, chat.last_name].filter(Boolean).join(" ") || chat.username || String(chat.id) };
+  }
+  return null;
 }

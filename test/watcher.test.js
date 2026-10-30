@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { candidates, evaluate, notification, pageOrder, pickOrderBy, searchBody } from "../worker/src/watch.js";
+import { candidates, chatFromUpdates, evaluate, notification, pageOrder, pickOrderBy, searchBody, telegramMessage } from "../worker/src/watch.js";
 import { singleStats } from "../lib/lots.js";
 import { NICHES } from "../lib/niches.js";
 
@@ -71,4 +71,29 @@ test("Testannons: exempelpartiet ger en riktig träffnotis", async () => {
   assert.match(n.message, /^TEST – 24 st Schleich/);
   assert.equal(n.priority, 4);
   assert.equal(n.click, EXAMPLE_DEAL.url);
+});
+
+test("Telegram: foto med bildtext och knapp när det finns bild, annars text", () => {
+  const n = { title: "💎 10 st – Köp nu 200 kr (3,2×)", message: "Schleich <hästar> & föl", click: "https://www.tradera.com/item/1", attach: "https://img/1.jpg" };
+  const photo = telegramMessage(n, 42);
+  assert.equal(photo.method, "sendPhoto");
+  assert.equal(photo.body.chat_id, 42);
+  assert.equal(photo.body.photo, "https://img/1.jpg");
+  assert.equal(photo.body.caption, "<b>💎 10 st – Köp nu 200 kr (3,2×)</b>\nSchleich &lt;hästar&gt; &amp; föl");
+  assert.deepEqual(photo.body.reply_markup.inline_keyboard, [[{ text: "Öppna annonsen", url: "https://www.tradera.com/item/1" }]]);
+  const { attach, ...noImage } = n;
+  const text = telegramMessage(noImage, 42);
+  assert.equal(text.method, "sendMessage");
+  assert.equal(text.body.text, photo.body.caption);
+  assert.equal(text.body.parse_mode, "HTML");
+});
+
+test("Telegram-koppling: senaste privata chatten som skrev till boten", () => {
+  const updates = [
+    { message: { chat: { id: 1, type: "private", first_name: "Gammal" } } },
+    { message: { chat: { id: 2, type: "private", first_name: "Anna", last_name: "B" } } },
+    { message: { chat: { id: 3, type: "group", title: "Grupp" } } },
+  ];
+  assert.deepEqual(chatFromUpdates(updates), { id: 2, name: "Anna B" });
+  assert.equal(chatFromUpdates([]), null);
 });
