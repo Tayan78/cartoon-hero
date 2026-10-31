@@ -6,7 +6,7 @@ import { isLot } from "../lib/lots.js";
 import { NICHES } from "../lib/niches.js";
 import { SERIES } from "../lib/series.js";
 
-const sql = `SELECT title, status, price, type, bids, niche, series, end_at, seller
+const sql = `SELECT title, status, price, type, bids, niche, series, end_at, start_at, seller
   FROM listings WHERE niche IS NOT NULL OR series IS NOT NULL OR source = 'sök'`;
 const out = execFileSync("npx", ["--yes", "wrangler@4.150.0", "d1", "execute", "loppis", "--remote", "--json", "--command", sql], { cwd: "worker", maxBuffer: 256 * 1024 * 1024 }).toString();
 const rows = JSON.parse(out)[0].results;
@@ -86,8 +86,40 @@ const sellers = [...group(rows.filter((r) => r.status === "Såld"), (r) => r.sel
 const totalSold = rows.filter((r) => r.status === "Såld").length;
 const auctionsSold = singlesAnimals.filter((r) => r.type === "auktion" && r.status === "Såld");
 
+// ---------- Tidsserier ----------
+// Lokal tid (Tradera anger +01:00/+02:00) – datum, veckodag och timme ur strängen.
+const local = (iso) => (iso ? { day: iso.slice(0, 10), hour: Number(iso.slice(11, 13)), dow: new Date(iso.slice(0, 10) + "T12:00:00Z").getUTCDay() } : null);
+const weekStart = (day) => {
+  const d = new Date(day + "T12:00:00Z");
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7)); // måndag
+  return d.toISOString().slice(0, 10);
+};
+const today = new Date().toISOString().slice(0, 10);
+const endedAll = rows.filter((r) => (r.status === "Såld" || r.status === "Osåld" || r.status == null) && r.end_at && r.end_at.slice(0, 10) <= today);
+const byMonthAll = [...group(endedAll, (r) => r.end_at.slice(0, 7))].map(([m, l]) => ({ month: m, ended: l.length, sold: l.filter((r) => r.status === "Såld").length })).sort((a, b) => a.month.localeCompare(b.month));
+const weekly = [...group(endedAll, (r) => weekStart(r.end_at.slice(0, 10)))]
+  .map(([w, l]) => ({ week: w, ended: l.length, sold: l.filter((r) => r.status === "Såld").length, unsold: l.filter((r) => r.status === "Osåld").length }))
+  .sort((a, b) => a.week.localeCompare(b.week));
+const withStart = rows.filter((r) => r.start_at && r.start_at.slice(0, 10) <= today);
+const published = [...group(withStart, (r) => weekStart(r.start_at.slice(0, 10)))].map(([w, l]) => ({ week: w, published: l.length })).sort((a, b) => a.week.localeCompare(b.week));
+const activeEnding = [...group(rows.filter((r) => r.status === "Aktiv" && r.end_at && r.end_at.slice(0, 10) > today && r.end_at < "2027"), (r) => weekStart(r.end_at.slice(0, 10)))].map(([w, l]) => ({ week: w, ending: l.length })).sort((a, b) => a.week.localeCompare(b.week));
+const decided = endedAll.filter((r) => r.status === "Såld" || r.status === "Osåld");
+const byDow = Array.from({ length: 7 }, (_, i) => {
+  const l = decided.filter((r) => local(r.end_at).dow === (i + 1) % 7);
+  const sold = l.filter((r) => r.status === "Såld").length;
+  return { dow: ["mån", "tis", "ons", "tor", "fre", "lör", "sön"][i], ended: l.length, sold, sell_through: l.length ? Math.round((100 * sold) / l.length) : null };
+});
+const auctionsDecided = decided.filter((r) => r.type === "auktion");
+const byHour = Array.from({ length: 24 }, (_, h) => {
+  const l = auctionsDecided.filter((r) => local(r.end_at).hour === h);
+  const sold = l.filter((r) => r.status === "Såld");
+  return { hour: h, ended: l.length, sold: sold.length, sell_through: l.length >= 20 ? Math.round((100 * sold.length) / l.length) : null, median: pct(sold.map((r) => r.price), 0.5) };
+});
+const timeline = { byMonthAll, weekly, published, published_known: withStart.length, activeEnding, byDow, byHour, oldest_end: endedAll.map((r) => r.end_at).sort()[0] };
+
 console.log("BI_JSON_START");
 console.log(JSON.stringify({
+  timeline,
   generated: new Date().toISOString(),
   totals: { listings: rows.length, ...stats(rows), unknown_outcome: rows.filter((r) => r.status == null).length, first_month: months[0], last3 },
   segments, monthly, format, bands, models, season,
