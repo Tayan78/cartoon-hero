@@ -1664,6 +1664,45 @@ async function renderHome() {
     $("h-status").textContent = `⚠️ Kunde inte hämta annonserna: ${err.message}`;
   }
   renderHomeOps();
+  renderHomeWeek();
+}
+
+// Veckan: dina sålda mot hela marknaden och topp 5 konkurrenter (cachas så kortet syns direkt).
+function paintHomeWeek(w) {
+  if (!w?.market) return;
+  $("h-week").hidden = false;
+  const trend = (now, prev) => (prev ? `${now >= prev ? "▲" : "▼"} ${Math.abs(Math.round((100 * (now - prev)) / prev))} % mot förra veckan` : "");
+  $("h-week-mine").textContent = w.own ? String(w.mine.sold) : "–";
+  $("h-week-mine-note").textContent = w.own ? [w.mine.revenue ? kr(w.mine.revenue) : "", trend(w.mine.sold, w.mine.prev)].filter(Boolean).join(" · ") : "Ange ditt konto under Inköp";
+  $("h-week-market").textContent = w.market.sold.toLocaleString("sv-SE");
+  $("h-week-market-note").textContent = [w.market.revenue ? kr(w.market.revenue) : "", trend(w.market.sold, w.market.prev)].filter(Boolean).join(" · ");
+  const top = w.top?.[0]?.sold || 1;
+  $("h-week-bar").style.width = `${Math.min(100, (100 * (w.mine.sold || 0)) / top)}%`;
+  $("h-week-share").textContent = w.own
+    ? `Din andel: ${String(w.mine.share).replace(".", ",")} % av alla sålda${w.top?.length ? ` · stapeln: du mot ettan (${w.top[0].sold})` : ""}`
+    : "";
+  $("h-week-top").replaceChildren(
+    ...(w.top ?? []).map((t) => {
+      const li = document.createElement("li");
+      li.append(
+        Object.assign(document.createElement("span"), { className: "wk-name", textContent: t.alias || t.id }),
+        Object.assign(document.createElement("b"), { textContent: `${t.sold} st` }),
+        Object.assign(document.createElement("small"), { textContent: t.revenue ? kr(t.revenue) : "" }),
+      );
+      return li;
+    }),
+  );
+}
+
+async function renderHomeWeek() {
+  paintHomeWeek(store.get("week_cache", null));
+  try {
+    const w = await marketApi({ action: "week", days: 7 });
+    store.set("week_cache", w);
+    paintHomeWeek(w);
+  } catch {
+    /* kortet visar senaste kända siffror */
+  }
 }
 
 function renderHomeLots() {

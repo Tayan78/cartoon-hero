@@ -3,7 +3,7 @@
 // SQL-sats per tabell (json_each), så att en hel säljare blir några få frågor.
 import { marketStats } from "./analytics.js";
 import { purchases } from "./purchases.js";
-import { addUsage, competitors, dashboard, productStats, recordRun } from "./monitor.js";
+import { addUsage, competitors, dashboard, productStats, recordRun, weekStats } from "./monitor.js";
 
 export const LISTING_COLUMNS = [
   "id", "seller", "seller_id", "title", "model_number", "number_source", "type", "status", "price",
@@ -221,6 +221,7 @@ export async function handleData(request, env, path, extra = {}) {
     if (path === "/data/usage") return Response.json({ ok: true, ...(await addUsage(env.DB, body.counts)) });
     if (path === "/data/run") return Response.json({ ok: true, ...(await recordRun(env.DB, body)) });
     if (path === "/data/competitors") return Response.json({ ok: true, ...(await competitors(env.DB, body)) });
+    if (path === "/data/week") return Response.json({ ok: true, ...(await weekStats(env.DB, body)) });
     if (path === "/data/products") return Response.json({ ok: true, ...(await productStats(env.DB, body)) });
     if (path === "/data/texts") return Response.json({ ok: true, ...(await listingTexts(env.DB, body)) });
     if (path === "/data/purchases") return Response.json({ ok: true, ...(await purchases(env.DB, body)) });

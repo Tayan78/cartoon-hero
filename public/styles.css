@@ -452,3 +452,16 @@ button:disabled { opacity: .4; }
 .chips.seg .chip { justify-content: center; flex: 1 1 0; }
 .inline-field > button { flex: none; min-height: 57px; padding: 0 18px; border-radius: 12px; }
 .g-row .pill { padding: 3px 10px; border-radius: 999px; font-size: 13px; font-weight: 700; white-space: nowrap; }
+
+/* Startsidan: sålt senaste 7 dagarna */
+.wk-vs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 4px 0 10px; }
+.wk-vs > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.wk-share { margin: 8px 0 0; }
+.wk-title { margin: 14px 0 4px; }
+.wk-top { list-style: none; margin: 0; padding: 0; counter-reset: wk; }
+.wk-top li { counter-increment: wk; display: grid; grid-template-columns: 22px 1fr auto 64px; align-items: baseline; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 15px; }
+.wk-top li::before { content: counter(wk); color: var(--muted); font-weight: 700; }
+.wk-top .wk-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wk-top b { font-variant-numeric: tabular-nums; }
+.wk-top small { color: var(--muted); font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; }
+.hc-row { border-radius: 0; }

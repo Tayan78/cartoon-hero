@@ -45,6 +45,8 @@ Adresser: `GET /data/dashboard`, `POST /data/usage { counts }`, `POST /data/run 
 ## Förslag på konkurrenter
 Marknadsdata → *Förslag från databasen*: säljare rankade efter sålda Schleich-annonser (rader med nisch, serie eller från Schleich-sökningen – inte bevakade säljares övriga sortiment), med sålda senaste 90 dagarna, säljgrad, medianpris och vad de mest säljer. Minst 10 annonser. **Bevaka** lägger till säljaren och samlar in hela sortimentet. Adress: `POST /data/competitors { limit, min }`.
 
+Startsidan → *Sålt 7 dagar*: dina sålda Schleich-annonser (kontot märkt som ditt under Inköp) mot hela marknadens, med andel, intäkt och jämförelse mot veckan före, plus de fem konkurrenter som sålt flest. Räknas på status Såld och slutdatum. Adress: `POST /data/week { days }`.
+
 ## Produkter och observationer (grunden för statistik per modell)
 Migration `0005_products.sql`:
 - `products` – en standardiserad produkt per modellnummer, nyckel `SCHLEICH-13729`.
