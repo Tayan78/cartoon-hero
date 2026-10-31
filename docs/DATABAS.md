@@ -44,3 +44,14 @@ Adresser: `GET /data/dashboard`, `POST /data/usage { counts }`, `POST /data/run 
 
 ## Förslag på konkurrenter
 Marknadsdata → *Förslag från databasen*: säljare rankade efter sålda Schleich-annonser (rader med nisch, serie eller från Schleich-sökningen – inte bevakade säljares övriga sortiment), med sålda senaste 90 dagarna, säljgrad, medianpris och vad de mest säljer. Minst 10 annonser. **Bevaka** lägger till säljaren och samlar in hela sortimentet. Adress: `POST /data/competitors { limit, min }`.
+
+## Produkter och observationer (grunden för statistik per modell)
+Migration `0005_products.sql`:
+- `products` – en standardiserad produkt per modellnummer, nyckel `SCHLEICH-13729`.
+- `listing_products` – annons ↔ produkt (flera produkter per annons för paket), med `method` (rubrik / text / ai), `confidence` och `model_version`. En säkrare tolkning ersätter en osäkrare; rådatan i `listings` skrivs aldrig över.
+- `listing_snapshots` – annonsens pris, bud och status vid varje observation där något ändrats (plus ett utgångsläge för alla befintliga annonser).
+- `categories` – Traderas kategorier med namn och sökväg.
+
+Kopplingen (`lib/products.js`): bara Schleich-annonser (schleich/bayala/eldrador/smurf), femsiffriga Schleich-nummer (inte priser eller årtal). Nummer i rubriken: säkerhet 0,95 (en produkt) eller 0,8 (flera = paket). Nummer i texten: 0,8. Annonser utan nummer kopplas senare med AI.
+
+Varje natt efter Schleich-insamlingen kopplas annonser som saknar produkt och kategorierna uppdateras (`lib/productsync.js`). Drift → *Produkter* visar täckning och de mest sålda modellerna (priser bara från annonser med en enda produkt). Adresser: `POST /data/links`, `/data/texts`, `/data/categories`, `/data/products`.

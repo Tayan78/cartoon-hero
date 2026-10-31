@@ -1,7 +1,7 @@
 // Databasen (D1) för marknadsdata. Appen på Vercel skriver och läser via de här
 // adresserna (med x-app-token). Raderna skickas som JSON och skrivs med en enda
 // SQL-sats per tabell (json_each), så att en hel säljare blir några få frågor.
-import { addUsage, competitors, dashboard, recordRun } from "./monitor.js";
+import { addUsage, competitors, dashboard, productStats, recordRun } from "./monitor.js";
 
 export const LISTING_COLUMNS = [
   "id", "seller", "seller_id", "title", "model_number", "number_source", "type", "status", "price",
@@ -64,13 +64,79 @@ const PRICE_CHANGE = `INSERT OR IGNORE INTO price_history (listing_id, seen_at, 
   WHERE ${field("price")} IS NOT NULL AND ${field("last_seen")} IS NOT NULL
     AND NOT EXISTS (SELECT 1 FROM listings l WHERE l.id = ${field("id")} AND l.price = ${field("price")})`;
 
+// Observation när pris, bud eller status ändrats (eller annonsen är ny). Saknade
+// värden i raden (t.ex. ingen status för avslutad Köp nu) tas från databasen.
+const SNAPSHOT = `INSERT OR IGNORE INTO listing_snapshots (listing_id, seen_at, price, bids, status, source)
+  SELECT j.id, j.seen, COALESCE(j.price, l.price), COALESCE(j.bids, l.bids), COALESCE(j.status, l.status), j.source
+  FROM (SELECT ${field("id")} AS id, COALESCE(${field("last_seen")}, ${field("first_seen")}) AS seen, ${field("price")} AS price,
+          ${field("bids")} AS bids, ${field("status")} AS status, ${field("source")} AS source FROM json_each(?1)) j
+  LEFT JOIN listings l ON l.id = j.id
+  WHERE j.id IS NOT NULL AND j.seen IS NOT NULL AND (l.id IS NULL
+    OR COALESCE(j.price, l.price) IS NOT l.price OR COALESCE(j.bids, l.bids) IS NOT l.bids OR COALESCE(j.status, l.status) IS NOT l.status)`;
+
+// Produktkopplingar: raderna kan ha products: [{ key, model_number, method,
+// confidence, quantity?, model_version? }]. En säkrare tolkning ersätter en osäkrare.
+const PRODUCT = (path) => `json_extract(p.value, '$.${path}')`;
+const NEW_PRODUCTS = `INSERT OR IGNORE INTO products (key, brand, model_number, first_seen)
+  SELECT ${PRODUCT("key")}, 'Schleich', ${PRODUCT("model_number")}, COALESCE(json_extract(l.value, '$.last_seen'), datetime('now'))
+  FROM json_each(?1) l, json_each(l.value, '$.products') p WHERE ${PRODUCT("key")} IS NOT NULL`;
+const LINKS = `INSERT INTO listing_products (listing_id, product_key, quantity, method, confidence, model_version, created_at)
+  SELECT json_extract(l.value, '$.id'), ${PRODUCT("key")}, COALESCE(${PRODUCT("quantity")}, 1), ${PRODUCT("method")},
+    ${PRODUCT("confidence")}, ${PRODUCT("model_version")}, datetime('now')
+  FROM json_each(?1) l, json_each(l.value, '$.products') p WHERE json_extract(l.value, '$.id') IS NOT NULL AND ${PRODUCT("key")} IS NOT NULL
+  ON CONFLICT(listing_id, product_key) DO UPDATE SET quantity = excluded.quantity, method = excluded.method,
+    confidence = excluded.confidence, model_version = excluded.model_version
+  WHERE COALESCE(excluded.confidence, 0) > COALESCE(listing_products.confidence, 0)`;
+
 // Rader som D1 faktiskt skrev (för översikten; D1:s gratisgräns är 100 000 per dygn).
 const written = (results) => [].concat(results).reduce((sum, r) => sum + (Number(r?.meta?.rows_written) || 0), 0);
 
 export async function upsertListings(db, rows) {
   const json = JSON.stringify(rows);
-  const results = await db.batch([db.prepare(FIRST_PRICE).bind(json), db.prepare(PRICE_CHANGE).bind(json), db.prepare(UPSERT_LISTINGS).bind(json)]);
+  const results = await db.batch([
+    db.prepare(FIRST_PRICE).bind(json),
+    db.prepare(PRICE_CHANGE).bind(json),
+    db.prepare(SNAPSHOT).bind(json),
+    db.prepare(UPSERT_LISTINGS).bind(json),
+    db.prepare(NEW_PRODUCTS).bind(json),
+    db.prepare(LINKS).bind(json),
+  ]);
   return { rows: rows.length, written: written(results) };
+}
+
+// Bara produktkopplingar (efterhandskoppling av annonser som redan finns).
+export async function linkProducts(db, rows) {
+  const json = JSON.stringify(rows);
+  const results = await db.batch([db.prepare(NEW_PRODUCTS).bind(json), db.prepare(LINKS).bind(json)]);
+  return { rows: rows.length, written: written(results) };
+}
+
+// Schleich-annonser i id-ordning (för efterhandskopplingen), bara de som saknar
+// produkt om unlinked.
+export async function listingTexts(db, { after = "", limit = 1000, unlinked = false } = {}) {
+  const { results } = await db
+    .prepare(
+      `SELECT id, title, text FROM listings WHERE id > ?1 AND (niche IS NOT NULL OR series IS NOT NULL OR source = 'sök')
+         ${unlinked ? "AND NOT EXISTS (SELECT 1 FROM listing_products lp WHERE lp.listing_id = listings.id)" : ""}
+       ORDER BY id LIMIT ?2`,
+    )
+    .bind(String(after), Math.min(Number(limit) || 1000, 2000))
+    .all();
+  return { rows: results, next: results.length ? results[results.length - 1].id : null };
+}
+
+// Traderas kategorier (id, namn, förälder, sökväg).
+export async function upsertCategories(db, rows) {
+  const result = await db
+    .prepare(
+      `INSERT INTO categories (id, name, parent_id, path) SELECT ${field("id")}, ${field("name")}, ${field("parent_id")}, ${field("path")}
+       FROM json_each(?1) WHERE ${field("id")} IS NOT NULL
+       ON CONFLICT(id) DO UPDATE SET name = excluded.name, parent_id = excluded.parent_id, path = excluded.path
+       WHERE name IS NOT excluded.name OR parent_id IS NOT excluded.parent_id OR path IS NOT excluded.path`,
+    )
+    .bind(JSON.stringify(rows))
+    .run();
+  return { rows: rows.length, written: written(result) };
 }
 
 export async function upsertSellers(db, rows) {
@@ -136,11 +202,14 @@ export async function handleData(request, env, path, extra = {}) {
     if (path === "/data/usage") return Response.json({ ok: true, ...(await addUsage(env.DB, body.counts)) });
     if (path === "/data/run") return Response.json({ ok: true, ...(await recordRun(env.DB, body)) });
     if (path === "/data/competitors") return Response.json({ ok: true, ...(await competitors(env.DB, body)) });
+    if (path === "/data/products") return Response.json({ ok: true, ...(await productStats(env.DB, body)) });
+    if (path === "/data/texts") return Response.json({ ok: true, ...(await listingTexts(env.DB, body)) });
     const { rows } = body;
     if (!Array.isArray(rows)) return Response.json({ ok: false, error: "rows saknas" }, { status: 400 });
     if (rows.length > MAX_ROWS) return Response.json({ ok: false, error: `Högst ${MAX_ROWS} rader per anrop` }, { status: 400 });
-    if (path === "/data/listings" || path === "/data/sellers") {
-      const out = path === "/data/listings" ? await upsertListings(env.DB, rows) : await upsertSellers(env.DB, rows);
+    if (["/data/listings", "/data/sellers", "/data/links", "/data/categories"].includes(path)) {
+      const write = { "/data/listings": upsertListings, "/data/sellers": upsertSellers, "/data/links": linkProducts, "/data/categories": upsertCategories }[path];
+      const out = await write(env.DB, rows);
       await addUsage(env.DB, { d1_rows: out.written }).catch(() => {});
       return Response.json({ ok: true, ...out });
     }

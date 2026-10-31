@@ -3,12 +3,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
-import { dbStatus, handleData, queryListings, unresolvedListings, upsertListings, upsertSellers } from "../worker/src/data.js";
+import { dbStatus, handleData, linkProducts, listingTexts, queryListings, unresolvedListings, upsertCategories, upsertListings, upsertSellers } from "../worker/src/data.js";
 
 // Minimal D1: prepare().bind().all()/run() och batch() i en transaktion.
 function fakeD1() {
   const sqlite = new DatabaseSync(":memory:");
-  for (const f of ["0001_market.sql", "0002_raw.sql", "0003_series.sql", "0004_monitoring.sql"]) sqlite.exec(readFileSync(new URL(`../worker/migrations/${f}`, import.meta.url), "utf8"));
+  for (const f of ["0001_market.sql", "0002_raw.sql", "0003_series.sql", "0004_monitoring.sql", "0005_products.sql"]) sqlite.exec(readFileSync(new URL(`../worker/migrations/${f}`, import.meta.url), "utf8"));
   const prepare = (sql) => {
     let params = [];
     const s = {
@@ -182,4 +182,60 @@ test("Förslag på konkurrenter: rankas på sålt Schleich, säljgrad, median oc
   assert.equal(sellers[0].median_sold, 85); // 50–120 → median av 8 = (80 + 90) / 2
   assert.deepEqual(sellers[0].mix, [{ key: "bayala", share: 100 }]);
   assert.deepEqual(sellers[1].mix, [{ key: "djur", share: 100 }]);
+});
+
+test("Produkter: annonser med products skapar produkt och koppling; säkrare tolkning ersätter osäkrare", async () => {
+  const db = fakeD1();
+  const p = (key, method, confidence) => ({ key, model_number: key.split("-")[1], method, confidence });
+  await upsertListings(db, [
+    { id: "1", title: "Schleich 13729", source: "sök", status: "Såld", price: 89, last_seen: "d1", products: [p("SCHLEICH-13729", "rubrik", 0.95)] },
+    { id: "2", title: "Schleich 13729 och 13649", source: "sök", status: "Såld", price: 300, last_seen: "d1", products: [p("SCHLEICH-13729", "rubrik", 0.8), p("SCHLEICH-13649", "rubrik", 0.8)] },
+    { id: "3", title: "Schleich häst", source: "sök", status: "Aktiv", price: 50, last_seen: "d1" },
+  ]);
+  assert.deepEqual(db.sqlite.prepare("SELECT key, brand, model_number FROM products ORDER BY key").all().map((r) => [r.key, r.brand, r.model_number]), [["SCHLEICH-13649", "Schleich", "13649"], ["SCHLEICH-13729", "Schleich", "13729"]]);
+  assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM listing_products").get().n, 3);
+  // Osäkrare tolkning skriver inte över; säkrare gör det.
+  await linkProducts(db, [{ id: "1", products: [p("SCHLEICH-13729", "ai", 0.5)] }]);
+  assert.equal(db.sqlite.prepare("SELECT method FROM listing_products WHERE listing_id = '1'").get().method, "rubrik");
+  await linkProducts(db, [{ id: "3", products: [{ ...p("SCHLEICH-13773", "ai", 0.7), model_version: "gemini-x" }] }]);
+  assert.deepEqual({ ...db.sqlite.prepare("SELECT method, confidence, model_version FROM listing_products WHERE listing_id = '3'").get() }, { method: "ai", confidence: 0.7, model_version: "gemini-x" });
+  // Utan produkt: bara annons 3 saknade – nu ingen.
+  assert.deepEqual((await listingTexts(db, { unlinked: true })).rows, []);
+  assert.deepEqual((await listingTexts(db, { after: "1" })).rows.map((r) => r.id), ["2", "3"]);
+});
+
+test("Observationer: ny annons och varje ändring av pris, bud eller status – inte oförändrade nätter", async () => {
+  const db = fakeD1();
+  const a = { id: "9", title: "Schleich häst", type: "auktion", source: "sök" };
+  await upsertListings(db, [{ ...a, status: "Aktiv", price: 100, bids: 0, last_seen: "d1" }]);
+  await upsertListings(db, [{ ...a, status: "Aktiv", price: 100, bids: 0, last_seen: "d2" }]); // oförändrad
+  await upsertListings(db, [{ ...a, status: "Aktiv", price: 185, bids: 5, last_seen: "d3" }]);
+  await upsertListings(db, [{ ...a, status: "Såld", price: 310, bids: 12, last_seen: "d4" }]);
+  await upsertListings(db, [{ ...a, status: null, price: 310, bids: 12, last_seen: "d5" }]); // okänd status = oförändrad
+  const snaps = db.sqlite.prepare("SELECT seen_at, price, bids, status FROM listing_snapshots ORDER BY seen_at").all().map((r) => [r.seen_at, r.price, r.bids, r.status]);
+  assert.deepEqual(snaps, [["d1", 100, 0, "Aktiv"], ["d3", 185, 5, "Aktiv"], ["d4", 310, 12, "Såld"]]);
+});
+
+test("Kategorier: upsert, och oförändrade rader skrivs inte om", async () => {
+  const db = fakeD1();
+  await upsertCategories(db, [{ id: 1000532, name: "Miniatyrer", parent_id: 2, path: "Leksaker > Miniatyrer" }]);
+  await upsertCategories(db, [{ id: 1000532, name: "Miniatyrer & leksaksfigurer", parent_id: 2, path: "Leksaker > Miniatyrer & leksaksfigurer" }]);
+  assert.equal(db.sqlite.prepare("SELECT name FROM categories").get().name, "Miniatyrer & leksaksfigurer");
+});
+
+test("Produktstatistik: täckning, och pris/säljgrad bara från annonser med en enda produkt", async () => {
+  const { productStats } = await import("../worker/src/monitor.js");
+  const db = fakeD1();
+  const p = (key) => ({ key, model_number: key.slice(-5), method: "rubrik", confidence: 0.95 });
+  await upsertListings(db, [
+    { id: "1", title: "Schleich Tinker 13773", source: "sök", status: "Såld", price: 80, products: [p("SCHLEICH-13773")] },
+    { id: "2", title: "Schleich Tinker 13773", source: "sök", status: "Såld", price: 100, products: [p("SCHLEICH-13773")] },
+    { id: "3", title: "Schleich Tinker sto 13773", source: "sök", status: "Osåld", price: 150, products: [p("SCHLEICH-13773")] },
+    { id: "4", title: "Paket 13773 13729", source: "sök", status: "Såld", price: 500, products: [p("SCHLEICH-13773"), p("SCHLEICH-13729")] },
+    { id: "5", title: "Schleich häst", source: "sök", status: "Aktiv", price: 40 },
+  ]);
+  const d = await productStats(db);
+  assert.deepEqual([d.coverage.schleich, d.coverage.linked, d.coverage.share, d.coverage.products], [5, 4, 80, 2]);
+  const t = d.products[0];
+  assert.deepEqual([t.key, t.listings, t.sold, t.median_sold, t.sell_through, t.name], ["SCHLEICH-13773", 4, 3, 90, 67, "Schleich Tinker 13773"]);
 });

@@ -2759,12 +2759,65 @@ function renderOps(d) {
 
 async function loadOps() {
   $("o-health").replaceChildren(Object.assign(document.createElement("li"), { className: "ops-ok", textContent: "Hämtar…" }));
+  loadProducts();
   try {
     renderOps(await marketApi({ action: "dashboard" }));
   } catch (err) {
     $("o-health").replaceChildren(Object.assign(document.createElement("li"), { className: "ops-bad", textContent: `⚠️ ${err.message}` }));
   }
 }
+
+// Produkter: hur stor del av Schleich-annonserna som är kopplade, och de mest sålda modellerna.
+const METHOD_LABELS = { rubrik: "nummer i rubriken", text: "nummer i texten", ai: "AI" };
+async function loadProducts() {
+  try {
+    const d = await marketApi({ action: "products", limit: 15 });
+    const c = d.coverage ?? {};
+    const tile = (label, value, note = "") => {
+      const t = Object.assign(document.createElement("div"), { className: "metric" });
+      t.append(Object.assign(document.createElement("span"), { className: "metric-label", textContent: label }), Object.assign(document.createElement("span"), { className: "metric-value", textContent: value }));
+      if (note) t.append(Object.assign(document.createElement("span"), { className: "metric-note", textContent: note }));
+      return t;
+    };
+    $("o-products-status").textContent = (d.methods ?? []).length ? `Kopplingar: ${d.methods.map((m) => `${nf(m.n)} via ${METHOD_LABELS[m.method] ?? m.method}`).join(", ")}.` : "";
+    $("o-products").replaceChildren(
+      tile("Kopplade annonser", `${c.share ?? 0}\u00a0%`, `${nf(c.linked)} av ${nf(c.schleich)} Schleich-annonser`),
+      tile("Modeller", nf(c.products), "olika modellnummer"),
+      tile("Observationer", nf(c.snapshots), "pris, bud och status över tid"),
+      tile("Kategorier", nf(c.categories), "från Tradera"),
+    );
+    const box = Object.assign(document.createElement("div"), { className: "metric wide" });
+    box.append(Object.assign(document.createElement("span"), { className: "metric-label", textContent: "Mest sålda modeller" }));
+    const ul = Object.assign(document.createElement("ul"), { className: "ops-list ops-products" });
+    for (const p of d.products ?? []) {
+      const li = document.createElement("li");
+      const left = document.createElement("span");
+      left.append(Object.assign(document.createElement("b"), { textContent: p.key.replace("SCHLEICH-", "") }), Object.assign(document.createElement("small"), { textContent: ` ${p.name ?? ""}` }));
+      li.append(
+        left,
+        Object.assign(document.createElement("b"), {
+          textContent: `${nf(p.sold)} sålda${p.median_sold ? ` · ${kr(p.median_sold)}` : ""}${p.sell_through != null ? ` · ${p.sell_through}\u00a0%` : ""}`,
+        }),
+      );
+      ul.append(li);
+    }
+    box.append(ul);
+    $("o-top-products").replaceChildren(box);
+  } catch (err) {
+    $("o-products-status").textContent = `⚠️ ${err.message}`;
+  }
+}
+
+$("o-relink").addEventListener("click", async () => {
+  $("o-products-status").textContent = "Kopplar…";
+  try {
+    const r = await marketApi({ action: "products_relink" });
+    $("o-products-status").textContent = `✓ ${nf(r.linked)} nya kopplingar av ${nf(r.scanned)} annonser utan produkt.`;
+    setTimeout(loadProducts, 1500);
+  } catch (err) {
+    $("o-products-status").textContent = `⚠️ ${err.message}`;
+  }
+});
 
 $("h-go-ops").addEventListener("click", () => {
   show("ops");

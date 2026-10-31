@@ -134,3 +134,63 @@ export async function competitors(db, { limit = 40, min = 10, now = Date.now() }
     }),
   };
 }
+
+// ---------- Produkter ----------
+// Täckning (hur stor del av Schleich-annonserna som är kopplade till en produkt)
+// och de mest sålda produkterna. Priser räknas bara på annonser med en enda
+// produkt (ett paketpris säger inget om en enskild modell).
+export async function productStats(db, { limit = 30 } = {}) {
+  const [coverage, byMethod, top] = await db.batch([
+    db.prepare(
+      `SELECT (SELECT COUNT(*) FROM listings WHERE niche IS NOT NULL OR series IS NOT NULL OR source = 'sök') AS schleich,
+              (SELECT COUNT(DISTINCT listing_id) FROM listing_products) AS linked,
+              (SELECT COUNT(*) FROM products) AS products,
+              (SELECT COUNT(*) FROM listing_snapshots) AS snapshots,
+              (SELECT COUNT(*) FROM categories) AS categories`,
+    ),
+    db.prepare("SELECT COALESCE(method, '') AS method, COUNT(*) AS n FROM listing_products GROUP BY method ORDER BY n DESC"),
+    db
+      .prepare(
+        `SELECT lp.product_key AS key, COUNT(*) AS listings, SUM(l.status = 'Såld') AS sold, SUM(l.status = 'Aktiv') AS active
+         FROM listing_products lp JOIN listings l ON l.id = lp.listing_id
+         GROUP BY lp.product_key ORDER BY sold DESC, listings DESC LIMIT ?1`,
+      )
+      .bind(Math.min(Number(limit) || 30, 200)),
+  ]);
+  const keys = top.results.map((t) => t.key);
+  let detail = [];
+  if (keys.length) {
+    detail = (
+      await db
+        .prepare(
+          `SELECT lp.product_key AS key, l.title, l.status, l.price,
+             (SELECT COUNT(*) FROM listing_products x WHERE x.listing_id = lp.listing_id) AS products_in_listing
+           FROM listing_products lp JOIN listings l ON l.id = lp.listing_id WHERE lp.product_key IN (${keys.map(() => "?").join(", ")})`,
+        )
+        .bind(...keys)
+        .all()
+    ).results;
+  }
+  const by = new Map(keys.map((k) => [k, []]));
+  for (const r of detail) by.get(r.key)?.push(r);
+  const c = coverage.results[0] ?? {};
+  return {
+    coverage: { ...c, share: c.schleich ? Math.round((100 * c.linked) / c.schleich) : 0 },
+    methods: byMethod.results,
+    products: top.results.map((t) => {
+      const rows = by.get(t.key) ?? [];
+      const single = rows.filter((r) => r.products_in_listing === 1);
+      const titles = {};
+      for (const r of single) titles[r.title] = (titles[r.title] ?? 0) + 1;
+      const ended = single.filter((r) => r.status === "Såld" || r.status === "Osåld").length;
+      const soldPrices = single.filter((r) => r.status === "Såld").map((r) => r.price);
+      return {
+        ...t,
+        name: Object.entries(titles).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null,
+        median_sold: median(soldPrices),
+        sold_single: soldPrices.length,
+        sell_through: ended ? Math.round((100 * soldPrices.length) / ended) : null,
+      };
+    }),
+  };
+}
