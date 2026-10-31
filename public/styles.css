@@ -422,3 +422,33 @@ button:disabled { opacity: .4; }
 .actions.stack { flex-direction: column; }
 .chips.seg { gap: 6px; }
 .chips.seg .chip { flex: 1 1 auto; padding-left: 8px; padding-right: 8px; font-size: 14px; white-space: nowrap; }
+
+/* Luft: .view ger bara sina direkta barn mellanrum – samma rytm i inre block. */
+.view h3 { margin: 6px 0 0; font-size: 17px; }
+.view .hist-head h3 { margin: 0; }
+.g-panel, #k-body { display: flex; flex-direction: column; gap: 12px; }
+.view > div:not([class]):not([hidden]) { display: flex; flex-direction: column; gap: 12px; }
+.fold > :not(summary) + :not(summary), .fold > summary + * { margin-top: 12px; }
+.fold[open] { padding-bottom: 4px; }
+.hist-head { gap: 10px; align-items: center; min-height: 36px; }
+.hist-head .chips { flex: 1; min-width: 0; }
+.p-grid { gap: 12px 10px; }
+.metrics + .metrics, .ops-chart + .ops-breakdown { margin-top: 0; }
+.ops-chart { margin-top: 0; }
+.ops-chart .hint { margin-top: 6px; }
+.ops-health { margin: 0; }
+.inline-field { align-items: flex-end; }
+.inline-field > .chip { flex: none; min-height: 48px; }
+.actions.stack { gap: 10px; }
+.chips { padding: 1px 1px 3px; }
+.chips.seg { margin-bottom: 0; }
+.home-card { margin: 0; }
+.home-links { margin: 4px 0 0; }
+#k-sort { flex-wrap: wrap; overflow: visible; }
+#k-models { margin-top: -4px; }
+.inline-field > .field { flex: 1; min-width: 0; }
+.fold { margin-top: 0; }
+.fold summary { padding: 4px 0; }
+.chips.seg .chip { justify-content: center; flex: 1 1 0; }
+.inline-field > button { flex: none; min-height: 57px; padding: 0 18px; border-radius: 12px; }
+.g-row .pill { padding: 3px 10px; border-radius: 999px; font-size: 13px; font-weight: 700; white-space: nowrap; }
