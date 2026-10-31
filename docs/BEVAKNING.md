@@ -27,6 +27,9 @@ ntfy på iPhone plingar ofta först när appen öppnas, så notiserna går via e
 
 Går Telegram inte att nå skickas notisen via ntfy i stället. `/status` visar `telegram` (bot, kopplad, senaste fel).
 
+## Databasen
+Samma worker har marknadsdatabasen (D1) under `/data/...` – se `docs/DATABAS.md`.
+
 ## Fler nischer
 Lägg till nischen i `lib/niches.js` och dess id i `WATCH_NICHES` i `worker/src/watch.js`. Värderingen kräver styckförsäljning i fliken Marknad för nischen (bevaka säljare i nischen först).
 

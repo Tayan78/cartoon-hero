@@ -15,6 +15,13 @@ APP_URL = "https://cartoon-hero-theta.vercel.app"
 name = "WATCHER"
 class_name = "Watcher"
 
+# Marknadsdatabasen. Tabellerna skapas av migrations/ (deploy-flödet kör dem).
+[[d1_databases]]
+binding = "DB"
+database_name = "loppis"
+database_id = "bbdd6616-66f0-47cf-920c-95137463d082"
+migrations_dir = "migrations"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Watcher"]
