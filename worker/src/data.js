@@ -1,6 +1,7 @@
 // Databasen (D1) för marknadsdata. Appen på Vercel skriver och läser via de här
 // adresserna (med x-app-token). Raderna skickas som JSON och skrivs med en enda
 // SQL-sats per tabell (json_each), så att en hel säljare blir några få frågor.
+import { marketStats } from "./analytics.js";
 import { addUsage, competitors, dashboard, productStats, recordRun } from "./monitor.js";
 
 export const LISTING_COLUMNS = [
@@ -221,6 +222,7 @@ export async function handleData(request, env, path, extra = {}) {
     if (path === "/data/competitors") return Response.json({ ok: true, ...(await competitors(env.DB, body)) });
     if (path === "/data/products") return Response.json({ ok: true, ...(await productStats(env.DB, body)) });
     if (path === "/data/texts") return Response.json({ ok: true, ...(await listingTexts(env.DB, body)) });
+    if (path === "/data/market") return Response.json({ ok: true, ...(await marketStats(env.DB, body)) });
     if (path === "/data/needs-detail") return Response.json({ ok: true, ...(await needsDetail(env.DB, body)) });
     const { rows } = body;
     if (!Array.isArray(rows)) return Response.json({ ok: false, error: "rows saknas" }, { status: 400 });

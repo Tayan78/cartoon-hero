@@ -74,6 +74,10 @@
           <span class="home-icon">📊</span>
           <span><b>Marknadsdata</b><small>Bevaka konkurrenter, samlas in varje natt</small></span>
         </button>
+        <button id="h-go-bi" type="button" class="home-btn">
+          <span class="home-icon">📈</span>
+          <span><b>Marknadsanalys</b><small>Schleich på Tradera: försäljning, säljgrad, bästa tider</small></span>
+        </button>
         <button id="h-go-ops" type="button" class="home-btn">
           <span class="home-icon">🩺</span>
           <span><b>Drift</b><small id="h-ops-note">Körningar, anrop och databasen</small></span>
@@ -462,6 +466,44 @@
       <button id="m-discover" class="secondary big">🔍 Hitta konkurrenter</button>
       <p id="m-discover-status" class="hint"></p>
       <ul id="m-found" class="lego-lots"></ul>
+    </section>
+
+    <!-- Marknadsanalys: Schleich på Tradera, räknat ur databasen -->
+    <section id="view-bi" class="view" hidden>
+      <div id="bi-period" class="chips" role="group" aria-label="Period">
+        <button type="button" class="chip" data-days="7">7 dagar</button>
+        <button type="button" class="chip on" data-days="30">30 dagar</button>
+        <button type="button" class="chip" data-days="90">90 dagar</button>
+        <button type="button" class="chip" data-days="all">Allt</button>
+      </div>
+      <p id="bi-status" class="hint"></p>
+      <div id="bi-kpi" class="metrics"></div>
+      <div class="ops-chart">
+        <p class="metric-label">Avslutade annonser</p>
+        <div class="legend"><span><i class="sw-sold"></i>Sålda</span><span><i class="sw-unsold"></i>Osålda</span></div>
+        <div id="bi-flow"></div>
+      </div>
+      <div class="ops-chart">
+        <p class="metric-label">Publicerade annonser</p>
+        <div id="bi-published"></div>
+        <p class="hint">Startdatum hämtas med annonsdetaljen – kurvan blir komplett när alla annonser har sin detalj (se Drift).</p>
+      </div>
+      <div class="ops-chart">
+        <p class="metric-label">Andel sålda per slutdag</p>
+        <div id="bi-dow"></div>
+      </div>
+      <div class="ops-chart">
+        <p class="metric-label">Andel sålda per sluttimme (auktioner)</p>
+        <div id="bi-hour"></div>
+        <p class="hint">Timmar med minst 20 avslutade auktioner.</p>
+      </div>
+      <h3>Segment</h3>
+      <div id="bi-segments" class="ops-breakdown"></div>
+      <div class="ops-chart">
+        <p class="metric-label">Aktiva annonser som slutar de kommande veckorna</p>
+        <div id="bi-upcoming"></div>
+      </div>
+      <p class="hint">Alla Schleich-annonser på Tradera i databasen (sökningen ger ca 4 månader bakåt; från och med nu sparas allt). Period räknas på slutdatum. "Såld" för auktioner verifieras med annonsdetaljen (reservpris).</p>
     </section>
 
     <!-- Drift: körningar, anrop per dygn och databasen på ett ställe -->

@@ -255,3 +255,29 @@ test("Annonsdetalj: nyast först, bara de som saknar; detaljen skrivs även om p
   // Efterhandskopplingen läser hela beskrivningen.
   assert.equal((await listingTexts(db, { after: "1" })).rows[0].text, "<p>Art.nr 13729</p>");
 });
+
+test("Marknadsanalys: period på slutdatum, säljgrad, median, segment, veckodag/timme och kommande avslut – i SQL", async () => {
+  const { marketStats } = await import("../worker/src/analytics.js");
+  const db = fakeD1();
+  const day = (n, h = 20) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10) + `T${String(h).padStart(2, "0")}:00:00+01:00`;
+  const r = (id, title, status, price, o = {}) => ({ id, title, status, price, type: "auktion", niche: "djur", source: "sök", end_at: day(2), seller_id: "s" + id, ...o });
+  await upsertListings(db, [
+    r("1", "Schleich häst Tinker", "Såld", 80),
+    r("2", "Schleich häst Tinker", "Osåld", 90),
+    r("3", "Schleich lejon", "Såld", 50, { type: "köp nu", end_at: day(3, 10) }),
+    r("4", "Schleich 10 st djur", "Såld", 200, { end_at: day(40) }),
+    r("5", "Schleich Bayala älva", "Såld", 60, { niche: null, series: "bayala" }),
+    r("6", "Schleich häst", "Aktiv", 99, { end_at: day(-5) }),
+    r("7", "Schleich butik", "Såld", 99, { end_at: "2041-01-01T10:00:00+01:00" }), // slutdatum i framtiden räknas inte
+  ]);
+  const m = await marketStats(db, { days: 30 });
+  assert.deepEqual([m.bucket, m.kpi.ended, m.kpi.sold, m.kpi.sell_through, m.kpi.median], ["day", 4, 3, 75, 60]);
+  assert.deepEqual(Object.fromEntries(m.segments.map((s) => [s.segment, [s.sold, s.ended, s.median, s.active]])), {
+    Hästar: [1, 2, 80, 1], "Övriga djur": [1, 1, 50, 0], Bayala: [1, 1, 60, 0],
+  });
+  assert.deepEqual(m.hour.map((h) => [h.hour, h.ended]), [[20, 3]]);
+  assert.equal(m.upcoming.reduce((a, u) => a + u.n, 0), 1);
+  const all = await marketStats(db, { days: "all" });
+  assert.deepEqual([all.bucket, all.kpi.ended, all.kpi.median], ["week", 5, 70]);
+  assert.ok(all.segments.some((s) => s.segment === "Partier" && s.sold === 1));
+});

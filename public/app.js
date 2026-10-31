@@ -78,7 +78,7 @@ const getSettings = () => {
 };
 
 // ---------- vyer ----------
-const views = ["home", "scan", "result", "history", "capture", "groups", "review", "settings", "lego", "seller", "market", "lots", "ops"];
+const views = ["home", "scan", "result", "history", "capture", "groups", "review", "settings", "lego", "seller", "market", "lots", "ops", "bi"];
 const TITLES = {
   home: "Loppisskannern",
   scan: "Skanna",
@@ -93,6 +93,7 @@ const TITLES = {
   market: "Marknadsdata",
   lots: "Fynd",
   ops: "Drift",
+  bi: "Marknadsanalys",
 };
 let currentView = "home";
 // Flikraden: vilken flik som lyser för varje vy.
@@ -2590,13 +2591,14 @@ function opsHealth(d) {
 
 // Stapeldiagram (en serie): tunna staplar med rundade toppar, 2 px mellanrum,
 // baslinje, högsta värdet som skala. Tryck/hovra på en stapel visar värdet.
-function barChart(points, { unit = "" } = {}) {
+// labels: etikett under varje stapel (eller varannan) och värdet ovanför.
+function barChart(points, { unit = "", labels = false } = {}) {
   const wrap = Object.assign(document.createElement("div"), { className: "bars" });
   if (!points.length) {
     wrap.append(Object.assign(document.createElement("p"), { className: "hint", textContent: "Ingen data än." }));
     return wrap;
   }
-  const W = 320, H = 120, PAD_TOP = 14, PAD_BOTTOM = 18;
+  const W = 320, H = labels ? 132 : 120, PAD_TOP = labels ? 18 : 14, PAD_BOTTOM = labels ? 20 : 18;
   const max = Math.max(...points.map((p) => p.value), 1);
   const step = W / points.length;
   const barW = Math.max(2, step - 2);
@@ -2622,6 +2624,22 @@ function barChart(points, { unit = "" } = {}) {
       bar.setAttribute("class", "bars-bar");
       g.append(bar);
     }
+    if (labels) {
+      const every = points.length > 10 ? 2 : 1;
+      const lx = x + barW / 2;
+      if (i % every === 0) {
+        const tl = document.createElementNS(ns, "text");
+        Object.entries({ x: lx, y: H - 6, "text-anchor": "middle", class: "bars-tick" }).forEach(([k, v]) => tl.setAttribute(k, v));
+        tl.textContent = p.label;
+        g.append(tl);
+        if (h) {
+          const tv = document.createElementNS(ns, "text");
+          Object.entries({ x: lx, y: base - h - 4, "text-anchor": "middle", class: "bars-value" }).forEach(([k, v]) => tv.setAttribute(k, v));
+          tv.textContent = p.value;
+          g.append(tv);
+        }
+      }
+    }
     // Träffytan är hela kolumnen, större än stapeln.
     const hit = document.createElementNS(ns, "rect");
     Object.entries({ x: i * step, y: 0, width: step, height: H, fill: "transparent" }).forEach(([k, v]) => hit.setAttribute(k, v));
@@ -2634,10 +2652,11 @@ function barChart(points, { unit = "" } = {}) {
     svg.append(g);
   });
   svg.addEventListener("pointerleave", () => setCaption(null));
-  const labels = Object.assign(document.createElement("div"), { className: "bars-labels" });
-  labels.append(Object.assign(document.createElement("span"), { textContent: points[0].label }), Object.assign(document.createElement("span"), { textContent: points[points.length - 1].label }));
+  const labelRow = Object.assign(document.createElement("div"), { className: "bars-labels" });
+  labelRow.append(Object.assign(document.createElement("span"), { textContent: points[0].label }), Object.assign(document.createElement("span"), { textContent: points[points.length - 1].label }));
   setCaption(null);
-  wrap.append(caption, svg, labels);
+  wrap.append(caption, svg);
+  if (!labels) wrap.append(labelRow);
   return wrap;
 }
 
@@ -2826,3 +2845,129 @@ $("h-go-ops").addEventListener("click", () => {
   loadOps();
 });
 $("o-refresh").addEventListener("click", loadOps);
+
+// ---------- Marknadsanalys (Schleich på Tradera) ----------
+let biDays = store.get("bi_days", "30");
+
+// Staplade staplar (sålda + osålda) – två serier, förklaring ovanför diagrammet.
+function stackedChart(points) {
+  const wrap = Object.assign(document.createElement("div"), { className: "bars" });
+  if (!points.length) {
+    wrap.append(Object.assign(document.createElement("p"), { className: "hint", textContent: "Ingen data för perioden." }));
+    return wrap;
+  }
+  const W = 320, H = 130, PAD_TOP = 8, PAD_BOTTOM = 18;
+  const base = H - PAD_BOTTOM;
+  const max = Math.max(...points.map((p) => p.a + p.b), 1);
+  const step = W / points.length;
+  const barW = Math.max(2, step - 2);
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const caption = Object.assign(document.createElement("p"), { className: "bars-caption" });
+  const total = (p) => p.a + p.b;
+  const setCaption = (p) =>
+    (caption.textContent = p
+      ? `${p.label}: ${nf(p.a)} sålda, ${nf(p.b)} osålda (${total(p) ? Math.round((100 * p.a) / total(p)) : 0}\u00a0%)`
+      : `${nf(points.reduce((s, p) => s + p.a, 0))} sålda av ${nf(points.reduce((s, p) => s + total(p), 0))} · tryck på en stapel`);
+  const line = document.createElementNS(ns, "line");
+  Object.entries({ x1: 0, x2: W, y1: base + 0.5, y2: base + 0.5, class: "bars-axis" }).forEach(([k, v]) => line.setAttribute(k, v));
+  svg.append(line);
+  points.forEach((p, i) => {
+    const x = i * step + (step - barW) / 2;
+    const ha = ((base - PAD_TOP) * p.a) / max;
+    const hb = ((base - PAD_TOP) * p.b) / max;
+    if (ha) {
+      const r = document.createElementNS(ns, "rect");
+      Object.entries({ x, y: base - ha, width: barW, height: ha, class: "bars-bar" }).forEach(([k, v]) => r.setAttribute(k, v));
+      svg.append(r);
+    }
+    if (hb) {
+      // Osålt ovanpå, 1 px mellanrum, rundad topp.
+      const y = base - ha - hb - (ha ? 1 : 0);
+      const rr = Math.min(3, barW / 2, hb);
+      const top = document.createElementNS(ns, "path");
+      top.setAttribute("d", `M${x},${y + hb} V${y + rr} Q${x},${y} ${x + rr},${y} H${x + barW - rr} Q${x + barW},${y} ${x + barW},${y + rr} V${y + hb} Z`);
+      top.setAttribute("class", "bars-bar2");
+      svg.append(top);
+    }
+    const hit = document.createElementNS(ns, "rect");
+    Object.entries({ x: i * step, y: 0, width: step, height: H, fill: "transparent" }).forEach(([k, v]) => hit.setAttribute(k, v));
+    const title = document.createElementNS(ns, "title");
+    title.textContent = `${p.label}: ${p.a} sålda, ${p.b} osålda`;
+    hit.append(title);
+    hit.addEventListener("pointerenter", () => setCaption(p));
+    hit.addEventListener("click", () => setCaption(p));
+    svg.append(hit);
+  });
+  svg.addEventListener("pointerleave", () => setCaption(null));
+  const labels = Object.assign(document.createElement("div"), { className: "bars-labels" });
+  labels.append(Object.assign(document.createElement("span"), { textContent: points[0].label }), Object.assign(document.createElement("span"), { textContent: points[points.length - 1].label }));
+  setCaption(null);
+  wrap.append(caption, svg, labels);
+  return wrap;
+}
+
+const DOW_LABELS = ["sön", "mån", "tis", "ons", "tor", "fre", "lör"];
+const shortDay = (iso, bucket) => (bucket === "week" ? `v. ${iso.slice(5)}` : iso.slice(5));
+
+function renderBi(d) {
+  const k = d.kpi ?? {};
+  const tile = (label, value, note = "") => {
+    const t = Object.assign(document.createElement("div"), { className: "metric" });
+    t.append(Object.assign(document.createElement("span"), { className: "metric-label", textContent: label }), Object.assign(document.createElement("span"), { className: "metric-value", textContent: value }));
+    if (note) t.append(Object.assign(document.createElement("span"), { className: "metric-note", textContent: note }));
+    return t;
+  };
+  $("bi-status").textContent = d.days ? "" : k.first_day ? `Allt sedan ${k.first_day} (det mesta från slutet av juni 2026).` : "";
+  $("bi-kpi").replaceChildren(
+    tile("Sålda", nf(k.sold), `av ${nf(k.ended)} avslutade`),
+    tile("Säljgrad", k.sell_through != null ? `${k.sell_through}\u00a0%` : "–", "sålda av avslutade"),
+    tile("Medianpris", k.median ? kr(k.median) : "–", "sålda annonser"),
+    tile("Säljare", nf(k.sellers), "som sålt under perioden"),
+  );
+  $("bi-flow").replaceChildren(stackedChart((d.flow ?? []).map((r) => ({ label: shortDay(r.b, d.bucket), a: r.sold, b: r.unsold }))));
+  $("bi-published").replaceChildren(barChart((d.published ?? []).map((r) => ({ label: shortDay(r.b, d.bucket), value: r.n })), { unit: " publicerade" }));
+  const dow = [1, 2, 3, 4, 5, 6, 0].map((n) => d.dow?.find((r) => r.dow === n) ?? { dow: n, sell_through: 0, ended: 0 });
+  $("bi-dow").replaceChildren(barChart(dow.map((r) => ({ label: DOW_LABELS[r.dow], value: r.sell_through ?? 0 })), { unit: "\u00a0% sålda", labels: true }));
+  const hours = (d.hour ?? []).filter((r) => r.sell_through != null);
+  $("bi-hour").replaceChildren(barChart(hours.map((r) => ({ label: String(r.hour), value: r.sell_through })), { unit: "\u00a0% sålda", labels: true }));
+  const box = Object.assign(document.createElement("div"), { className: "metric wide" });
+  box.append(Object.assign(document.createElement("span"), { className: "metric-label", textContent: "Sålda · säljgrad · median · utbud i månader" }));
+  const ul = Object.assign(document.createElement("ul"), { className: "ops-list" });
+  for (const s of d.segments ?? []) {
+    const li = document.createElement("li");
+    li.append(
+      Object.assign(document.createElement("span"), { textContent: s.segment }),
+      Object.assign(document.createElement("b"), {
+        textContent: `${nf(s.sold)} · ${s.sell_through ?? "–"}\u00a0% · ${s.median ? kr(s.median) : "–"} · ${s.months_of_supply != null ? `${String(s.months_of_supply).replace(".", ",")}\u00a0mån` : "–"}`,
+      }),
+    );
+    ul.append(li);
+  }
+  box.append(ul);
+  $("bi-segments").replaceChildren(box);
+  $("bi-upcoming").replaceChildren(barChart((d.upcoming ?? []).map((r) => ({ label: `v. ${r.b.slice(5)}`, value: r.n })), { unit: " slutar" }));
+}
+
+async function loadBi() {
+  for (const b of document.querySelectorAll("#bi-period .chip")) b.classList.toggle("on", b.dataset.days === String(biDays));
+  $("bi-status").textContent = "Hämtar…";
+  try {
+    renderBi(await marketApi({ action: "market", days: biDays === "all" ? "all" : Number(biDays) }));
+  } catch (err) {
+    $("bi-status").textContent = `⚠️ ${err.message}`;
+  }
+}
+
+$("h-go-bi").addEventListener("click", () => {
+  show("bi");
+  loadBi();
+});
+for (const b of document.querySelectorAll("#bi-period .chip")) {
+  b.addEventListener("click", () => {
+    biDays = b.dataset.days;
+    store.set("bi_days", biDays);
+    loadBi();
+  });
+}
