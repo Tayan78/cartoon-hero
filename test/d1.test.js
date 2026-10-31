@@ -8,7 +8,7 @@ import { dbStatus, handleData, queryListings, upsertListings, upsertSellers } fr
 // Minimal D1: prepare().bind().all()/run() och batch() i en transaktion.
 function fakeD1() {
   const sqlite = new DatabaseSync(":memory:");
-  sqlite.exec(readFileSync(new URL("../worker/migrations/0001_market.sql", import.meta.url), "utf8"));
+  for (const f of ["0001_market.sql", "0002_raw.sql"]) sqlite.exec(readFileSync(new URL(`../worker/migrations/${f}`, import.meta.url), "utf8"));
   const prepare = (sql) => {
     let params = [];
     const s = {
@@ -94,4 +94,26 @@ test("Läsning: annonser med valda statusar, med text (för nischkontrollen)", a
   assert.deepEqual((await queryListings(db, {})).rows, []);
   const res = await handleData(new Request("https://w/data/query", { method: "POST", body: JSON.stringify({ statuses: ["Aktiv"] }) }), { DB: db }, "/data/query");
   assert.deepEqual((await res.json()).rows.map((r) => r.id), ["3"]);
+});
+
+test("Allt från säljarna: databasen räknar första/lägsta pris och prisändringar själv; oförändrad annons skrivs inte", async () => {
+  const db = fakeD1();
+  const base = { id: "7", title: "Lego 6000 bitar", type: "köp nu", status: "Aktiv", category_id: 1612, source: "säljare", raw: '{"id":7}' };
+  // Utan arkets första/lägsta pris (annonsen finns bara i databasen).
+  await upsertListings(db, [{ ...base, price: 300, last_seen: "d1", first_seen: "d1" }]);
+  await upsertListings(db, [{ ...base, price: 250, last_seen: "d2", first_seen: "d2" }]);
+  await upsertListings(db, [{ ...base, price: 280, last_seen: "d3", first_seen: "d3" }]);
+  await upsertListings(db, [{ ...base, price: 280, last_seen: "d4", first_seen: "d4", raw: '{"id":7,"ny":1}' }]); // oförändrad
+  const r = db.sqlite.prepare("SELECT * FROM listings WHERE id = '7'").get();
+  assert.deepEqual(
+    [r.first_price, r.first_seen, r.lowest_price, r.price, r.price_changes, r.last_seen, r.raw, r.category_id, r.source],
+    [300, "d1", 250, 280, 2, "d3", '{"id":7}', 1612, "säljare"],
+  );
+
+  // Auktion: stigande bud är inga prisändringar och sänker inte lägsta priset.
+  const auction = { id: "8", title: "Schleich häst", type: "auktion", status: "Aktiv" };
+  await upsertListings(db, [{ ...auction, price: 50, first_seen: "d1", last_seen: "d1" }]);
+  await upsertListings(db, [{ ...auction, price: 80, bids: 3, last_seen: "d2" }]);
+  const a = db.sqlite.prepare("SELECT * FROM listings WHERE id = '8'").get();
+  assert.deepEqual([a.price, a.first_price, a.lowest_price, a.price_changes], [80, 50, 50, null]);
 });
