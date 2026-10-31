@@ -7,6 +7,7 @@ export const LISTING_COLUMNS = [
   "id", "seller", "seller_id", "title", "model_number", "number_source", "type", "status", "price",
   "first_price", "lowest_price", "price_changes", "bids", "shipping", "condition", "start_at", "end_at",
   "days", "restarts", "url", "first_seen", "last_seen", "sold_seen", "text", "niche", "category_id", "raw", "source", "series",
+  "description", "detail_at", "opening_price", "buy_now_price", "image_count", "reserve_met",
 ];
 export const SELLER_COLUMNS = [
   "id", "alias", "watched", "niches", "listings_found", "active", "ended", "number_share", "rating",
@@ -49,7 +50,10 @@ const UPSERT_LISTINGS = upsertSql("listings", LISTING_COLUMNS, {
     lowest_price: `COALESCE(${field("lowest_price")}, ${field("price")})`,
     first_seen: `COALESCE(${field("first_seen")}, ${field("last_seen")})`,
   },
-  changed: ["status", "price", "bids", "end_at", "title", "text", "model_number", "niche", "series", "shipping", "condition", "category_id", "restarts", "seller", "type", "start_at", "url"],
+  changed: [
+    "status", "price", "bids", "end_at", "title", "text", "model_number", "niche", "series", "shipping", "condition", "category_id",
+    "restarts", "seller", "type", "start_at", "url", "description", "detail_at", "opening_price", "buy_now_price", "image_count", "reserve_met",
+  ],
 });
 const UPSERT_SELLERS = upsertSql("sellers", SELLER_COLUMNS);
 
@@ -116,13 +120,26 @@ export async function linkProducts(db, rows) {
 export async function listingTexts(db, { after = "", limit = 1000, unlinked = false } = {}) {
   const { results } = await db
     .prepare(
-      `SELECT id, title, text FROM listings WHERE id > ?1 AND (niche IS NOT NULL OR series IS NOT NULL OR source = 'sök')
+      `SELECT id, title, COALESCE(description, text) AS text FROM listings WHERE id > ?1 AND (niche IS NOT NULL OR series IS NOT NULL OR source = 'sök')
          ${unlinked ? "AND NOT EXISTS (SELECT 1 FROM listing_products lp WHERE lp.listing_id = listings.id)" : ""}
        ORDER BY id LIMIT ?2`,
     )
     .bind(String(after), Math.min(Number(limit) || 1000, 2000))
     .all();
   return { rows: results, next: results.length ? results[results.length - 1].id : null };
+}
+
+// Schleich-annonser vars annonsdetalj inte hämtats än – nyast först, så att nya
+// annonser får sin detalj samma natt och historiken tas i mån av utrymme.
+export async function needsDetail(db, { limit = 500 } = {}) {
+  const { results } = await db
+    .prepare(
+      `SELECT id FROM listings WHERE detail_at IS NULL AND (niche IS NOT NULL OR series IS NOT NULL OR source = 'sök')
+       ORDER BY first_seen DESC, id DESC LIMIT ?1`,
+    )
+    .bind(Math.min(Number(limit) || 500, 2000))
+    .all();
+  return { ids: results.map((r) => r.id) };
 }
 
 // Traderas kategorier (id, namn, förälder, sökväg).
@@ -204,6 +221,7 @@ export async function handleData(request, env, path, extra = {}) {
     if (path === "/data/competitors") return Response.json({ ok: true, ...(await competitors(env.DB, body)) });
     if (path === "/data/products") return Response.json({ ok: true, ...(await productStats(env.DB, body)) });
     if (path === "/data/texts") return Response.json({ ok: true, ...(await listingTexts(env.DB, body)) });
+    if (path === "/data/needs-detail") return Response.json({ ok: true, ...(await needsDetail(env.DB, body)) });
     const { rows } = body;
     if (!Array.isArray(rows)) return Response.json({ ok: false, error: "rows saknas" }, { status: 400 });
     if (rows.length > MAX_ROWS) return Response.json({ ok: false, error: `Högst ${MAX_ROWS} rader per anrop` }, { status: 400 });

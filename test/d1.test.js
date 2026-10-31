@@ -3,12 +3,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
-import { dbStatus, handleData, linkProducts, listingTexts, queryListings, unresolvedListings, upsertCategories, upsertListings, upsertSellers } from "../worker/src/data.js";
+import { dbStatus, handleData, linkProducts, listingTexts, needsDetail, queryListings, unresolvedListings, upsertCategories, upsertListings, upsertSellers } from "../worker/src/data.js";
 
 // Minimal D1: prepare().bind().all()/run() och batch() i en transaktion.
 function fakeD1() {
   const sqlite = new DatabaseSync(":memory:");
-  for (const f of ["0001_market.sql", "0002_raw.sql", "0003_series.sql", "0004_monitoring.sql", "0005_products.sql"]) sqlite.exec(readFileSync(new URL(`../worker/migrations/${f}`, import.meta.url), "utf8"));
+  for (const f of ["0001_market.sql", "0002_raw.sql", "0003_series.sql", "0004_monitoring.sql", "0005_products.sql", "0006_detail.sql"]) sqlite.exec(readFileSync(new URL(`../worker/migrations/${f}`, import.meta.url), "utf8"));
   const prepare = (sql) => {
     let params = [];
     const s = {
@@ -238,4 +238,20 @@ test("Produktstatistik: täckning, och pris/säljgrad bara från annonser med en
   assert.deepEqual([d.coverage.schleich, d.coverage.linked, d.coverage.share, d.coverage.products], [5, 4, 80, 2]);
   const t = d.products[0];
   assert.deepEqual([t.key, t.listings, t.sold, t.median_sold, t.sell_through, t.name], ["SCHLEICH-13773", 4, 3, 90, 67, "Schleich Tinker 13773"]);
+});
+
+test("Annonsdetalj: nyast först, bara de som saknar; detaljen skrivs även om pris och status är oförändrade", async () => {
+  const db = fakeD1();
+  await upsertListings(db, [
+    { id: "1", title: "Schleich a", source: "sök", status: "Aktiv", price: 50, first_seen: "2026-10-31" },
+    { id: "2", title: "Schleich b", source: "sök", status: "Aktiv", price: 50, first_seen: "2026-11-01" },
+    { id: "3", title: "Lego", source: "säljare", status: "Aktiv", price: 50, first_seen: "2026-11-01" }, // inte Schleich
+  ]);
+  assert.deepEqual((await needsDetail(db, { limit: 5 })).ids, ["2", "1"]);
+  await upsertListings(db, [{ id: "2", description: "<p>Art.nr 13729</p>", text: "Art.nr 13729", detail_at: "d", opening_price: 49, image_count: 3 }]);
+  const r = db.sqlite.prepare("SELECT description, opening_price, image_count, price, status FROM listings WHERE id = '2'").get();
+  assert.deepEqual([r.description, r.opening_price, r.image_count, r.price, r.status], ["<p>Art.nr 13729</p>", 49, 3, 50, "Aktiv"]);
+  assert.deepEqual((await needsDetail(db)).ids, ["1"]);
+  // Efterhandskopplingen läser hela beskrivningen.
+  assert.equal((await listingTexts(db, { after: "1" })).rows[0].text, "<p>Art.nr 13729</p>");
 });
