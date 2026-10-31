@@ -8,7 +8,7 @@ import { dbStatus, handleData, linkProducts, listingTexts, needsDetail, queryLis
 // Minimal D1: prepare().bind().all()/run() och batch() i en transaktion.
 function fakeD1() {
   const sqlite = new DatabaseSync(":memory:");
-  for (const f of ["0001_market.sql", "0002_raw.sql", "0003_series.sql", "0004_monitoring.sql", "0005_products.sql", "0006_detail.sql"]) sqlite.exec(readFileSync(new URL(`../worker/migrations/${f}`, import.meta.url), "utf8"));
+  for (const f of ["0001_market.sql", "0002_raw.sql", "0003_series.sql", "0004_monitoring.sql", "0005_products.sql", "0006_detail.sql", "0007_purchases.sql"]) sqlite.exec(readFileSync(new URL(`../worker/migrations/${f}`, import.meta.url), "utf8"));
   const prepare = (sql) => {
     let params = [];
     const s = {
@@ -280,4 +280,29 @@ test("Marknadsanalys: period på slutdatum, säljgrad, median, segment, veckodag
   const all = await marketStats(db, { days: "all" });
   assert.deepEqual([all.bucket, all.kpi.ended, all.kpi.median], ["week", 5, 70]);
   assert.ok(all.segments.some((s) => s.segment === "Partier" && s.sold === 1));
+});
+
+test("Inköp: spara, lista med antal fotade, koppla annonser, eget konto räknas inte som konkurrent", async () => {
+  const { purchases } = await import("../worker/src/purchases.js");
+  const { competitors } = await import("../worker/src/monitor.js");
+  const db = fakeD1();
+  const { id } = await purchases(db, { op: "save", purchase: { title: "42 st Schleich-djur", bought_at: "2026-11-02", source: "tradera", price: "380", shipping: 79, fees: 21, total_cost: 480, item_count: 42 } }, "2026-11-02T20:00:00Z");
+  const { id: legacy } = await purchases(db, { op: "save", purchase: { title: "Gammalt lager", legacy: 1, total_cost: 0, bought_at: "2026-11-01" } }, "2026-11-02T20:01:00Z");
+  await purchases(db, { op: "item", item: { id: "G1", purchase_id: id } });
+  await purchases(db, { op: "item", item: { id: "G2", purchase_id: id } });
+  await purchases(db, { op: "item", item: { id: "G2", purchase_id: legacy } }); // flyttad till annat inköp
+  await purchases(db, { op: "save", purchase: { id: legacy, status: "klar" } });
+  const list = await purchases(db, { op: "list" });
+  assert.deepEqual(list.purchases.map((p) => [p.title, p.price, p.total_cost, p.items_registered, p.status, p.legacy]), [
+    ["42 st Schleich-djur", 380, 480, 1, "öppen", 0],
+    ["Gammalt lager", null, 0, 1, "klar", 1],
+  ]);
+  // Ditt eget konto: märks, och syns inte bland konkurrentförslagen.
+  await upsertSellers(db, [{ id: "9", alias: "Joulupukkin" }, { id: "8", alias: "Daisy" }]);
+  const rows = [];
+  for (const [seller, alias] of [["9", "Joulupukkin"], ["8", "Daisy"]]) for (let i = 0; i < 10; i++) rows.push({ id: `${seller}-${i}`, seller_id: seller, seller: alias, title: "Schleich häst", niche: "djur", source: "sök", status: "Såld", price: 80 });
+  await upsertListings(db, rows);
+  await purchases(db, { op: "own_seller", seller_id: "9" });
+  assert.deepEqual({ ...(await purchases(db, { op: "list" })).own_seller }, { id: "9", alias: "Joulupukkin" });
+  assert.deepEqual((await competitors(db, { min: 5 })).sellers.map((s) => s.alias), ["Daisy"]);
 });

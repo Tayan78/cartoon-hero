@@ -17,6 +17,10 @@
 //     { action: "competitors" }             förslag på konkurrenter från databasen (mest sålt Schleich)
 //     { action: "products" }                produkter: täckning och mest sålda modeller
 //     { action: "market", days }            marknadsanalys för Schleich (7/30/90 dagar eller "all")
+//     { action: "purchases" }               dina inköp (med antal fotade objekt) och ditt eget konto
+//     { action: "purchase_lookup", link }   förslag på inköp från en Tradera-länk
+//     { action: "purchase_save", purchase } spara/ändra ett inköp
+//     { action: "own_account", alias }      ditt eget Tradera-konto (samlas in, men är ingen konkurrent)
 //     { action: "products_relink" }         koppla annonser utan produkt + uppdatera kategorierna
 //   Från Apps Script-timern (x-script-secret): { action: "nightly" }
 //   Från servern själv (x-script-secret):     { action: "continue", state } – nästa steg,
@@ -28,6 +32,7 @@ import { waitUntil } from "@vercel/functions";
 import { checkAuth, json } from "../lib/http.js";
 import { dbCompetitors, dbConfigured, dbDashboard, dbMarket, dbProducts, dbStatus } from "../lib/db.js";
 import { relinkProducts, syncCategories } from "../lib/productsync.js";
+import { lookupPurchase, purchasesCall } from "../lib/purchases.js";
 import { collectSeller, copyToDb, discoverSellers, listSellers, runStatus, runStep, startRun, watchSeller } from "../lib/marketdata.js";
 import { checkLot, findLots, singlesForNiches } from "../lib/lots.js";
 import { runSweep, sweepStatus } from "../lib/sweep.js";
@@ -92,7 +97,7 @@ export async function POST(request) {
   if (fromScript && !["nightly", "continue", "sweep_bg", "details_bg"].includes(body.action)) return json({ ok: false, error: "Inte tillåtet" }, 403);
   const origin = new URL(request.url).origin;
   if (!traderaConfigured()) return json({ ok: false, error: "Tradera är inte konfigurerat" }, 400);
-  if (!["discover", "lots", "lots_check", "db_status", "dashboard", "competitors", "products", "products_relink", "market"].includes(body.action) && !storageConfigured()) return json({ ok: false, error: "Google Sheet är inte konfigurerat" }, 400);
+  if (!["discover", "lots", "lots_check", "db_status", "dashboard", "competitors", "products", "products_relink", "market", "purchases", "purchase_lookup", "purchase_save"].includes(body.action) && !storageConfigured()) return json({ ok: false, error: "Google Sheet är inte konfigurerat" }, 400);
 
   try {
     switch (body.action) {
@@ -119,6 +124,19 @@ export async function POST(request) {
       case "competitors":
         if (!dbConfigured()) return json({ ok: false, error: "APP_TOKEN saknas på servern" }, 400);
         return json({ ok: true, ...(await dbCompetitors({ limit: body.limit, min: body.min })) });
+      case "purchases":
+        return json({ ok: true, ...(await purchasesCall({ op: "list" })) });
+      case "purchase_lookup":
+        return json({ ok: true, purchase: await lookupPurchase(body.link) });
+      case "purchase_save":
+        return json({ ok: true, ...(await purchasesCall({ op: "save", purchase: body.purchase ?? {} })) });
+      case "own_account": {
+        // Bevakas som säljare (nattlig insamling) och märks som ditt eget konto.
+        const seller = await resolve({ alias: body.alias });
+        await watchSeller({ ...seller, niche: "djur" }, true, { url: new URL(request.url).origin + "/api/marketdata" });
+        await purchasesCall({ op: "own_seller", seller_id: seller.id });
+        return json({ ok: true, seller: { id: seller.id, alias: seller.alias } });
+      }
       case "market":
         if (!dbConfigured()) return json({ ok: false, error: "APP_TOKEN saknas på servern" }, 400);
         return json({ ok: true, ...(await dbMarket({ days: body.days === "all" ? null : body.days })) });

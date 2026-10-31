@@ -391,3 +391,6 @@ button:disabled { opacity: .4; }
 #bi-period { margin-bottom: 8px; }
 .bars-tick { fill: var(--muted); font-size: 10px; }
 .bars-value { fill: var(--text); font-size: 10px; font-weight: 600; }
+
+/* Inköp */
+.p-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }

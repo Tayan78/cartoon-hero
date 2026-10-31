@@ -68,3 +68,12 @@ Sökningen ger bara rubrik och pris. Efter Schleich-insamlingen hämtas annonsde
 Schleich på Tradera för vald period (7, 30, 90 dagar eller allt, räknat på slutdatum): sålda, säljgrad, medianpris, säljare; avslutade per dag/vecka (sålda och osålda); publicerade (startdatum, komplett när alla har annonsdetalj); andel sålda per slutdag och sluttimme (auktioner, timmar med minst 20 avslut); segment (sålda, säljgrad, median, utbud i månader) och aktiva annonser som slutar de kommande veckorna. Allt räknas i SQL i D1 (`worker/src/analytics.js`, `POST /data/market { days }`) – workerns gratisnivå har bara 10 ms processortid per anrop. Segmenten i SQL är en förenklad version av indelningen i appen (partier via ord som "st", "paket", "samling").
 
 `scripts/bi-preview.mjs` (Actions → *BI-förhandsvisning*) skriver ut samma slags sammanställning för hand.
+
+## Dina affärer: inköp (steg 1)
+Migration `0007_purchases.sql`: `purchases` (inköp: datum, källa, länk, pris, frakt, avgifter, total kostnad, antal objekt, status öppen/klar, `legacy` = gammalt lager) och `own_items` (en rad per fotad annons, id = appens annons-id, kopplad till ett inköp). `sellers.own` märker ditt eget konto (samlas in men räknas inte som konkurrent).
+
+- Hem → **Inköp**: klistra in en Tradera-länk så fylls pris, frakt (billigaste – kontrollera vad du valde), köparskydd, antal och datum i; eller fyll i för hand. *Gammalt lager* för det du sålde innan spårningen fanns (hålls utanför avkastningen).
+- **Fota**: väljaren *Från inköp* – det senaste öppna inköpet är förvalt. Kopplingen sparas bara i databasen när annonsen laddas upp; arket och annonsen påverkas inte.
+- **Ditt Tradera-konto** (Joulupukkin): bevakas och samlas in varje natt.
+
+Steg 2: försäljningar kopplas till objekten (ditt konto), vinst/avkastning per inköp, kostnadsfördelning efter förväntat värde och restpartier.

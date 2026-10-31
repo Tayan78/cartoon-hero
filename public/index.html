@@ -58,6 +58,10 @@
           <span class="home-icon">📋</span>
           <span><b>Annonser</b><small id="h-groups-note">Skicka, granska och exportera</small></span>
         </button>
+        <button id="h-go-purchases" type="button" class="home-btn">
+          <span class="home-icon">🧾</span>
+          <span><b>Inköp</b><small>Registrera partier – annonserna kopplas när du fotar</small></span>
+        </button>
         <button id="h-go-lego" type="button" class="home-btn">
           <span class="home-icon">🧱</span>
           <span><b>Lego i bulk</b><small>Kilopris från sålda partier på Tradera</small></span>
@@ -149,6 +153,10 @@
         </label>
       </div>
       <div id="c-photos" class="c-photos eight"></div>
+      <label class="field">
+        <span>Från inköp</span>
+        <select id="c-purchase"></select>
+      </label>
       <label class="field">
         <span>Anteckning (valfritt)</span>
         <textarea id="c-note" rows="2" maxlength="300" placeholder="Skick, märke, något som saknas …"></textarea>
@@ -466,6 +474,43 @@
       <button id="m-discover" class="secondary big">🔍 Hitta konkurrenter</button>
       <p id="m-discover-status" class="hint"></p>
       <ul id="m-found" class="lego-lots"></ul>
+    </section>
+
+    <!-- Inköp: partier, loppisfynd och gammalt lager -->
+    <section id="view-purchases" class="view" hidden>
+      <h3>Nytt inköp</h3>
+      <div class="inline-field">
+        <label class="field"><span>Tradera-länk (fyller i resten)</span><input id="p-link" type="url" inputmode="url" autocapitalize="off" placeholder="https://www.tradera.com/item/…"></label>
+        <button id="p-lookup" type="button" class="secondary">Hämta</button>
+      </div>
+      <label class="field"><span>Vad</span><input id="p-title" type="text" maxlength="200" placeholder="t.ex. 42 st Schleich-djur"></label>
+      <div class="p-grid">
+        <label class="field"><span>Datum</span><input id="p-date" type="date"></label>
+        <label class="field"><span>Källa</span><select id="p-source">
+          <option value="tradera">Tradera</option><option value="loppis">Loppis</option><option value="blocket">Blocket</option><option value="vinted">Vinted</option><option value="facebook">Facebook</option><option value="annat">Annat</option>
+        </select></label>
+        <label class="field"><span>Pris</span><input id="p-price" type="number" inputmode="numeric" min="0"></label>
+        <label class="field"><span>Frakt</span><input id="p-shipping" type="number" inputmode="numeric" min="0"></label>
+        <label class="field"><span>Avgifter</span><input id="p-fees" type="number" inputmode="numeric" min="0"></label>
+        <label class="field"><span>Antal objekt</span><input id="p-count" type="number" inputmode="numeric" min="1"></label>
+      </div>
+      <p id="p-total" class="hint"></p>
+      <button id="p-save" type="button" class="primary big">Spara inköp</button>
+      <p id="p-status" class="hint"></p>
+
+      <div class="hist-head">
+        <h3>Dina inköp</h3>
+        <span class="acts-inline"><button id="p-legacy" type="button" class="chip">+ Gammalt lager</button></span>
+      </div>
+      <ul id="p-list" class="lego-lots"></ul>
+
+      <h3>Ditt Tradera-konto</h3>
+      <p class="hint">Dina egna annonser och försäljningar samlas in varje natt (som en bevakad säljare, men räknas inte som konkurrent). Behövs för att koppla försäljningar till inköpen.</p>
+      <div class="inline-field">
+        <label class="field"><span>Alias</span><input id="p-own" type="text" autocapitalize="off" spellcheck="false" value="Joulupukkin"></label>
+        <button id="p-own-save" type="button" class="secondary">Spara</button>
+      </div>
+      <p id="p-own-status" class="hint"></p>
     </section>
 
     <!-- Marknadsanalys: Schleich på Tradera, räknat ur databasen -->
