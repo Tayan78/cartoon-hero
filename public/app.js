@@ -2070,7 +2070,43 @@ function openMarket() {
   show("market");
   renderFound();
   loadMarketSellers();
+  loadDbStatus();
 }
+
+// Databasen (D1): antal annonser och sålda per nisch.
+async function loadDbStatus() {
+  try {
+    const { db } = await marketApi({ action: "db_status" });
+    const niches = (db.niches ?? []).filter((n) => n.niche).map((n) => `${n.niche} ${n.listings} (${n.sold} sålda)`).join(", ");
+    $("m-db-status").textContent =
+      `${db.listings} annonser, varav ${db.sold} sålda${niches ? ` – ${niches}` : ""} · ${db.sellers} säljare · ${db.price_points} prispunkter` +
+      (db.last_seen ? ` · senast uppdaterad ${new Date(db.last_seen).toLocaleString("sv-SE", { dateStyle: "short", timeStyle: "short" })}` : "");
+  } catch (err) {
+    $("m-db-status").textContent = `⚠️ ${err.message}`;
+  }
+}
+
+$("m-db-copy").addEventListener("click", async () => {
+  const btn = $("m-db-copy");
+  btn.disabled = true;
+  try {
+    let offset = 0;
+    for (;;) {
+      $("m-db-status").textContent = `Kopierar… ${offset} annonser klara`;
+      const r = await marketApi({ action: "db_copy", offset });
+      offset = r.next;
+      if (r.done) {
+        $("m-db-status").textContent = `✓ ${r.total} annonser kopierade.`;
+        break;
+      }
+    }
+    await loadDbStatus();
+  } catch (err) {
+    $("m-db-status").textContent = `⚠️ ${err.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 async function loadMarketSellers() {
   if (!marketSellers.length) $("m-status").textContent = "Hämtar…";
