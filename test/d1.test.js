@@ -160,3 +160,26 @@ test("Översikten: anrop summeras per dygn, körningar (3 senaste per typ), till
   assert.deepEqual([d.db.listings, d.db.sold, d.db.unresolved], [3, 2, 1]);
   assert.ok(d.db.series.some((s) => s.key === "bayala"));
 });
+
+test("Förslag på konkurrenter: rankas på sålt Schleich, säljgrad, median och vad de säljer; bevakade märks", async () => {
+  const { competitors } = await import("../worker/src/monitor.js");
+  const db = fakeD1();
+  const now = Date.parse("2026-10-31T12:00:00Z");
+  const rows = [];
+  // Hanna: 12 annonser, 8 sålda (Bayala), 2 osålda, 2 aktiva. Daisy (bevakas): 10, 3 sålda.
+  for (let i = 0; i < 12; i++) rows.push({ id: `h${i}`, seller_id: "2", seller: "Hanna", title: "Schleich Bayala", series: "bayala", source: "sök", status: i < 8 ? "Såld" : i < 10 ? "Osåld" : "Aktiv", price: 50 + 10 * i, end_at: i < 4 ? "2026-10-20" : "2026-01-01" });
+  for (let i = 0; i < 10; i++) rows.push({ id: `d${i}`, seller_id: "1", seller: "Daisy", title: "Schleich häst", niche: "djur", source: "sök", status: i < 3 ? "Såld" : "Aktiv", price: 80, end_at: "2026-10-01" });
+  // Lego från en bevakad säljare (inte Schleich) räknas inte; säljare med för få annonser visas inte.
+  for (let i = 0; i < 20; i++) rows.push({ id: `l${i}`, seller_id: "1", seller: "Daisy", title: "Lego", source: "säljare", status: "Såld", price: 300 });
+  for (let i = 0; i < 3; i++) rows.push({ id: `x${i}`, seller_id: "3", seller: "Liten", title: "Schleich ko", niche: "djur", source: "sök", status: "Såld", price: 40 });
+  await upsertListings(db, rows);
+  await upsertSellers(db, [{ id: "1", alias: "Daisy", watched: 1 }]);
+  const { sellers } = await competitors(db, { now, min: 10 });
+  assert.deepEqual(sellers.map((s) => [s.alias, s.listings, s.sold, s.active, s.sold_90d, s.sell_through, s.watched]), [
+    ["Hanna", 12, 8, 2, 4, 80, false],
+    ["Daisy", 10, 3, 7, 3, 100, true],
+  ]);
+  assert.equal(sellers[0].median_sold, 85); // 50–120 → median av 8 = (80 + 90) / 2
+  assert.deepEqual(sellers[0].mix, [{ key: "bayala", share: 100 }]);
+  assert.deepEqual(sellers[1].mix, [{ key: "djur", share: 100 }]);
+});

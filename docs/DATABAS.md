@@ -41,3 +41,6 @@ Hem → **Drift** visar på ett ställe:
 - **Databasen** – siffror, nya annonser per dag, sålda per månad och fördelning per nisch, serie och källa.
 
 Adresser: `GET /data/dashboard`, `POST /data/usage { counts }`, `POST /data/run { name, started_at }` → id, sedan `{ id, finished_at, status, summary }`.
+
+## Förslag på konkurrenter
+Marknadsdata → *Förslag från databasen*: säljare rankade efter sålda Schleich-annonser (rader med nisch, serie eller från Schleich-sökningen – inte bevakade säljares övriga sortiment), med sålda senaste 90 dagarna, säljgrad, medianpris och vad de mest säljer. Minst 10 annonser. **Bevaka** lägger till säljaren och samlar in hela sortimentet. Adress: `POST /data/competitors { limit, min }`.

@@ -14,6 +14,7 @@
 //     { action: "sweep" }                   all Schleich på Tradera till databasen (i bakgrunden)
 //     { action: "sweep_status" }            hur den senaste Schleich-insamlingen gick
 //     { action: "dashboard" }               översikten: körningar, anrop per dygn, databasen
+//     { action: "competitors" }             förslag på konkurrenter från databasen (mest sålt Schleich)
 //   Från Apps Script-timern (x-script-secret): { action: "nightly" }
 //   Från servern själv (x-script-secret):     { action: "continue", state } – nästa steg,
 //                                             { action: "sweep_bg" } – Schleich-insamlingen efter säljarna
@@ -21,7 +22,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { waitUntil } from "@vercel/functions";
 import { checkAuth, json } from "../lib/http.js";
-import { dbConfigured, dbDashboard, dbStatus } from "../lib/db.js";
+import { dbCompetitors, dbConfigured, dbDashboard, dbStatus } from "../lib/db.js";
 import { collectSeller, copyToDb, discoverSellers, listSellers, runStatus, runStep, startRun, watchSeller } from "../lib/marketdata.js";
 import { checkLot, findLots, singlesForNiches } from "../lib/lots.js";
 import { runSweep, sweepStatus } from "../lib/sweep.js";
@@ -79,7 +80,7 @@ export async function POST(request) {
   if (fromScript && !["nightly", "continue", "sweep_bg"].includes(body.action)) return json({ ok: false, error: "Inte tillåtet" }, 403);
   const origin = new URL(request.url).origin;
   if (!traderaConfigured()) return json({ ok: false, error: "Tradera är inte konfigurerat" }, 400);
-  if (!["discover", "lots", "lots_check", "db_status", "dashboard"].includes(body.action) && !storageConfigured()) return json({ ok: false, error: "Google Sheet är inte konfigurerat" }, 400);
+  if (!["discover", "lots", "lots_check", "db_status", "dashboard", "competitors"].includes(body.action) && !storageConfigured()) return json({ ok: false, error: "Google Sheet är inte konfigurerat" }, 400);
 
   try {
     switch (body.action) {
@@ -103,6 +104,9 @@ export async function POST(request) {
       case "dashboard":
         if (!dbConfigured()) return json({ ok: false, error: "APP_TOKEN saknas på servern" }, 400);
         return json({ ok: true, ...(await dbDashboard()) });
+      case "competitors":
+        if (!dbConfigured()) return json({ ok: false, error: "APP_TOKEN saknas på servern" }, 400);
+        return json({ ok: true, ...(await dbCompetitors({ limit: body.limit, min: body.min })) });
       case "db_copy":
         return json({ ok: true, ...(await copyToDb({ offset: Number(body.offset) || 0 })) });
       case "sweep": {

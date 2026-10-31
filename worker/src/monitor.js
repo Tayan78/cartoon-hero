@@ -80,3 +80,57 @@ export async function dashboard(db, { now = Date.now() } = {}) {
     usage: usage.results,
   };
 }
+
+// ---------- Förslag på konkurrenter ----------
+// Säljare i databasen rankade efter sålda Schleich-annonser (nisch, serie eller
+// Schleich-sökningen), med säljgrad, medianpris och vad de mest säljer.
+const SCHLEICH_ROW = "(l.niche IS NOT NULL OR l.series IS NOT NULL OR l.source = 'sök')";
+const median = (xs) => {
+  const s = xs.filter((x) => x > 0).sort((a, b) => a - b);
+  if (!s.length) return null;
+  const m = Math.floor(s.length / 2);
+  return Math.round(s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2);
+};
+
+export async function competitors(db, { limit = 40, min = 10, now = Date.now() } = {}) {
+  const since = new Date(now - 90 * 86400000).toISOString();
+  const { results: top } = await db
+    .prepare(
+      `SELECT l.seller_id AS id, MAX(l.seller) AS alias, COUNT(*) AS listings,
+         SUM(l.status = 'Såld') AS sold, SUM(l.status = 'Osåld') AS unsold, SUM(l.status = 'Aktiv') AS active,
+         SUM(l.status = 'Såld' AND l.end_at >= ?1) AS sold_90d, MAX(l.end_at) AS last_end,
+         COALESCE(MAX(s.watched), 0) AS watched
+       FROM listings l LEFT JOIN sellers s ON s.id = l.seller_id
+       WHERE l.seller_id IS NOT NULL AND ${SCHLEICH_ROW}
+       GROUP BY l.seller_id HAVING COUNT(*) >= ?2
+       ORDER BY sold DESC, listings DESC LIMIT ?3`,
+    )
+    .bind(since, Math.max(1, Number(min) || 10), Math.min(Number(limit) || 40, 100))
+    .all();
+  if (!top.length) return { sellers: [] };
+  const ids = top.map((t) => t.id);
+  const { results: rows } = await db
+    .prepare(`SELECT l.seller_id AS id, l.status, l.price, l.niche, l.series FROM listings l WHERE l.seller_id IN (${ids.map(() => "?").join(", ")}) AND ${SCHLEICH_ROW}`)
+    .bind(...ids)
+    .all();
+  const by = new Map(ids.map((id) => [id, []]));
+  for (const r of rows) by.get(r.id)?.push(r);
+  return {
+    sellers: top.map((t) => {
+      const mine = by.get(t.id) ?? [];
+      const mix = {};
+      for (const r of mine) {
+        const key = r.series ? r.series.split(",")[0] : r.niche || "övrigt";
+        mix[key] = (mix[key] ?? 0) + 1;
+      }
+      const ended = (t.sold ?? 0) + (t.unsold ?? 0);
+      return {
+        ...t,
+        watched: Boolean(t.watched),
+        sell_through: ended ? Math.round((100 * t.sold) / ended) : null,
+        median_sold: median(mine.filter((r) => r.status === "Såld").map((r) => r.price)),
+        mix: Object.entries(mix).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([key, n]) => ({ key, share: Math.round((100 * n) / mine.length) })),
+      };
+    }),
+  };
+}

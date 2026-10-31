@@ -1,7 +1,7 @@
 // Databasen (D1) för marknadsdata. Appen på Vercel skriver och läser via de här
 // adresserna (med x-app-token). Raderna skickas som JSON och skrivs med en enda
 // SQL-sats per tabell (json_each), så att en hel säljare blir några få frågor.
-import { addUsage, dashboard, recordRun } from "./monitor.js";
+import { addUsage, competitors, dashboard, recordRun } from "./monitor.js";
 
 export const LISTING_COLUMNS = [
   "id", "seller", "seller_id", "title", "model_number", "number_source", "type", "status", "price",
@@ -135,6 +135,7 @@ export async function handleData(request, env, path, extra = {}) {
     if (path === "/data/unresolved") return Response.json({ ok: true, ...(await unresolvedListings(env.DB, body)) });
     if (path === "/data/usage") return Response.json({ ok: true, ...(await addUsage(env.DB, body.counts)) });
     if (path === "/data/run") return Response.json({ ok: true, ...(await recordRun(env.DB, body)) });
+    if (path === "/data/competitors") return Response.json({ ok: true, ...(await competitors(env.DB, body)) });
     const { rows } = body;
     if (!Array.isArray(rows)) return Response.json({ ok: false, error: "rows saknas" }, { status: 400 });
     if (rows.length > MAX_ROWS) return Response.json({ ok: false, error: `Högst ${MAX_ROWS} rader per anrop` }, { status: 400 });
