@@ -1,6 +1,7 @@
 // Databasen (D1) för marknadsdata. Appen på Vercel skriver och läser via de här
 // adresserna (med x-app-token). Raderna skickas som JSON och skrivs med en enda
 // SQL-sats per tabell (json_each), så att en hel säljare blir några få frågor.
+import { addUsage, dashboard, recordRun } from "./monitor.js";
 
 export const LISTING_COLUMNS = [
   "id", "seller", "seller_id", "title", "model_number", "number_source", "type", "status", "price",
@@ -63,15 +64,18 @@ const PRICE_CHANGE = `INSERT OR IGNORE INTO price_history (listing_id, seen_at, 
   WHERE ${field("price")} IS NOT NULL AND ${field("last_seen")} IS NOT NULL
     AND NOT EXISTS (SELECT 1 FROM listings l WHERE l.id = ${field("id")} AND l.price = ${field("price")})`;
 
+// Rader som D1 faktiskt skrev (för översikten; D1:s gratisgräns är 100 000 per dygn).
+const written = (results) => [].concat(results).reduce((sum, r) => sum + (Number(r?.meta?.rows_written) || 0), 0);
+
 export async function upsertListings(db, rows) {
   const json = JSON.stringify(rows);
-  await db.batch([db.prepare(FIRST_PRICE).bind(json), db.prepare(PRICE_CHANGE).bind(json), db.prepare(UPSERT_LISTINGS).bind(json)]);
-  return { rows: rows.length };
+  const results = await db.batch([db.prepare(FIRST_PRICE).bind(json), db.prepare(PRICE_CHANGE).bind(json), db.prepare(UPSERT_LISTINGS).bind(json)]);
+  return { rows: rows.length, written: written(results) };
 }
 
 export async function upsertSellers(db, rows) {
-  await db.prepare(UPSERT_SELLERS).bind(JSON.stringify(rows)).run();
-  return { rows: rows.length };
+  const result = await db.prepare(UPSERT_SELLERS).bind(JSON.stringify(rows)).run();
+  return { rows: rows.length, written: written(result) };
 }
 
 export async function dbStatus(db) {
@@ -117,21 +121,28 @@ export async function unresolvedListings(db, { limit = 500, now = new Date().toI
   return { ids: results.map((r) => r.id) };
 }
 
-// /data/status (GET), /data/listings och /data/sellers (POST { rows }),
-// /data/query (POST { statuses }).
-export async function handleData(request, env, path) {
+// /data/status och /data/dashboard (GET), /data/listings och /data/sellers (POST
+// { rows }), /data/query, /data/unresolved, /data/usage och /data/run (POST).
+// extra.watcher = bevakningens status (till översikten).
+export async function handleData(request, env, path, extra = {}) {
   if (!env.DB) return Response.json({ ok: false, error: "Databasen (DB) är inte kopplad" }, { status: 500 });
   try {
     if (path === "/data/status") return Response.json({ ok: true, ...(await dbStatus(env.DB)) });
+    if (path === "/data/dashboard") return Response.json({ ok: true, ...(await dashboard(env.DB)), watcher: extra.watcher ?? null });
     if (request.method !== "POST") return Response.json({ ok: false, error: "POST krävs" }, { status: 405 });
     const body = await request.json();
     if (path === "/data/query") return Response.json({ ok: true, ...(await queryListings(env.DB, body)) });
     if (path === "/data/unresolved") return Response.json({ ok: true, ...(await unresolvedListings(env.DB, body)) });
+    if (path === "/data/usage") return Response.json({ ok: true, ...(await addUsage(env.DB, body.counts)) });
+    if (path === "/data/run") return Response.json({ ok: true, ...(await recordRun(env.DB, body)) });
     const { rows } = body;
     if (!Array.isArray(rows)) return Response.json({ ok: false, error: "rows saknas" }, { status: 400 });
     if (rows.length > MAX_ROWS) return Response.json({ ok: false, error: `Högst ${MAX_ROWS} rader per anrop` }, { status: 400 });
-    if (path === "/data/listings") return Response.json({ ok: true, ...(await upsertListings(env.DB, rows)) });
-    if (path === "/data/sellers") return Response.json({ ok: true, ...(await upsertSellers(env.DB, rows)) });
+    if (path === "/data/listings" || path === "/data/sellers") {
+      const out = path === "/data/listings" ? await upsertListings(env.DB, rows) : await upsertSellers(env.DB, rows);
+      await addUsage(env.DB, { d1_rows: out.written }).catch(() => {});
+      return Response.json({ ok: true, ...out });
+    }
     return Response.json({ ok: false, error: "Okänd adress" }, { status: 404 });
   } catch (err) {
     return Response.json({ ok: false, error: String(err?.message ?? err) }, { status: 500 });

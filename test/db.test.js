@@ -108,3 +108,13 @@ test("Insamling: allt från säljaren till databasen (med kategori och rådata),
   assert.deepEqual(written.map((x) => [x["Annons-ID"], x.Kategori, x.Rådata, x.Källa]), [["1", 1000532, '{"id":1}', "säljare"], ["2", 1612, '{"id":2}', "säljare"]]);
   assert.deepEqual(toDbListing(written[1]).category_id, 1612);
 });
+
+test("Anropsräkning: Traderas metoder delas upp; ingen räkning utanför Vercel", async () => {
+  const { countUsage, flushUsage, traderaApi } = await import("../lib/usage.js");
+  assert.deepEqual(
+    ["/v4/search/advanced", "/v4/items/123", "/v4/items/seller/9?filterActive=1", "/v4/users/by-alias/x", "/v4/categories"].map(traderaApi),
+    ["tradera_search", "tradera_item", "tradera_seller", "tradera_user", "tradera_other"],
+  );
+  countUsage("gemini"); // ingen VERCEL i testmiljön: inget skickas
+  await flushUsage();
+});

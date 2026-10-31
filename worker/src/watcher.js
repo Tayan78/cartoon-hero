@@ -4,11 +4,13 @@
 // 1 sökning var 30:e sekund = 2 880 per dygn – resten av kvoten går till insamlingen.
 import { DurableObject } from "cloudflare:workers";
 import { searchAdvanced, traderaGet } from "../../lib/tradera.js";
+import { addUsage } from "./monitor.js";
 import { EXAMPLE_DEAL, WATCH_NICHES, candidates, chatFromUpdates, evaluate, notification, pageOrder, pickOrderBy, searchBody, telegramMessage } from "./watch.js";
 
 const INTERVAL_MS = 30_000; // 50 nyaste per sökning räcker gott för 30 s
 const SEEN_MAX = 5000; // senast sedda annonser (räcker gott för 50 per sökning)
 const SINGLES_MAX_AGE = 60 * 60 * 1000; // marknadspriserna hämtas om varje timme
+const USAGE_FLUSH = 10; // anropen skrivs till databasen var 10:e sökning (~5 min)
 
 export class Watcher extends DurableObject {
   async fetch(request) {
@@ -47,10 +49,28 @@ export class Watcher extends DurableObject {
     try {
       if (!(await s.get("paused"))) await this.poll();
     } catch (err) {
+      this.count("fel_bevakning");
       await s.put("last_error", { at: new Date().toISOString(), message: String(err?.message ?? err) });
     } finally {
+      await this.flushUsage();
       await s.setAlarm(Date.now() + INTERVAL_MS);
     }
+  }
+
+  // Anrop räknas i minnet och skrivs samlat till databasen (översikten i appen).
+  count(api, n = 1) {
+    this.usage ??= {};
+    this.usage[api] = (this.usage[api] ?? 0) + n;
+  }
+  counted(fn, api) {
+    return (...args) => (this.count(api), fn(...args));
+  }
+  async flushUsage(force = false) {
+    this.flushes = (this.flushes ?? 0) + 1;
+    if (!this.env.DB || !this.usage || (!force && this.flushes % USAGE_FLUSH !== 0)) return;
+    const counts = this.usage;
+    this.usage = {};
+    await addUsage(this.env.DB, counts).catch(() => {});
   }
 
   async poll() {
@@ -58,9 +78,10 @@ export class Watcher extends DurableObject {
     let orderBy = await s.get("order_by");
     // Version 2 av valet kontrollerar även att sidan verkligen är sorterad.
     if (orderBy === undefined || (await s.get("order_check")) !== 2) {
-      orderBy = await pickOrderBy(searchAdvanced);
+      orderBy = await pickOrderBy(this.counted(searchAdvanced, "tradera_search"));
       await s.put({ order_by: orderBy, order_check: 2 });
     }
+    this.count("tradera_search");
     const data = await searchAdvanced(searchBody(orderBy));
     const items = data?.items ?? data?.Items ?? [];
     const seenList = (await s.get("seen")) ?? [];
@@ -90,7 +111,7 @@ export class Watcher extends DurableObject {
 
     if (cands.length) {
       const { singles, rules } = await this.singles();
-      const deals = await evaluate(cands, { getItem: traderaGet, singles, rules });
+      const deals = await evaluate(cands, { getItem: this.counted(traderaGet, "tradera_item"), singles, rules });
       for (const deal of deals) {
         await this.notify(notification(deal, this.env.NTFY_TOPIC));
         stats.deals++;
@@ -123,8 +144,9 @@ export class Watcher extends DurableObject {
   // Telegram i första hand, ntfy som reserv. Felen sparas så att /test och /status visar varför.
   // Returnerar vägen notisen gick ("Telegram"/"ntfy"), eller null.
   async notify(message) {
-    if (await this.telegram(message)) return "Telegram";
-    return (await this.ntfy(message)) ? "ntfy" : null;
+    const via = (await this.telegram(message)) ? "Telegram" : (await this.ntfy(message)) ? "ntfy" : null;
+    this.count(via ? `notis_${via.toLowerCase()}` : "fel_notis");
+    return via;
   }
 
   async telegramChat() {
