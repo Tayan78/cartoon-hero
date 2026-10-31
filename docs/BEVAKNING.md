@@ -3,7 +3,7 @@
 Körs i Cloudflare (`worker/`), oberoende av appen och telefonen.
 
 ## Så fungerar det
-1. Var 10:e sekund söks de 50 nyaste annonserna i kategorin *Miniatyrer & leksaksfigurer* (1000532). Traderas gräns är 10 000 anrop per dygn och metod – 8 640 sökningar per dygn ryms.
+1. Var 30:e sekund söks de 50 nyaste annonserna i kategorin *Miniatyrer & leksaksfigurer* (1000532). Traderas gräns är 10 000 anrop per dygn och metod – bevakningen använder 2 880, resten går till Fynd och marknadsinsamlingen.
 2. Nya annonser som är **partier i en bevakad nisch** (i dag Schleich-djur), har **antal i rubriken** och går att **köpa direkt** (Köp nu, eller auktion med Köp nu-pris) blir kandidater.
 3. Kandidaten hämtas för frakten och värderas med samma kod som Fynd: antal × netto per figur från styckförsäljningen i fliken Marknad, köparskydd (2 kr + 5 %) och frakt, och plingar från **1,5×** värdet (`WATCH_MULTIPLE` i `worker/src/watch.js`; Fynd och appen räknar grönt från 2×).
 4. **Minst 1,5× → notis via Telegram** (ntfy som reserv) med bild, totalpris, värde och en knapp som öppnar annonsen.

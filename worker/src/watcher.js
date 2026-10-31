@@ -1,12 +1,12 @@
-// Bevakningen: en Durable Object som var 10:e sekund söker de nyaste annonserna i
+// Bevakningen: en Durable Object som var 30:e sekund söker de nyaste annonserna i
 // kategorin Miniatyrer & leksaksfigurer och plingar via Telegram (ntfy som reserv) när ett Köp nu-parti
 // är värt minst 1,5× priset. Traderas gräns är 10 000 anrop per dygn och metod:
-// 1 sökning var 10:e sekund = 8 640 per dygn.
+// 1 sökning var 30:e sekund = 2 880 per dygn – resten av kvoten går till insamlingen.
 import { DurableObject } from "cloudflare:workers";
 import { searchAdvanced, traderaGet } from "../../lib/tradera.js";
 import { EXAMPLE_DEAL, WATCH_NICHES, candidates, chatFromUpdates, evaluate, notification, pageOrder, pickOrderBy, searchBody, telegramMessage } from "./watch.js";
 
-const INTERVAL_MS = 10_000;
+const INTERVAL_MS = 30_000; // 50 nyaste per sökning räcker gott för 30 s
 const SEEN_MAX = 5000; // senast sedda annonser (räcker gott för 50 per sökning)
 const SINGLES_MAX_AGE = 60 * 60 * 1000; // marknadspriserna hämtas om varje timme
 
