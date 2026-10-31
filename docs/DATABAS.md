@@ -55,3 +55,11 @@ Migration `0005_products.sql`:
 Kopplingen (`lib/products.js`): bara Schleich-annonser (schleich/bayala/eldrador/smurf), femsiffriga Schleich-nummer (inte priser eller årtal). Nummer i rubriken: säkerhet 0,95 (en produkt) eller 0,8 (flera = paket). Nummer i texten: 0,8. Annonser utan nummer kopplas senare med AI.
 
 Varje natt efter Schleich-insamlingen kopplas annonser som saknar produkt och kategorierna uppdateras (`lib/productsync.js`). Drift → *Produkter* visar täckning och de mest sålda modellerna (priser bara från annonser med en enda produkt). Adresser: `POST /data/links`, `/data/texts`, `/data/categories`, `/data/products`.
+
+## Lager: rådata → tolkning → beräkningar
+1. **Rådata** (det Tradera-API:et ger, skrivs aldrig över av tolkningar): `listings` (inklusive `raw`, hela `description`, `start_at`, `opening_price`, `buy_now_price`, `shipping`, `image_count`, `reserve_met`) och `listing_snapshots`. Köparnas uppgifter (`maxBidder`, `buyerList`, `acceptedBuyerId`) sparas aldrig.
+2. **Tolkning** (kan räknas om): `listing_products` (metod, säkerhet, version), `niche`, `series`, `model_number`.
+3. **Beräkningar**: medianpris, säljgrad m.m. räknas ur 1 och 2.
+
+## Annonsdetaljer (`lib/detail.js`, migration `0006_detail.sql`)
+Sökningen ger bara rubrik och pris. Efter Schleich-insamlingen hämtas annonsdetaljen (`GET /v4/items/{id}`) för Schleich-annonser som saknar den, **nyast först**: nya annonser får full information samma natt, historiken tas med högst 2 500 per natt (700 per anrop till servern, i en kedja). Detaljen ger hela beskrivningen (reglerna letar modellnummer i den), startdatum, utropspris, Köp nu-pris, frakt, antal bilder, reservpris och verifierat utfall (`gotWinner` – även auktioner där reservpriset inte nåddes blir Osåld). En annons som inte finns kvar markeras som hämtad. Körningen syns i Drift (*Annonsdetaljer*), liksom andelen annonser med detalj.

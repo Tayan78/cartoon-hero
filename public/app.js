@@ -2526,6 +2526,7 @@ else {
 const RUN_INFO = {
   marknad: { label: "Nattlig säljarinsamling", every: 26 },
   schleich: { label: "All Schleich på Tradera", every: 26 },
+  detaljer: { label: "Annonsdetaljer (beskrivning m.m.)", every: 26 },
 };
 // Gränser per dygn (Tradera per metod, D1 gratisnivå). Övriga visas som antal.
 const USAGE_INFO = [
@@ -2782,6 +2783,7 @@ async function loadProducts() {
     $("o-products-status").textContent = (d.methods ?? []).length ? `Kopplingar: ${d.methods.map((m) => `${nf(m.n)} via ${METHOD_LABELS[m.method] ?? m.method}`).join(", ")}.` : "";
     $("o-products").replaceChildren(
       tile("Kopplade annonser", `${c.share ?? 0}\u00a0%`, `${nf(c.linked)} av ${nf(c.schleich)} Schleich-annonser`),
+      tile("Med annonsdetalj", `${c.schleich ? Math.round((100 * (c.detailed ?? 0)) / c.schleich) : 0}\u00a0%`, `${nf(c.detailed)} av ${nf(c.schleich)} – beskrivning, startdatum, utropspris, frakt`),
       tile("Modeller", nf(c.products), "olika modellnummer"),
       tile("Observationer", nf(c.snapshots), "pris, bud och status över tid"),
       tile("Kategorier", nf(c.categories), "från Tradera"),

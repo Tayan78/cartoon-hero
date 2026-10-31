@@ -19,7 +19,8 @@
 //     { action: "products_relink" }         koppla annonser utan produkt + uppdatera kategorierna
 //   Från Apps Script-timern (x-script-secret): { action: "nightly" }
 //   Från servern själv (x-script-secret):     { action: "continue", state } – nästa steg,
-//                                             { action: "sweep_bg" } – Schleich-insamlingen efter säljarna
+//                                             { action: "sweep_bg" } – Schleich-insamlingen efter säljarna,
+//                                             { action: "details_bg", state } – annonsdetaljer i steg efter sökningen
 // Insamlingen körs med waitUntil: svaret kommer direkt och arbetet fortsätter.
 import { timingSafeEqual } from "node:crypto";
 import { waitUntil } from "@vercel/functions";
@@ -29,6 +30,7 @@ import { relinkProducts, syncCategories } from "../lib/productsync.js";
 import { collectSeller, copyToDb, discoverSellers, listSellers, runStatus, runStep, startRun, watchSeller } from "../lib/marketdata.js";
 import { checkLot, findLots, singlesForNiches } from "../lib/lots.js";
 import { runSweep, sweepStatus } from "../lib/sweep.js";
+import { detailStep } from "../lib/detail.js";
 import { mergeSettings } from "../lib/settings.js";
 import { storageConfigured } from "../lib/storage.js";
 import { traderaConfigured, traderaGet } from "../lib/tradera.js";
@@ -64,6 +66,12 @@ async function chain(state, origin) {
   await selfCall(origin, { action: "continue", state: out.state });
 }
 
+// Schleich-sökningen, sedan annonsdetaljerna (i egna anrop, så att tiden räcker).
+const sweepThenDetails = (origin) =>
+  runSweep()
+    .catch(() => {})
+    .then(() => selfCall(origin, { action: "details_bg", state: {} }));
+
 // Startar nästa steg som ett nytt anrop till servern själv.
 const selfCall = (origin, body) =>
   fetch(`${origin}/api/marketdata`, {
@@ -80,7 +88,7 @@ export async function POST(request) {
     if (denied) return denied;
   }
   const body = await request.json().catch(() => ({}));
-  if (fromScript && !["nightly", "continue", "sweep_bg"].includes(body.action)) return json({ ok: false, error: "Inte tillåtet" }, 403);
+  if (fromScript && !["nightly", "continue", "sweep_bg", "details_bg"].includes(body.action)) return json({ ok: false, error: "Inte tillåtet" }, 403);
   const origin = new URL(request.url).origin;
   if (!traderaConfigured()) return json({ ok: false, error: "Tradera är inte konfigurerat" }, 400);
   if (!["discover", "lots", "lots_check", "db_status", "dashboard", "competitors", "products", "products_relink"].includes(body.action) && !storageConfigured()) return json({ ok: false, error: "Google Sheet är inte konfigurerat" }, 400);
@@ -122,12 +130,16 @@ export async function POST(request) {
       case "sweep": {
         const st = await sweepStatus();
         if (st?.running) return json({ ok: true, started: false, sweep: st });
-        waitUntil(runSweep().catch(() => {}));
+        waitUntil(sweepThenDetails(origin));
         return json({ ok: true, started: true });
       }
       case "sweep_bg":
         if (!fromScript) return json({ ok: false, error: "Inte tillåtet" }, 403);
-        waitUntil(runSweep().catch(() => {}));
+        waitUntil(sweepThenDetails(origin));
+        return json({ ok: true });
+      case "details_bg":
+        if (!fromScript) return json({ ok: false, error: "Inte tillåtet" }, 403);
+        waitUntil(detailStep(body.state ?? {}, { next: (state) => selfCall(origin, { action: "details_bg", state }) }).catch(() => {}));
         return json({ ok: true });
       case "sweep_status":
         return json({ ok: true, sweep: await sweepStatus() });

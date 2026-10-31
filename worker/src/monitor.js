@@ -146,7 +146,8 @@ export async function productStats(db, { limit = 30 } = {}) {
               (SELECT COUNT(DISTINCT listing_id) FROM listing_products) AS linked,
               (SELECT COUNT(*) FROM products) AS products,
               (SELECT COUNT(*) FROM listing_snapshots) AS snapshots,
-              (SELECT COUNT(*) FROM categories) AS categories`,
+              (SELECT COUNT(*) FROM categories) AS categories,
+              (SELECT COUNT(*) FROM listings WHERE detail_at IS NOT NULL AND (niche IS NOT NULL OR series IS NOT NULL OR source = 'sök')) AS detailed`,
     ),
     db.prepare("SELECT COALESCE(method, '') AS method, COUNT(*) AS n FROM listing_products GROUP BY method ORDER BY n DESC"),
     db
