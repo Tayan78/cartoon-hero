@@ -1996,6 +1996,7 @@ function renderLots() {
     `${list.length ? "" : lotsFilter === "deals" ? "Inga Köp nu-fynd just nu. " : lotsFilter === "auctions" ? "Inga auktioner med antal just nu. " : ""}` +
     `${d.scanned} annonser från ${d.queries?.length ?? 1} partisökningar: ${d.lots} partier, varav ${d.active_lots} aktiva. ` +
     (d.truncated?.length ? `⚠️ För många träffar, alla hämtades inte: ${d.truncated.join(", ")}. ` : "") +
+    (d.market_source === "ark" ? "Styckpriserna kommer från arket – databasen svarade inte. " : "") +
     (d.image_counted ? `${d.image_counted} partier utan antal i rubriken är räknade på bilderna (≈). ` : "") +
     (d.count_pending ? `${d.count_pending} väntar på bildräkning – hämta igen om en stund. ` : "") +
     (d.without_count - (d.count_pending ?? 0) > 0 ? `${d.without_count - (d.count_pending ?? 0)} aktiva partier saknar antal och gick inte att räkna – de visas inte. ` : "") +

@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
-import { dbStatus, handleData, upsertListings, upsertSellers } from "../worker/src/data.js";
+import { dbStatus, handleData, queryListings, upsertListings, upsertSellers } from "../worker/src/data.js";
 
 // Minimal D1: prepare().bind().all()/run() och batch() i en transaktion.
 function fakeD1() {
@@ -84,4 +84,14 @@ test("Status och adresser: antal per nisch, fel metod, för många rader", async
   assert.equal((await post("/data/okand", { rows: [] })).status, 404);
   assert.equal((await handleData(new Request("https://w/data/listings"), env, "/data/listings")).status, 405);
   assert.equal((await handleData(new Request("https://w/data/status"), {}, "/data/status")).status, 500); // ingen databas kopplad
+});
+
+test("Läsning: annonser med valda statusar, med text (för nischkontrollen)", async () => {
+  const db = fakeD1();
+  await upsertListings(db, [listing({ id: "1", status: "Såld", text: "Schleich 13279" }), listing({ id: "2", status: "Osåld" }), listing({ id: "3", status: "Aktiv" })]);
+  const { rows } = await queryListings(db, { statuses: ["Såld", "Osåld"] });
+  assert.deepEqual(rows.map((r) => [r.id, r.status, r.price, r.text]).sort(), [["1", "Såld", 89, "Schleich 13279"], ["2", "Osåld", 89, null]]);
+  assert.deepEqual((await queryListings(db, {})).rows, []);
+  const res = await handleData(new Request("https://w/data/query", { method: "POST", body: JSON.stringify({ statuses: ["Aktiv"] }) }), { DB: db }, "/data/query");
+  assert.deepEqual((await res.json()).rows.map((r) => r.id), ["3"]);
 });

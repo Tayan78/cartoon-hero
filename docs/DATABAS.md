@@ -17,12 +17,13 @@ Deploy-flödet kör nya migrationer (`wrangler d1 migrations apply loppis --remo
 - `GET /data/status` – antal annonser, sålda, per nisch, säljare, prispunkter.
 - `POST /data/listings` `{ rows }` – upsert av annonser (högst 500 per anrop). Fält som saknas skriver inte över.
 - `POST /data/sellers` `{ rows }` – upsert av säljare.
+- `POST /data/query` `{ statuses }` – annonser med vissa statusar (underlaget för styckpriserna).
 
 Appen (Vercel) använder dem via `lib/db.js`; `DATA_URL` kan sättas i Vercel om workerns adress ändras.
 
 ## Övergången
 1. ✅ Insamlingen skriver till både arket och databasen. Fel mot databasen stoppar inte arket men syns som fel på säljaren.
 2. ✅ Marknadsdata → *Kopiera arket till databasen* flyttar det som redan finns (kan köras om).
-3. Läsa styckpriser (Fynd, bevakningen) från databasen.
+3. ✅ Styckpriserna (Fynd och bevakningen) läses från databasen, med arket som reserv om databasen inte svarar.
 4. Spara alla säljarnas annonser, inte bara nischerna – underlag för nya nischer.
 5. Arket blir en nattlig sammanfattning.
