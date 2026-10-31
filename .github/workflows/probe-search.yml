@@ -1,0 +1,23 @@
+# Provar Traderas sökfilter med riktiga nycklar och skriver ut antal (inga hemligheter).
+name: Prova Tradera-sökning
+
+# Körs för hand: Actions → Prova Tradera-sökning → Run workflow.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/probe-search.mjs
+        env:
+          TRADERA_APP_ID: ${{ secrets.TRADERA_APP_ID }}
+          TRADERA_APP_KEY: ${{ secrets.TRADERA_APP_KEY }}

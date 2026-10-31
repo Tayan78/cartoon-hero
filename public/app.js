@@ -2072,7 +2072,41 @@ function openMarket() {
   renderFound();
   loadMarketSellers();
   loadDbStatus();
+  loadSweepStatus();
 }
+
+// Schleich-insamlingen (hela Tradera): status, uppdateras medan den pågår.
+let sweepPoll = null;
+async function loadSweepStatus() {
+  clearTimeout(sweepPoll);
+  try {
+    const { sweep: st } = await marketApi({ action: "sweep_status" });
+    const when = (iso) => (iso ? new Date(iso).toLocaleString("sv-SE", { dateStyle: "short", timeStyle: "short" }) : "");
+    $("m-sweep").disabled = Boolean(st?.running);
+    $("m-sweep-status").textContent = !st
+      ? "Har inte körts än."
+      : st.running
+        ? `⏳ Hämtar sedan ${when(st.started)} – det tar någon minut. Du kan stänga appen.`
+        : st.status === "Klar"
+          ? `✓ ${when(st.last)}: ${st.listings} annonser – ${st.summary}`
+          : `⚠️ ${st.status} (${when(st.last)})`;
+    if (st?.running && !$("view-market").hidden) sweepPoll = setTimeout(loadSweepStatus, 5000);
+    else if (st?.status === "Klar") loadDbStatus();
+  } catch (err) {
+    $("m-sweep-status").textContent = `⚠️ ${err.message}`;
+  }
+}
+
+$("m-sweep").addEventListener("click", async () => {
+  $("m-sweep-status").textContent = "Startar…";
+  try {
+    await marketApi({ action: "sweep" });
+  } catch (err) {
+    $("m-sweep-status").textContent = `⚠️ ${err.message}`;
+    return;
+  }
+  await loadSweepStatus();
+});
 
 // Databasen (D1): antal annonser och sålda per nisch.
 async function loadDbStatus() {

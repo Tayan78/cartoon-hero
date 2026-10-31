@@ -3,12 +3,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
-import { dbStatus, handleData, queryListings, upsertListings, upsertSellers } from "../worker/src/data.js";
+import { dbStatus, handleData, queryListings, unresolvedListings, upsertListings, upsertSellers } from "../worker/src/data.js";
 
 // Minimal D1: prepare().bind().all()/run() och batch() i en transaktion.
 function fakeD1() {
   const sqlite = new DatabaseSync(":memory:");
-  for (const f of ["0001_market.sql", "0002_raw.sql"]) sqlite.exec(readFileSync(new URL(`../worker/migrations/${f}`, import.meta.url), "utf8"));
+  for (const f of ["0001_market.sql", "0002_raw.sql", "0003_series.sql"]) sqlite.exec(readFileSync(new URL(`../worker/migrations/${f}`, import.meta.url), "utf8"));
   const prepare = (sql) => {
     let params = [];
     const s = {
@@ -116,4 +116,20 @@ test("Allt från säljarna: databasen räknar första/lägsta pris och prisändr
   await upsertListings(db, [{ ...auction, price: 80, bids: 3, last_seen: "d2" }]);
   const a = db.sqlite.prepare("SELECT * FROM listings WHERE id = '8'").get();
   assert.deepEqual([a.price, a.first_price, a.lowest_price, a.price_changes], [80, 50, 50, null]);
+});
+
+test("Okänt utfall: avslutade Köp nu utan status (eller fortfarande Aktiv), inte auktioner; seriesparas", async () => {
+  const db = fakeD1();
+  await upsertListings(db, [
+    { id: "1", title: "a", type: "köp nu", status: null, end_at: "2026-10-01", series: "bayala" },
+    { id: "2", title: "b", type: "köp nu", status: "Aktiv", end_at: "2026-10-02" },
+    { id: "3", title: "c", type: "köp nu", status: "Såld", end_at: "2026-10-03" },
+    { id: "4", title: "d", type: "auktion", status: null, end_at: "2026-10-04" },
+    { id: "5", title: "e", type: "köp nu", status: "Aktiv", end_at: "2026-12-01" }, // inte slut än
+  ]);
+  assert.deepEqual((await unresolvedListings(db, { now: "2026-10-31" })).ids, ["1", "2"]);
+  assert.equal(db.sqlite.prepare("SELECT series FROM listings WHERE id = '1'").get().series, "bayala");
+  // Sökningen skickar ingen status för avslutad Köp nu: en redan känd status står kvar.
+  await upsertListings(db, [{ id: "3", title: "c", type: "köp nu", status: null, price: 99, end_at: "2026-10-03" }]);
+  assert.equal(db.sqlite.prepare("SELECT status FROM listings WHERE id = '3'").get().status, "Såld");
 });
