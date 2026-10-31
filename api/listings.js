@@ -13,6 +13,7 @@
 // Själva berikningen sker i kön (Apps Script → /api/listing-process), så appen
 // kan stängas efter uppladdningen.
 import { checkAuth, json, parseDataUrl } from "../lib/http.js";
+import { purchasesCall } from "../lib/purchases.js";
 import { researchListing } from "../lib/listing.js";
 import { mockDefect, mockLens, mockListingText, mockSimple, mockTradera } from "../lib/mock.js";
 import { buildProListerCsv } from "../lib/prolister.js";
@@ -105,6 +106,11 @@ export async function POST(request) {
   }
 
   const res = await store(action, payload);
+  // Annonsen kopplas till inköpet den kommer från (bara i databasen; arket och
+  // annonsen påverkas inte, och ett fel här stoppar inte uppladdningen).
+  if (body.action === "submit" && res.ok && body.purchase_id !== undefined) {
+    await purchasesCall({ op: "item", item: { id, purchase_id: body.purchase_id } }).catch(() => {});
+  }
   return json(res, res.ok ? 200 : 502);
 }
 

@@ -78,7 +78,7 @@ const getSettings = () => {
 };
 
 // ---------- vyer ----------
-const views = ["home", "scan", "result", "history", "capture", "groups", "review", "settings", "lego", "seller", "market", "lots", "ops", "bi"];
+const views = ["home", "scan", "result", "history", "capture", "groups", "review", "settings", "lego", "seller", "market", "lots", "ops", "bi", "purchases"];
 const TITLES = {
   home: "Loppisskannern",
   scan: "Skanna",
@@ -94,6 +94,7 @@ const TITLES = {
   lots: "Fynd",
   ops: "Drift",
   bi: "Marknadsanalys",
+  purchases: "Inköp",
 };
 let currentView = "home";
 // Flikraden: vilken flik som lyser för varje vy.
@@ -857,6 +858,7 @@ async function openCapture(group = null, from = currentView === "groups" ? "grou
   groupPhotos = group ? [...group.photos] : [];
   $("c-note").value = group?.note ?? "";
   $("c-hint").textContent = "";
+  renderPurchasePicker(group ? group.purchase_id ?? "" : null);
   show("capture");
   renderCapture();
   startCamera();
@@ -891,9 +893,10 @@ for (const id of ["c-gallery", "c-native"]) {
 $("c-next").addEventListener("click", async () => {
   if (!groupPhotos.length) return;
   // version ökar vid varje ändring, så att en ändrad annons laddas upp på nytt.
+  const purchase_id = $("c-purchase").value === "" ? null : Number($("c-purchase").value);
   const group = editingGroup
-    ? { ...editingGroup, photos: groupPhotos, note: $("c-note").value.trim(), upload: "ny", version: (editingGroup.version ?? 0) + 1 }
-    : { id: `G${Date.now()}`, ts: Date.now(), photos: groupPhotos, note: $("c-note").value.trim(), selected: true, upload: "ny", version: 1 };
+    ? { ...editingGroup, photos: groupPhotos, note: $("c-note").value.trim(), purchase_id, upload: "ny", version: (editingGroup.version ?? 0) + 1 }
+    : { id: `G${Date.now()}`, ts: Date.now(), photos: groupPhotos, note: $("c-note").value.trim(), purchase_id, selected: true, upload: "ny", version: 1 };
   delete group.number;
   try {
     await putGroup(group);
@@ -1029,7 +1032,7 @@ function uploadText(g) {
 
 async function uploadGroup(g) {
   // En bild per anrop, så att även 8 bilder ryms.
-  await withRetry(() => listingsApi({ action: "submit", id: g.id, note: g.note, settings: getSettings() }));
+  await withRetry(() => listingsApi({ action: "submit", id: g.id, note: g.note, settings: getSettings(), ...("purchase_id" in g ? { purchase_id: g.purchase_id } : {}) }));
   for (const image of g.photos) await withRetry(() => listingsApi({ action: "image", id: g.id, image }));
   // Ändrades annonsen under tiden laddas den upp igen i nästa varv.
   const now = await getGroup(g.id);
@@ -2971,3 +2974,149 @@ for (const b of document.querySelectorAll("#bi-period .chip")) {
     loadBi();
   });
 }
+
+// ---------- Inköp ----------
+// Inköpen sparas i databasen; listan cachas på telefonen för väljaren i Fota.
+let purchaseList = store.get("purchases_cache", []);
+
+function renderPurchasePicker(selected = null) {
+  const open = purchaseList.filter((p) => p.status !== "klar" || String(p.id) === String(selected));
+  const current = selected ?? store.get("purchase_current", open[0]?.id ?? "");
+  const sel = $("c-purchase");
+  sel.replaceChildren(
+    Object.assign(document.createElement("option"), { value: "", textContent: "Inget inköp" }),
+    ...open.map((p) =>
+      Object.assign(document.createElement("option"), { value: String(p.id), textContent: `${p.legacy ? "📦 " : ""}${p.title || "Inköp"} · ${p.bought_at ?? ""}${p.item_count ? ` · ${p.items_registered ?? 0}/${p.item_count}` : ""}` }),
+    ),
+    Object.assign(document.createElement("option"), { value: "new", textContent: "＋ Nytt inköp…" }),
+  );
+  sel.value = open.some((p) => String(p.id) === String(current)) ? String(current) : "";
+}
+
+$("c-purchase").addEventListener("change", () => {
+  if ($("c-purchase").value === "new") {
+    renderPurchasePicker();
+    return openPurchases();
+  }
+  if (!editingGroup) store.set("purchase_current", $("c-purchase").value);
+});
+
+async function loadPurchases() {
+  try {
+    const d = await marketApi({ action: "purchases" });
+    purchaseList = d.purchases ?? [];
+    store.set("purchases_cache", purchaseList);
+    if (d.own_seller) $("p-own-status").textContent = `✓ ${d.own_seller.alias} är ditt konto.`;
+    renderPurchases();
+  } catch (err) {
+    $("p-status").textContent = `⚠️ ${err.message}`;
+  }
+}
+
+function renderPurchases() {
+  $("p-list").replaceChildren(
+    ...purchaseList.map((p) => {
+      const li = Object.assign(document.createElement("li"), { className: "m-row" });
+      const t = Object.assign(document.createElement("div"), { className: "t" });
+      const perItem = p.total_cost && p.item_count ? ` · ${kr(Math.round(p.total_cost / p.item_count))}/st` : "";
+      t.append(
+        Object.assign(document.createElement("b"), { textContent: `${p.legacy ? "📦 " : ""}${p.title || "Inköp"}` }),
+        Object.assign(document.createElement("small"), {
+          textContent: `${p.bought_at ?? ""} · ${p.legacy ? "gammalt lager" : kr(p.total_cost ?? 0)}${perItem} · ${p.items_registered ?? 0}${p.item_count ? ` av ${p.item_count}` : ""} fotade${p.items_sold ? ` · ${p.items_sold} sålda` : ""}`,
+        }),
+      );
+      const open = p.status !== "klar";
+      li.append(t, smallBtn(open ? "Öppen" : "Klar", open ? "chip on" : "chip", () => savePurchase({ id: p.id, status: open ? "klar" : "öppen" })));
+      return li;
+    }),
+  );
+  renderPurchasePicker();
+}
+
+function purchaseTotal() {
+  const n = (id) => Number($(id).value) || 0;
+  return n("p-price") + n("p-shipping") + n("p-fees");
+}
+for (const id of ["p-price", "p-shipping", "p-fees", "p-count"]) {
+  $(id).addEventListener("input", () => {
+    const total = purchaseTotal();
+    const count = Number($("p-count").value) || 0;
+    $("p-total").textContent = total ? `Totalt ${kr(total)}${count ? ` · ${kr(Math.round(total / count))} per objekt` : ""}` : "";
+  });
+}
+
+$("p-lookup").addEventListener("click", async () => {
+  $("p-status").textContent = "Hämtar annonsen…";
+  try {
+    const { purchase: p } = await marketApi({ action: "purchase_lookup", link: $("p-link").value });
+    $("p-title").value = p.title ?? "";
+    $("p-date").value = p.bought_at ?? "";
+    $("p-source").value = "tradera";
+    $("p-price").value = p.price ?? "";
+    $("p-shipping").value = p.shipping ?? "";
+    $("p-fees").value = p.fees ?? "";
+    $("p-count").value = p.item_count ?? "";
+    $("p-price").dispatchEvent(new Event("input"));
+    lookedUp = p;
+    $("p-status").textContent = "✓ Kontrollera uppgifterna (t.ex. vilken frakt du valde) och spara.";
+  } catch (err) {
+    $("p-status").textContent = `⚠️ ${err.message}`;
+  }
+});
+let lookedUp = null;
+
+async function savePurchase(purchase) {
+  $("p-status").textContent = "Sparar…";
+  try {
+    const { id } = await marketApi({ action: "purchase_save", purchase });
+    if (!purchase.id) store.set("purchase_current", String(id));
+    $("p-status").textContent = purchase.id ? "" : "✓ Sparat – nya annonser i Fota kopplas till inköpet.";
+    await loadPurchases();
+    return id;
+  } catch (err) {
+    $("p-status").textContent = `⚠️ ${err.message}`;
+  }
+}
+
+$("p-save").addEventListener("click", async () => {
+  if (!$("p-title").value.trim()) return ($("p-status").textContent = "Skriv vad du köpt.");
+  const purchase = {
+    title: $("p-title").value.trim(),
+    bought_at: $("p-date").value || new Date().toISOString().slice(0, 10),
+    source: $("p-source").value,
+    price: $("p-price").value,
+    shipping: $("p-shipping").value,
+    fees: $("p-fees").value,
+    total_cost: purchaseTotal(),
+    item_count: $("p-count").value,
+    ...(lookedUp && $("p-source").value === "tradera" ? { url: lookedUp.url, tradera_id: lookedUp.tradera_id, thumbnail: lookedUp.thumbnail } : {}),
+  };
+  if (await savePurchase(purchase)) {
+    for (const id of ["p-link", "p-title", "p-price", "p-shipping", "p-fees", "p-count"]) $(id).value = "";
+    $("p-total").textContent = "";
+    lookedUp = null;
+  }
+});
+
+$("p-legacy").addEventListener("click", () => {
+  if (purchaseList.some((p) => p.legacy && p.status !== "klar") && !confirm("Det finns redan ett öppet gammalt lager. Lägga till ett till?")) return;
+  savePurchase({ title: "Gammalt lager", source: "gammalt", legacy: 1, total_cost: 0, bought_at: new Date().toISOString().slice(0, 10) });
+});
+
+$("p-own-save").addEventListener("click", async () => {
+  $("p-own-status").textContent = "Sparar…";
+  try {
+    const { seller } = await marketApi({ action: "own_account", alias: $("p-own").value.trim() });
+    $("p-own-status").textContent = `✓ ${seller.alias} är ditt konto – första insamlingen sker i natt.`;
+  } catch (err) {
+    $("p-own-status").textContent = `⚠️ ${err.message}`;
+  }
+});
+
+function openPurchases() {
+  show("purchases");
+  if (!$("p-date").value) $("p-date").value = new Date().toISOString().slice(0, 10);
+  renderPurchases();
+  loadPurchases();
+}
+$("h-go-purchases").addEventListener("click", openPurchases);

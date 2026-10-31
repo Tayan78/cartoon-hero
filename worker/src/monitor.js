@@ -101,7 +101,7 @@ export async function competitors(db, { limit = 40, min = 10, now = Date.now() }
          SUM(l.status = 'Såld' AND l.end_at >= ?1) AS sold_90d, MAX(l.end_at) AS last_end,
          COALESCE(MAX(s.watched), 0) AS watched
        FROM listings l LEFT JOIN sellers s ON s.id = l.seller_id
-       WHERE l.seller_id IS NOT NULL AND ${SCHLEICH_ROW}
+       WHERE l.seller_id IS NOT NULL AND ${SCHLEICH_ROW} AND COALESCE(s.own, 0) = 0
        GROUP BY l.seller_id HAVING COUNT(*) >= ?2
        ORDER BY sold DESC, listings DESC LIMIT ?3`,
     )

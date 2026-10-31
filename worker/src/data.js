@@ -2,6 +2,7 @@
 // adresserna (med x-app-token). Raderna skickas som JSON och skrivs med en enda
 // SQL-sats per tabell (json_each), så att en hel säljare blir några få frågor.
 import { marketStats } from "./analytics.js";
+import { purchases } from "./purchases.js";
 import { addUsage, competitors, dashboard, productStats, recordRun } from "./monitor.js";
 
 export const LISTING_COLUMNS = [
@@ -12,7 +13,7 @@ export const LISTING_COLUMNS = [
 ];
 export const SELLER_COLUMNS = [
   "id", "alias", "watched", "niches", "listings_found", "active", "ended", "number_share", "rating",
-  "added_at", "collected_at", "in_db", "sold_in_db", "error",
+  "added_at", "collected_at", "in_db", "sold_in_db", "error", "own",
 ];
 export const MAX_ROWS = 500;
 
@@ -222,6 +223,7 @@ export async function handleData(request, env, path, extra = {}) {
     if (path === "/data/competitors") return Response.json({ ok: true, ...(await competitors(env.DB, body)) });
     if (path === "/data/products") return Response.json({ ok: true, ...(await productStats(env.DB, body)) });
     if (path === "/data/texts") return Response.json({ ok: true, ...(await listingTexts(env.DB, body)) });
+    if (path === "/data/purchases") return Response.json({ ok: true, ...(await purchases(env.DB, body)) });
     if (path === "/data/market") return Response.json({ ok: true, ...(await marketStats(env.DB, body)) });
     if (path === "/data/needs-detail") return Response.json({ ok: true, ...(await needsDetail(env.DB, body)) });
     const { rows } = body;
