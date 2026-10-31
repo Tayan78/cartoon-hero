@@ -68,13 +68,26 @@ export async function dbStatus(db) {
   };
 }
 
-// /data/status (GET), /data/listings och /data/sellers (POST { rows }).
+// Annonser med vissa statusar (t.ex. Såld/Osåld) – underlaget för styckpriserna.
+export const QUERY_COLUMNS = ["id", "seller_id", "title", "model_number", "status", "price", "niche", "text"];
+export async function queryListings(db, { statuses = [] } = {}) {
+  const list = statuses.map(String).slice(0, 10);
+  if (!list.length) return { rows: [] };
+  const sql = `SELECT ${QUERY_COLUMNS.join(", ")} FROM listings WHERE status IN (${list.map(() => "?").join(", ")})`;
+  const { results } = await db.prepare(sql).bind(...list).all();
+  return { rows: results };
+}
+
+// /data/status (GET), /data/listings och /data/sellers (POST { rows }),
+// /data/query (POST { statuses }).
 export async function handleData(request, env, path) {
   if (!env.DB) return Response.json({ ok: false, error: "Databasen (DB) är inte kopplad" }, { status: 500 });
   try {
     if (path === "/data/status") return Response.json({ ok: true, ...(await dbStatus(env.DB)) });
     if (request.method !== "POST") return Response.json({ ok: false, error: "POST krävs" }, { status: 405 });
-    const { rows } = await request.json();
+    const body = await request.json();
+    if (path === "/data/query") return Response.json({ ok: true, ...(await queryListings(env.DB, body)) });
+    const { rows } = body;
     if (!Array.isArray(rows)) return Response.json({ ok: false, error: "rows saknas" }, { status: 400 });
     if (rows.length > MAX_ROWS) return Response.json({ ok: false, error: `Högst ${MAX_ROWS} rader per anrop` }, { status: 400 });
     if (path === "/data/listings") return Response.json({ ok: true, ...(await upsertListings(env.DB, rows)) });

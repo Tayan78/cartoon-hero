@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DB_CHUNK, dbWrite, toDbListing, toDbSeller } from "../lib/db.js";
+import { DB_CHUNK, dbMarketRows, dbWrite, toDbListing, toDbSeller } from "../lib/db.js";
+import { loadMarketRows } from "../lib/lots.js";
 import { collectSeller, copyToDb, MARKET_HEADERS, SELLER_HEADERS } from "../lib/marketdata.js";
 import { fakeAppsScript } from "./helpers/apps-script.js";
 
@@ -62,4 +63,25 @@ test("Kopiering från arket: säljare första gången, annonserna i delar tills 
   const second = await copyToDb({ store: gs.store, db, limit: 2, offset: first.next });
   assert.deepEqual([second.copied, second.done, second.sellers], [3, true, null]);
   assert.deepEqual(written, [["sellers", ["42"]], ["listings", ["1", "2"]], ["listings", ["3"]]]);
+});
+
+test("Styckpriserna läses från databasen i arkets format; svarar den inte används arket", async (t) => {
+  t.after(() => delete process.env.APP_TOKEN);
+  const fetchImpl = async (url, init) =>
+    new Response(JSON.stringify({ ok: true, rows: [{ id: "1", seller_id: "42", title: "Schleich Tinker sto", model_number: null, status: "Såld", price: 89, niche: "djur", text: null }] }), { status: 200 });
+  process.env.APP_TOKEN = "hemligt";
+  assert.deepEqual(await dbMarketRows(["Såld"], { fetchImpl }), [
+    { "Annons-ID": "1", "Säljar-ID": "42", Rubrik: "Schleich Tinker sto", Modellnummer: "", Status: "Såld", Pris: 89, Nisch: "djur", Text: "" },
+  ]);
+
+  const fromDb = await loadMarketRows(undefined, { db: async (statuses) => [{ Rubrik: "x", Status: statuses[0] }] });
+  assert.deepEqual([fromDb.source, fromDb.rows], ["databas", [{ Rubrik: "x", Status: "Såld" }]]);
+  const down = async () => {
+    throw new Error("Databasen: 500");
+  };
+  // Databasen nere och inget ark konfigurerat (testmiljön): inga rader, men inget fel.
+  assert.deepEqual(await loadMarketRows(undefined, { db: down }), { rows: null, source: null });
+  // Ett eget ark (som i Fynd-testerna) läses alltid därifrån.
+  const store = async (action, p) => ({ ok: true, rows: [{ Rubrik: "y", Status: p.filter.equals }] });
+  assert.equal((await loadMarketRows(store, { db: down })).source, "ark");
 });
