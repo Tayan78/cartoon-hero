@@ -222,6 +222,7 @@
         <input id="v-price" type="number" inputmode="numeric" min="0">
       </label>
       <p id="v-price-basis" class="hint"></p>
+      <div id="v-market" class="v-market" hidden></div>
       <div class="field" hidden>
         <span>Kanal</span>
         <div id="v-channel" class="chips">
@@ -503,6 +504,14 @@
       <h3>Ditt Tradera-konto</h3>
       <p class="hint">Dina egna annonser och försäljningar (<b>Joulupukkin</b>) samlas in varje natt som en bevakad säljare, men räknas inte som konkurrent. Behövs för att koppla försäljningar till inköpen och för "Sålt 7 dagar" på Hem.</p>
       <p id="p-own-status" class="hint"></p>
+      <div id="p-tradera" class="v-market">
+        <p class="metric-label vm-head">Exakta försäljningar</p>
+        <p id="p-tradera-status" class="small">Hämtar…</p>
+        <button id="p-tradera-connect" type="button" class="primary" hidden>Koppla Tradera-konto</button>
+        <button id="p-tradera-done" type="button" class="secondary" hidden>Jag har godkänt i Tradera</button>
+        <button id="p-tradera-sync" type="button" class="secondary" hidden>Hämta försäljningar nu</button>
+        <p class="hint">Du loggar in hos Tradera och godkänner appen en gång. Sedan hämtas dina ordrar varje natt med det pris köparen faktiskt betalade – även när du tackat ja till ett prisförslag. Köparens namn och adress sparas aldrig.</p>
+      </div>
     </section>
 
     <!-- Marknadsanalys: Schleich på Tradera, räknat ur databasen -->

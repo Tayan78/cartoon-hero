@@ -22,6 +22,9 @@
 //     { action: "purchase_lookup", link }   förslag på inköp från en Tradera-länk
 //     { action: "purchase_save", purchase } spara/ändra ett inköp
 //     { action: "own_account" }             ditt eget Tradera-konto (fast: OWN_ALIAS) – samlas in, men är ingen konkurrent
+//     { action: "tradera_status" }          kopplingen till ditt Tradera-konto + det appen behöver för inloggningen
+//     { action: "tradera_connect", skey }   efter att du godkänt hos Tradera: hämta och spara nyckeln, hämta ordrarna
+//     { action: "tradera_sync" }            hämta dina ordrar nu
 //     { action: "products_relink" }         koppla annonser utan produkt + uppdatera kategorierna
 //   Från Apps Script-timern (x-script-secret): { action: "nightly" }
 //   Från servern själv (x-script-secret):     { action: "continue", state } – nästa steg,
@@ -31,7 +34,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { waitUntil } from "@vercel/functions";
 import { checkAuth, json } from "../lib/http.js";
-import { dbCompetitors, dbConfigured, dbWeek, dbDashboard, dbMarket, dbProducts, dbStatus } from "../lib/db.js";
+import { dbCompetitors, dbConfigured, dbOwn, dbWeek, dbDashboard, dbMarket, dbProducts, dbStatus } from "../lib/db.js";
 import { relinkProducts, syncCategories } from "../lib/productsync.js";
 import { OWN_ALIAS, lookupPurchase, purchasesCall } from "../lib/purchases.js";
 import { collectSeller, copyToDb, discoverSellers, listSellers, runStatus, runStep, startRun, watchSeller } from "../lib/marketdata.js";
@@ -39,6 +42,7 @@ import { checkLot, findLots, singlesForNiches } from "../lib/lots.js";
 import { runSweep, sweepStatus } from "../lib/sweep.js";
 import { detailStep } from "../lib/detail.js";
 import { mergeSettings } from "../lib/settings.js";
+import { connectInfo, fetchUserToken, syncOwnOrders } from "../lib/traderauser.js";
 import { storageConfigured } from "../lib/storage.js";
 import { traderaConfigured, traderaGet } from "../lib/tradera.js";
 
@@ -106,7 +110,7 @@ export async function POST(request) {
   if (fromScript && !["nightly", "continue", "sweep_bg", "details_bg"].includes(body.action)) return json({ ok: false, error: "Inte tillåtet" }, 403);
   const origin = new URL(request.url).origin;
   if (!traderaConfigured()) return json({ ok: false, error: "Tradera är inte konfigurerat" }, 400);
-  if (!["discover", "lots", "lots_check", "db_status", "dashboard", "competitors", "week", "products", "products_relink", "market", "purchases", "purchase_lookup", "purchase_save"].includes(body.action) && !storageConfigured()) return json({ ok: false, error: "Google Sheet är inte konfigurerat" }, 400);
+  if (!["discover", "lots", "lots_check", "db_status", "dashboard", "competitors", "week", "tradera_status", "tradera_connect", "tradera_sync", "products", "products_relink", "market", "purchases", "purchase_lookup", "purchase_save"].includes(body.action) && !storageConfigured()) return json({ ok: false, error: "Google Sheet är inte konfigurerat" }, 400);
 
   try {
     switch (body.action) {
@@ -149,6 +153,20 @@ export async function POST(request) {
         return json({ ok: true, purchase: await lookupPurchase(body.link) });
       case "purchase_save":
         return json({ ok: true, ...(await purchasesCall({ op: "save", purchase: body.purchase ?? {} })) });
+      case "tradera_status": {
+        const status = dbConfigured() ? await dbOwn({ op: "status" }).catch((err) => ({ error: err.message })) : { error: "APP_TOKEN saknas på servern" };
+        return json({ ok: true, ...status, login: connectInfo() });
+      }
+      case "tradera_connect": {
+        if (!connectInfo()) return json({ ok: false, error: "TRADERA_PUBLIC_KEY saknas på servern (Vercel)" }, 400);
+        const seller = await resolve({ alias: OWN_ALIAS });
+        const token = await fetchUserToken({ userId: seller.id, skey: body.skey });
+        await dbOwn({ op: "auth_set", auth: { user_id: seller.id, alias: seller.alias, ...token } });
+        const sync = await syncOwnOrders().catch((err) => ({ error: err.message }));
+        return json({ ok: true, alias: seller.alias, expires: token.expires, sync });
+      }
+      case "tradera_sync":
+        return json({ ok: true, sync: await syncOwnOrders() });
       case "own_account":
         return json({ ok: true, seller: await ensureOwnAccount(new URL(request.url).origin) });
       case "market":
@@ -198,6 +216,8 @@ export async function POST(request) {
         if (body.action === "nightly" && !only) {
           const own = await purchasesCall({ op: "list" }).then((d) => d.own_seller).catch(() => null);
           if (!own) await ensureOwnAccount(origin).catch(() => {});
+          // Dina ordrar (exakta försäljningspriser) – i bakgrunden, stoppar aldrig insamlingen.
+          waitUntil(syncOwnOrders().catch(() => {}));
         }
         const run = await startRun(only);
         if (run.started) waitUntil(chain(run.state, origin).catch(() => {}));

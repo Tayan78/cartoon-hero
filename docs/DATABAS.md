@@ -79,3 +79,23 @@ Migration `0007_purchases.sql`: `purchases` (inköp: datum, källa, länk, pris,
 - **Ditt Tradera-konto** (Joulupukkin, fast i koden: `OWN_ALIAS` i `lib/purchases.js`): kopplas automatiskt när det saknas (vid Inköp, Sålt 7 dagar), bevakas och samlas in varje natt.
 
 Steg 2: försäljningar kopplas till objekten (ditt konto), vinst/avkastning per inköp, kostnadsfördelning efter förväntat värde och restpartier.
+
+## Prissättning ur databasen (Fota → Granska)
+
+När en fotad Schleich-annons berikas och modellnumret är säkert (bekräftat av dig, eller verifierat via din anteckning/Lens) slås modellen upp i databasen: `POST /data/model { number }` (`worker/src/model.js`). Räknas på de senaste 4 månaderna och bara annonser med en enda figur (partier och paket bort); auktioner som inte nådde reservpriset räknas som osålda.
+
+Priset (`marketPrice` i `lib/listing.js`):
+- **Minst 3 sålda:** sålt median.
+- **Mättad modell** (minst 2 till salu under medianen och under 50 % säljs): billigaste till salu, men aldrig under den undre kvartilen av vad modellen sålt för.
+- **Färre än 3 sålda eller databasen nere:** som förut – billigaste på Tradera just nu.
+- Lägsta pris för hästar (69 kr) och föl/ponnyer (49 kr) gäller alltid.
+
+Granska visar rutan *"13773 i databasen"*: sålda, säljgrad, median med spann, till salu nu, tid till såld och de senast sålda.
+
+## Ditt Tradera-konto: exakta försäljningar (migration 0008)
+
+`app_secrets` (nyckeln till ditt konto, JSON) och `own_sales` (en rad per sålt objekt ur dina ordrar: annons-id, rubrik, antal, **pris köparen betalade**, orderns delsumma, frakt, betalt belopp och datum). Köparens namn, e-post och adress kastas innan något sparas.
+
+Koppling (en gång, Inköp → *Koppla Tradera-konto*): appen öppnar Traderas inloggning (`token-login?appId&pkey&skey`, skey = engångsnyckel som appen skapar). Du godkänner, går tillbaka till appen, och servern hämtar nyckeln med `POST /v4/auth/token { userId, secretKey }` (`lib/traderauser.js`). Kräver `TRADERA_PUBLIC_KEY` i Vercel och att *Accept URL/Reject URL* är tomma i appens inställningar hos Tradera.
+
+Varje natt (och med *Hämta försäljningar nu*): `GET /v4/orders` med `X-User-Id`/`X-User-Token`, från förra hämtningen minus 2 dygn (första gången 120 dygn bakåt) i 30-dagarsfönster. Drift varnar 30 dagar innan nyckeln går ut. Adress: `POST /data/own { op: auth_get | auth_set | status | sales_upsert }` – `status` och Drift visar aldrig själva nyckeln.
