@@ -1673,7 +1673,7 @@ function paintHomeWeek(w) {
   $("h-week").hidden = false;
   const trend = (now, prev) => (prev ? `${now >= prev ? "▲" : "▼"} ${Math.abs(Math.round((100 * (now - prev)) / prev))} % mot förra veckan` : "");
   $("h-week-mine").textContent = w.own ? String(w.mine.sold) : "–";
-  $("h-week-mine-note").textContent = w.own ? [w.mine.revenue ? kr(w.mine.revenue) : "", trend(w.mine.sold, w.mine.prev)].filter(Boolean).join(" · ") : "Ange ditt konto under Inköp";
+  $("h-week-mine-note").textContent = w.own ? [w.mine.revenue ? kr(w.mine.revenue) : "", trend(w.mine.sold, w.mine.prev)].filter(Boolean).join(" · ") : "Ditt konto kopplas – siffran kommer efter nattens insamling";
   $("h-week-market").textContent = w.market.sold.toLocaleString("sv-SE");
   $("h-week-market-note").textContent = [w.market.revenue ? kr(w.market.revenue) : "", trend(w.market.sold, w.market.prev)].filter(Boolean).join(" · ");
   const top = w.top?.[0]?.sold || 1;
@@ -3140,7 +3140,7 @@ async function loadPurchases() {
     const d = await marketApi({ action: "purchases" });
     purchaseList = d.purchases ?? [];
     store.set("purchases_cache", purchaseList);
-    if (d.own_seller) $("p-own-status").textContent = `✓ ${d.own_seller.alias} är ditt konto.`;
+    $("p-own-status").textContent = d.own_seller ? `✓ ${d.own_seller.alias} är kopplat.` : "Kopplas automatiskt så fort databasen svarar.";
     renderPurchases();
   } catch (err) {
     $("p-status").textContent = `⚠️ ${err.message}`;
@@ -3237,15 +3237,6 @@ $("p-legacy").addEventListener("click", () => {
   savePurchase({ title: "Gammalt lager", source: "gammalt", legacy: 1, total_cost: 0, bought_at: new Date().toISOString().slice(0, 10) });
 });
 
-$("p-own-save").addEventListener("click", async () => {
-  $("p-own-status").textContent = "Sparar…";
-  try {
-    const { seller } = await marketApi({ action: "own_account", alias: $("p-own").value.trim() });
-    $("p-own-status").textContent = `✓ ${seller.alias} är ditt konto – första insamlingen sker i natt.`;
-  } catch (err) {
-    $("p-own-status").textContent = `⚠️ ${err.message}`;
-  }
-});
 
 function openPurchases() {
   show("purchases");
