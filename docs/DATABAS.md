@@ -91,3 +91,11 @@ Priset (`marketPrice` i `lib/listing.js`):
 - Lägsta pris för hästar (69 kr) och föl/ponnyer (49 kr) gäller alltid.
 
 Granska visar rutan *"13773 i databasen"*: sålda, säljgrad, median med spann, till salu nu, tid till såld och de senast sålda.
+
+## Ditt Tradera-konto: exakta försäljningar (migration 0008)
+
+`app_secrets` (nyckeln till ditt konto, JSON) och `own_sales` (en rad per sålt objekt ur dina ordrar: annons-id, rubrik, antal, **pris köparen betalade**, orderns delsumma, frakt, betalt belopp och datum). Köparens namn, e-post och adress kastas innan något sparas.
+
+Koppling (en gång, Inköp → *Koppla Tradera-konto*): appen öppnar Traderas inloggning (`token-login?appId&pkey&skey`, skey = engångsnyckel som appen skapar). Du godkänner, går tillbaka till appen, och servern hämtar nyckeln med `POST /v4/auth/token { userId, secretKey }` (`lib/traderauser.js`). Kräver `TRADERA_PUBLIC_KEY` i Vercel och att *Accept URL/Reject URL* är tomma i appens inställningar hos Tradera.
+
+Varje natt (och med *Hämta försäljningar nu*): `GET /v4/orders` med `X-User-Id`/`X-User-Token`, från förra hämtningen minus 2 dygn (första gången 120 dygn bakåt) i 30-dagarsfönster. Drift varnar 30 dagar innan nyckeln går ut. Adress: `POST /data/own { op: auth_get | auth_set | status | sales_upsert }` – `status` och Drift visar aldrig själva nyckeln.

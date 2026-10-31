@@ -2759,6 +2759,15 @@ function opsHealth(d) {
     const n = d.usage?.find((r) => r.day === today && r.api === u.api)?.count ?? 0;
     if (n > u.limit * 0.8) out.push([n >= u.limit ? "bad" : "warn", `${u.label}: ${nf(n)} av ${nf(u.limit)} i dag.`]);
   }
+  const oa = d.own_auth;
+  if (oa) {
+    const left = oa.expires ? (Date.parse(oa.expires) - Date.now()) / 86400000 : null;
+    if (!oa.connected) out.push(["warn", "Ditt Tradera-konto är inte kopplat – koppla under Inköp för exakta försäljningspriser."]);
+    else if (left != null && left < 0) out.push(["bad", "Nyckeln till ditt Tradera-konto har gått ut – koppla igen under Inköp."]);
+    else if (left != null && left < 30) out.push(["warn", `Nyckeln till ditt Tradera-konto går ut om ${Math.ceil(left)} dagar – koppla igen under Inköp.`]);
+    else if (oa.synced_at && Date.now() - Date.parse(oa.synced_at) > 36 * 3600000) out.push(["warn", `Dina ordrar hämtades senast ${ago(oa.synced_at)}.`]);
+    else out.push(["ok", `Ditt Tradera-konto: ${oa.sales} försäljningar${oa.synced_at ? `, hämtade ${ago(oa.synced_at)}` : ""}.`]);
+  }
   if (d.db?.unresolved > 1000) out.push(["warn", `${nf(d.db.unresolved)} avslutade Köp nu-annonser väntar på utfall.`]);
   return out;
 }
@@ -3269,8 +3278,88 @@ $("p-legacy").addEventListener("click", () => {
 });
 
 
+// ---------- Ditt Tradera-konto (token login) ----------
+// Engångsnyckeln (skey) skapas här och sparas tills du godkänt, så att fönstret
+// kan öppnas direkt när du trycker (iPhone blockerar fönster som öppnas efter ett nätanrop).
+let traderaLogin = null;
+const newSkey = () => (crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`).replace(/[^\w-]/g, "") + (crypto.randomUUID?.() ?? `${Math.random()}`).replace(/[^\w-]/g, "");
+
+function paintTradera(s) {
+  const when = (iso) => new Date(iso).toLocaleDateString("sv-SE");
+  const pending = store.get("tradera_skey", null);
+  let text;
+  if (s.error) text = `⚠️ ${s.error}`;
+  else if (s.connected) {
+    const left = s.expires ? Math.ceil((Date.parse(s.expires) - Date.now()) / 86400000) : null;
+    text =
+      `✓ Kopplat (${s.alias || "ditt konto"})` +
+      (s.expires ? ` · nyckeln gäller till ${when(s.expires)}${left != null && left < 30 ? " ⚠️" : ""}` : "") +
+      ` · ${s.sales?.n ?? 0} försäljningar${s.sales?.revenue ? ` för ${kr(s.sales.revenue)}` : ""}` +
+      (s.sync?.synced_at ? ` · hämtade ${ago(s.sync.synced_at)}` : "");
+  } else if (!s.login) text = "Saknar Traderas publika nyckel på servern (TRADERA_PUBLIC_KEY i Vercel).";
+  else text = pending ? "Godkänn appen i Tradera-fönstret och tryck sedan på knappen nedan." : "Inte kopplat än.";
+  $("p-tradera-status").textContent = text;
+  const expiring = s.connected && s.expires && Date.parse(s.expires) - Date.now() < 30 * 86400000;
+  $("p-tradera-connect").hidden = !s.login || (s.connected && !expiring);
+  $("p-tradera-connect").textContent = s.connected ? "Koppla igen (förnya nyckeln)" : "Koppla Tradera-konto";
+  $("p-tradera-done").hidden = !pending || !s.login;
+  $("p-tradera-sync").hidden = !s.connected;
+}
+
+async function loadTradera() {
+  try {
+    const s = await marketApi({ action: "tradera_status" });
+    traderaLogin = s.login;
+    paintTradera(s);
+  } catch (err) {
+    $("p-tradera-status").textContent = `⚠️ ${err.message}`;
+  }
+}
+
+$("p-tradera-connect").addEventListener("click", () => {
+  if (!traderaLogin) return;
+  const skey = newSkey();
+  store.set("tradera_skey", skey);
+  const q = new URLSearchParams({ appId: traderaLogin.app_id, pkey: traderaLogin.pkey, skey });
+  window.open(`${traderaLogin.url}?${q}`, "_blank", "noopener");
+  $("p-tradera-status").textContent = "Godkänn appen i Tradera-fönstret och tryck sedan på knappen nedan.";
+  $("p-tradera-done").hidden = false;
+});
+
+async function finishTradera({ quiet = false } = {}) {
+  const skey = store.get("tradera_skey", null);
+  if (!skey) return;
+  if (!quiet) $("p-tradera-status").textContent = "Hämtar nyckeln från Tradera…";
+  try {
+    const r = await marketApi({ action: "tradera_connect", skey });
+    store.set("tradera_skey", null);
+    $("p-tradera-done").hidden = true;
+    await loadTradera();
+    if (r.sync?.error) $("p-tradera-status").textContent += ` · ⚠️ ${r.sync.error}`;
+  } catch (err) {
+    if (!quiet) $("p-tradera-status").textContent = `⚠️ ${err.message}`;
+  }
+}
+$("p-tradera-done").addEventListener("click", () => finishTradera());
+// Tillbaka i appen efter Tradera-fönstret: försök hämta nyckeln direkt.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && store.get("tradera_skey", null) && !$("view-purchases").hidden) finishTradera({ quiet: true });
+});
+
+$("p-tradera-sync").addEventListener("click", async () => {
+  $("p-tradera-status").textContent = "Hämtar dina ordrar från Tradera…";
+  try {
+    const { sync } = await marketApi({ action: "tradera_sync" });
+    await loadTradera();
+    if (sync?.skipped || sync?.error) $("p-tradera-status").textContent += ` · ⚠️ ${sync.skipped || sync.error}`;
+  } catch (err) {
+    $("p-tradera-status").textContent = `⚠️ ${err.message}`;
+  }
+});
+
 function openPurchases() {
   show("purchases");
+  loadTradera();
   if (!$("p-date").value) $("p-date").value = new Date().toISOString().slice(0, 10);
   renderPurchases();
   loadPurchases();

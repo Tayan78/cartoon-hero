@@ -8,7 +8,7 @@ import { dbStatus, handleData, linkProducts, listingTexts, needsDetail, queryLis
 // Minimal D1: prepare().bind().all()/run() och batch() i en transaktion.
 function fakeD1() {
   const sqlite = new DatabaseSync(":memory:");
-  for (const f of ["0001_market.sql", "0002_raw.sql", "0003_series.sql", "0004_monitoring.sql", "0005_products.sql", "0006_detail.sql", "0007_purchases.sql"]) sqlite.exec(readFileSync(new URL(`../worker/migrations/${f}`, import.meta.url), "utf8"));
+  for (const f of ["0001_market.sql", "0002_raw.sql", "0003_series.sql", "0004_monitoring.sql", "0005_products.sql", "0006_detail.sql", "0007_purchases.sql", "0008_own_sales.sql"]) sqlite.exec(readFileSync(new URL(`../worker/migrations/${f}`, import.meta.url), "utf8"));
   const prepare = (sql) => {
     let params = [];
     const s = {
@@ -352,4 +352,23 @@ test("Modell i databasen: bara enstaka figurer, reservpris ej nått = osåld, ti
   assert.equal(m.days_to_sell, 7);
   assert.deepEqual(m.recent.map((x) => x.price), [80, 100]);
   await assert.rejects(() => modelStats(db, { number: "x" }), /Modellnummer/);
+});
+
+test("Ditt konto i databasen: nyckeln sparas, status visar aldrig nyckeln, försäljningar uppdateras", async () => {
+  const { own } = await import("../worker/src/own.js");
+  const { dashboard } = await import("../worker/src/monitor.js");
+  const db = fakeD1();
+  assert.equal((await own(db, { op: "status" })).connected, false);
+  await own(db, { op: "auth_set", auth: { user_id: "9", alias: "Joulupukkin", token: "HEMLIG", expires: "2027-11-01T00:00:00Z" } }, "2026-11-01T01:00:00Z");
+  assert.equal((await own(db, { op: "auth_get" })).auth.token, "HEMLIG");
+  const row = { order_id: 501, item_id: "7001", title: "Tinker", quantity: 1, unit_price: 80, created_at: "2026-11-02T10:00:00Z", updated_at: "a" };
+  await own(db, { op: "sales_upsert", rows: [row, { ...row, item_id: "7002", unit_price: 60 }], synced_at: "2026-11-02T03:00:00Z" });
+  await own(db, { op: "sales_upsert", rows: [{ ...row, unit_price: 75, updated_at: "b", paid_at: "2026-11-02T11:00:00Z" }] });
+  const s = await own(db, { op: "status" });
+  assert.deepEqual([s.connected, s.alias, s.expires, s.sales.n, s.sales.revenue, s.sync.synced_at], [true, "Joulupukkin", "2027-11-01T00:00:00Z", 2, 135, "2026-11-02T03:00:00Z"]);
+  assert.ok(!JSON.stringify(s).includes("HEMLIG"));
+  const d = await dashboard(db);
+  assert.deepEqual({ ...d.own_auth }, { connected: true, expires: "2027-11-01T00:00:00Z", synced_at: "2026-11-02T03:00:00Z", sales: 2 });
+  assert.ok(!JSON.stringify(d).includes("HEMLIG"));
+  await assert.rejects(() => own(db, { op: "auth_set", auth: {} }), /token/);
 });

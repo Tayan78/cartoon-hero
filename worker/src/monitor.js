@@ -54,6 +54,18 @@ export async function dashboard(db, { now = Date.now() } = {}) {
   ]);
   const t = totals.results[0] ?? {};
   const s = sellers.results[0] ?? {};
+  // Ditt Tradera-konto: när nyckeln går ut och senaste hämtningen av ordrar (aldrig själva nyckeln).
+  let ownAuth = null;
+  try {
+    const [a, sync, n] = await db.batch([
+      db.prepare("SELECT json_extract(value, '$.expires') AS expires FROM app_secrets WHERE key = 'tradera_user'"),
+      db.prepare("SELECT json_extract(value, '$.synced_at') AS synced_at FROM app_secrets WHERE key = 'orders_sync'"),
+      db.prepare("SELECT COUNT(*) AS n FROM own_sales"),
+    ]);
+    ownAuth = { connected: a.results.length > 0, expires: a.results[0]?.expires ?? null, synced_at: sync.results[0]?.synced_at ?? null, sales: n.results[0]?.n ?? 0 };
+  } catch {
+    /* tabellerna finns inte än */
+  }
   const runsByName = {};
   for (const r of runs.results) (runsByName[r.name] ??= []).push(r);
   return {
@@ -78,6 +90,7 @@ export async function dashboard(db, { now = Date.now() } = {}) {
     sold_by_month: soldByMonth.results,
     runs: runsByName,
     usage: usage.results,
+    own_auth: ownAuth,
   };
 }
 
