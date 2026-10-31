@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { candidateNumbers, channelFor, checkListingText, formatYears, minPriceFor, researchListing, schleichTitle } from "../lib/listing.js";
+import { candidateNumbers, channelFor, checkListingText, formatYears, marketPrice, minPriceFor, researchListing, schleichTitle } from "../lib/listing.js";
 import { mockDefect, mockLens, mockListingText, mockSimple, mockTradera } from "../lib/mock.js";
 import { DEFAULT_CLOSING } from "../lib/settings.js";
 
@@ -173,4 +173,28 @@ test("berikning: billig marknad höjs till lägsta pris och flaggas", async () =
   assert.equal(l.price, 69);
   assert.equal(l.list_basis, "lägsta pris för häst");
   assert.ok(l.flags.some((f) => /lägsta pris för häst: 69 kr/.test(f)));
+});
+
+test("pris ur databasen: sålt median, mättad modell → billigaste till salu (aldrig under kvartil 25), för få sålda → inget", () => {
+  assert.equal(marketPrice({ sold: 2, median: 90 }), null);
+  assert.equal(marketPrice(null), null);
+  const normal = marketPrice({ sold: 8, median: 89, p25: 69, sell_through: 70, asks_below_median: 3, active_low: 59 });
+  assert.equal(normal.price, 89);
+  assert.match(normal.basis, /sålt median, 8 st/);
+  assert.equal(marketPrice({ sold: 8, median: 89, p25: 69, sell_through: 30, asks_below_median: 3, active_low: 75 }).price, 75);
+  assert.equal(marketPrice({ sold: 8, median: 89, p25: 69, sell_through: 30, asks_below_median: 3, active_low: 49 }).price, 69);
+});
+
+test("berikning med databasen: bekräftat nummer slås upp och priset sätts från sålda", async () => {
+  const asked = [];
+  const market = async (n) => (asked.push(n), { number: n, sold: 6, median: 119, p25: 99, p75: 139, sell_through: 75, asks_below_median: 0, active: 2, active_low: 129, recent: [] });
+  const l = await researchListing({ images: [{ mediaType: "image/jpeg", data: "" }], confirmed: "13803" }, { ...deps, market });
+  assert.deepEqual(asked, ["13803"]);
+  assert.equal(l.price, 119);
+  assert.match(l.list_basis, /sålt median, 6 st/);
+  assert.equal(l.market.median, 119);
+  // Databasen nere: annonsen blir ändå klar, med Tradera-priset.
+  const down = await researchListing({ images: [{ mediaType: "image/jpeg", data: "" }], confirmed: "13803" }, { ...deps, market: async () => { throw new Error("nere"); } });
+  assert.ok(down.price > 0);
+  assert.ok(down.flags.some((f) => /Databasen kunde inte läsas/.test(f)));
 });

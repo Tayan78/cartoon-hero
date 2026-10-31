@@ -79,3 +79,15 @@ Migration `0007_purchases.sql`: `purchases` (inköp: datum, källa, länk, pris,
 - **Ditt Tradera-konto** (Joulupukkin, fast i koden: `OWN_ALIAS` i `lib/purchases.js`): kopplas automatiskt när det saknas (vid Inköp, Sålt 7 dagar), bevakas och samlas in varje natt.
 
 Steg 2: försäljningar kopplas till objekten (ditt konto), vinst/avkastning per inköp, kostnadsfördelning efter förväntat värde och restpartier.
+
+## Prissättning ur databasen (Fota → Granska)
+
+När en fotad Schleich-annons berikas och modellnumret är säkert (bekräftat av dig, eller verifierat via din anteckning/Lens) slås modellen upp i databasen: `POST /data/model { number }` (`worker/src/model.js`). Räknas på de senaste 4 månaderna och bara annonser med en enda figur (partier och paket bort); auktioner som inte nådde reservpriset räknas som osålda.
+
+Priset (`marketPrice` i `lib/listing.js`):
+- **Minst 3 sålda:** sålt median.
+- **Mättad modell** (minst 2 till salu under medianen och under 50 % säljs): billigaste till salu, men aldrig under den undre kvartilen av vad modellen sålt för.
+- **Färre än 3 sålda eller databasen nere:** som förut – billigaste på Tradera just nu.
+- Lägsta pris för hästar (69 kr) och föl/ponnyer (49 kr) gäller alltid.
+
+Granska visar rutan *"13773 i databasen"*: sålda, säljgrad, median med spann, till salu nu, tid till såld och de senast sålda.

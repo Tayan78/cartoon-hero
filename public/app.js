@@ -1302,6 +1302,7 @@ function openReview(id) {
   $("v-price-basis").textContent = data.price
     ? `Förslag ${kr(data.price)} (${data.list_basis})${fs?.count ? ` · ${fs.count} till salu ${kr(fs.low)}–${kr(fs.high)}` : ""}${data.retail ? ` · nypris ${kr(data.retail.low)}–${kr(data.retail.high)}` : ""}`
     : "";
+  renderReviewMarket(data.market);
   reviewChannel = l.channel || data.channel || "Tradera";
   for (const c of $("v-channel").querySelectorAll(".chip")) c.classList.toggle("on", c.dataset.channel === reviewChannel);
   $("v-flags").replaceChildren(
@@ -1692,6 +1693,36 @@ function paintHomeWeek(w) {
       return li;
     }),
   );
+}
+
+// Granska: modellens siffror ur databasen (sålt senaste 4 mån, säljgrad, till salu nu).
+function renderReviewMarket(m) {
+  const box = $("v-market");
+  box.hidden = !m;
+  if (!m) return;
+  const el = (tag, cls, text) => Object.assign(document.createElement(tag), { className: cls, textContent: text });
+  const stat = (label, value, note = "") => {
+    const d = el("div", "vm-stat", "");
+    d.append(el("span", "metric-label", label), el("b", "", value), el("small", "", note));
+    return d;
+  };
+  const head = el("p", "metric-label vm-head", `${m.number} i databasen · senaste 4 mån`);
+  const grid = el("div", "vm-grid", "");
+  grid.append(
+    stat("Sålda", String(m.sold), m.sell_through != null ? `${m.sell_through} % säljs` : ""),
+    stat("Median", m.median ? kr(m.median) : "–", m.p25 && m.p75 && m.p25 !== m.p75 ? `${m.p25}–${m.p75} kr` : ""),
+    stat("Till salu nu", String(m.active), m.active_low ? `från ${kr(m.active_low)}` : ""),
+    stat("Tid till såld", m.days_to_sell != null ? `${m.days_to_sell} d` : "–", "median"),
+  );
+  const list = el("ul", "vm-recent", "");
+  for (const r of m.recent ?? []) {
+    const li = document.createElement("li");
+    const a = Object.assign(el("a", "", ""), { href: r.url || "#", target: "_blank", rel: "noopener" });
+    a.append(el("span", "", r.title), el("b", "", kr(r.price)), el("small", "", String(r.end_at ?? "").slice(0, 10)));
+    li.append(a);
+    list.append(li);
+  }
+  box.replaceChildren(head, grid, ...(m.recent?.length ? [el("p", "metric-label vm-head", "Senast sålda"), list] : []));
 }
 
 async function renderHomeWeek() {

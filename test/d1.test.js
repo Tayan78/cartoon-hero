@@ -329,3 +329,27 @@ test("Veckan: dina sålda mot marknaden, topp 5 utan dig själv, veckan före", 
   assert.deepEqual(w.top.map((t) => [t.alias, t.sold, t.share]), [["A", 5, 50], ["B", 3, 30]]);
   assert.equal(w.own.alias, "Joulupukkin");
 });
+
+test("Modell i databasen: bara enstaka figurer, reservpris ej nått = osåld, till salu nu, median och tid till såld", async () => {
+  const { modelStats } = await import("../worker/src/model.js");
+  const db = fakeD1();
+  const now = Date.parse("2026-11-10T12:00:00Z");
+  const day = (d) => new Date(now - d * 86400000).toISOString();
+  const r = (id, extra) => ({ id, seller_id: "1", seller: "A", title: "Schleich Tinker sto 13773", model_number: "13773", niche: "djur", source: "sök", ...extra });
+  await upsertListings(db, [
+    r("a", { status: "Såld", price: 80, start_at: day(10), end_at: day(6) }),
+    r("b", { status: "Såld", price: 100, start_at: day(20), end_at: day(10) }),
+    r("c", { status: "Såld", price: 120, start_at: day(5), end_at: day(3) }),
+    r("d", { status: "Osåld", price: 150, end_at: day(4) }),
+    r("e", { status: "Aktiv", price: 89, end_at: day(-5) }),
+    r("f", { status: "Såld", price: 300, end_at: day(2), title: "10 st Schleich hästar bl.a. 13773" }), // parti
+    r("g", { status: "Såld", price: 90, end_at: day(200) }), // för gammal
+    r("h", { status: "Såld", price: 60, end_at: day(1), model_number: "14000" }), // annan modell
+  ]);
+  await db.prepare("UPDATE listings SET reserve_met = 0 WHERE id = 'c'").run();
+  const m = await modelStats(db, { number: "13773", now });
+  assert.deepEqual([m.sold, m.unsold, m.median, m.sell_through, m.active, m.active_low, m.asks_below_median], [2, 2, 90, 50, 1, 89, 1]);
+  assert.equal(m.days_to_sell, 7);
+  assert.deepEqual(m.recent.map((x) => x.price), [80, 100]);
+  await assert.rejects(() => modelStats(db, { number: "x" }), /Modellnummer/);
+});
