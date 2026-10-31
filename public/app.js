@@ -89,17 +89,17 @@ const TITLES = {
   review: "Granska annons",
   settings: "Inställningar",
   lego: "Lego i bulk",
-  seller: "Konkurrent",
-  market: "Marknadsdata",
-  lots: "Fynd",
+  seller: "Analytics",
+  market: "Säljare och insamling",
+  lots: "Analytics",
   ops: "Drift",
-  bi: "Marknadsanalys",
+  bi: "Analytics",
   purchases: "Inköp",
 };
 let currentView = "home";
 // Flikraden: vilken flik som lyser för varje vy.
-const TAB_ROOTS = ["home", "scan", "capture", "groups", "history"];
-const TAB_OF = { result: null, review: "groups", settings: null };
+const TAB_ROOTS = ["home", "capture", "groups", "bi", "lots", "seller", "ops"];
+const TAB_OF = { result: "home", scan: "home", history: "home", review: "groups", settings: "ops", market: "ops", purchases: "home", lego: "home", bi: "analytics", lots: "analytics", seller: "analytics" };
 function markTab(name) {
   const tab = name === "result" ? (historyIndex >= 0 ? "history" : "scan") : name in TAB_OF ? TAB_OF[name] : name;
   for (const b of document.querySelectorAll("#tabbar .tab")) b.classList.toggle("on", b.dataset.tab === tab);
@@ -112,7 +112,7 @@ function show(name) {
   // Tillbaka-pilen behövs bara under en flik (resultat, granskning, inställningar …).
   $("btn-back").hidden = TAB_ROOTS.includes(name) && !(name === "capture" && captureFrom === "groups");
   markTab(name);
-  $("btn-settings").hidden = name === "settings";
+  $("btn-settings").hidden = true; // inställningarna nås från Drift
   window.scrollTo(0, 0);
 }
 
@@ -921,11 +921,41 @@ $("c-list").addEventListener("click", () => {
 });
 
 // ---------- annonsläge: lista ----------
-async function openGroups() {
+// Annonser i fyra steg: att skicka → att granska → klara (godkända) → exporterade.
+// Fliken öppnas där det finns något att göra, om du inte valt själv.
+let groupPanel = null;
+function showGroupPanel(panel) {
+  groupPanel = panel;
+  for (const b of document.querySelectorAll("#g-tabs .chip")) b.classList.toggle("on", b.dataset.panel === panel);
+  for (const id of ["send", "review", "ready", "exported"]) $(`g-panel-${id}`).hidden = id !== panel;
+}
+for (const b of document.querySelectorAll("#g-tabs .chip")) b.addEventListener("click", () => showGroupPanel(b.dataset.panel));
+
+function groupCounts(unsent) {
+  const by = (fn) => sentListings.filter(fn).length;
+  return {
+    send: unsent,
+    review: by((l) => ["Väntar", "Bearbetas", "Klar", "Fel"].includes(l.status)),
+    ready: by((l) => l.status === "Godkänd"),
+    exported: by((l) => l.status === "Exporterad"),
+  };
+}
+let sentLoaded = false; // fliken väljs först när de skickade annonserna hämtats
+async function renderGroupTabs() {
+  const unsent = (await allGroups().catch(() => [])).length;
+  const n = groupCounts(unsent);
+  for (const [k, v] of Object.entries(n)) $(`g-n-${k}`).textContent = v ? `(${v})` : "";
+  if (!groupPanel && (sentLoaded || unsent)) showGroupPanel(n.send ? "send" : n.review ? "review" : n.ready ? "ready" : "send");
+}
+
+async function openGroups(panel = groupPanel) {
   editingGroup = null;
+  groupPanel = panel;
   show("groups");
-  renderGroups();
-  renderSent();
+  if (panel) showGroupPanel(panel);
+  else for (const id of ["send", "review", "ready", "exported"]) $(`g-panel-${id}`).hidden = id !== "send";
+  await renderGroups();
+  await renderSent();
 }
 
 async function renderGroups() {
@@ -939,6 +969,7 @@ async function renderGroups() {
   }
   const selected = groups.filter((g) => g.selected).length;
   $("g-count").textContent = groups.length ? `${selected} av ${groups.length} markerade` : "";
+  renderGroupTabs();
   $("g-empty").hidden = groups.length > 0;
   $("g-send").disabled = selected === 0;
   $("g-send").textContent = selected ? `Skicka till AI (${selected})` : "Skicka till AI";
@@ -1133,25 +1164,28 @@ async function renderSent() {
   try {
     // Annonser som fortfarande laddas upp visas i listan ovanför.
     sentListings = ((await listingsApi({ action: "list" })).listings ?? []).filter((l) => l.status !== "Laddar upp");
+    sentLoaded = true;
   } catch (err) {
     $("g-sent-hint").textContent = `⚠️ Kunde inte hämta skickade annonser: ${err.message}`;
     return;
   }
   const working = sentListings.filter((l) => l.status === "Väntar" || l.status === "Bearbetas").length;
-  // Exporterade läggs i en egen hopfälld lista längst ner, så att de inte stör.
-  const active = sentListings.filter((l) => l.status !== "Exporterad");
+  // Att granska (AI:n arbetar, klara, fel) · Klara (godkända) · Exporterade.
+  const toReview = sentListings.filter((l) => ["Väntar", "Bearbetas", "Klar", "Fel"].includes(l.status));
+  const approvedList = sentListings.filter((l) => l.status === "Godkänd");
   const done = sentListings.filter((l) => l.status === "Exporterad");
-  $("g-sent-hint").textContent = !sentListings.length
-    ? "Inga skickade annonser ännu."
-    : working
-      ? `AI:n arbetar med ${working} ${working === 1 ? "annons" : "annonser"} – du kan stänga appen.`
-      : active.length
-        ? "Tryck på en annons för att granska den."
-        : "Alla annonser är exporterade.";
-  $("g-sent").replaceChildren(...active.map(sentRow));
+  $("g-sent-hint").textContent = working
+    ? `AI:n arbetar med ${working} ${working === 1 ? "annons" : "annonser"} – du kan stänga appen.`
+    : toReview.length
+      ? "Tryck på en annons för att granska den."
+      : "Inget att granska just nu.";
+  $("g-sent").replaceChildren(...toReview.map(sentRow));
+  $("g-ready").replaceChildren(...approvedList.map(sentRow));
+  $("g-ready-hint").textContent = approvedList.length ? "Godkända annonser – exportera dem till ProLister." : "Inga godkända annonser att exportera.";
   $("g-exported").hidden = !done.length;
   $("g-exported-count").textContent = done.length;
   $("g-exported-list").replaceChildren(...done.map(sentRow));
+  renderGroupTabs();
   renderApproveBar();
   const approved = sentListings.filter((l) => l.status === "Godkänd" && (l.channel || "Tradera") === "Tradera").length;
   $("g-export").hidden = !approved && !done.length;
@@ -1553,12 +1587,13 @@ function goBack() {
   if (currentView === "review") return openGroups();
   if (currentView === "result") return historyIndex >= 0 ? openHistory() : show("scan");
   if (currentView === "capture") return captureFrom === "groups" ? openGroups() : openHome();
-  if (currentView === "settings" && viewBeforeSettings !== "home") return show(viewBeforeSettings);
+  if (currentView === "settings" && viewBeforeSettings !== "home") return viewBeforeSettings === "ops" ? openOps() : show(viewBeforeSettings);
+  if (currentView === "market") return openOps();
   openHome();
 }
 
 $("btn-back").addEventListener("click", goBack);
-const TAB_OPEN = { home: openHome, scan: resetScan, capture: () => openCapture(null, "home"), groups: openGroups, history: openHistory };
+const TAB_OPEN = { home: openHome, capture: () => openCapture(null, "home"), groups: () => openGroups(), analytics: () => openAnalytics(), ops: openOps };
 for (const b of document.querySelectorAll("#tabbar .tab")) {
   b.addEventListener("click", () => {
     if (currentView === "capture" && groupPhotos.length && !editingGroup && !confirm("Bilderna för den här annonsen är inte sparade. Lämna ändå?")) return;
@@ -1567,13 +1602,30 @@ for (const b of document.querySelectorAll("#tabbar .tab")) {
 }
 $("h-go-scan").addEventListener("click", resetScan);
 $("h-go-capture").addEventListener("click", () => openCapture(null, "home"));
-$("h-go-groups").addEventListener("click", openGroups);
-$("h-go-history").addEventListener("click", openHistory);
-$("h-go-lego").addEventListener("click", openLego);
-$("h-go-seller").addEventListener("click", openSeller);
-$("h-go-market").addEventListener("click", openMarket);
-$("h-go-lots").addEventListener("click", openLots);
-$("h-go-settings").addEventListener("click", () => openSettings());
+$("h-todo-send").addEventListener("click", () => openGroups("send"));
+$("h-todo-review").addEventListener("click", () => openGroups("review"));
+$("h-todo-ready").addEventListener("click", () => openGroups("ready"));
+$("h-lots").addEventListener("click", () => openAnalytics("lots"));
+$("h-ops").addEventListener("click", openOps);
+$("h-purchase").addEventListener("click", () => openPurchases());
+$("o-go-market").addEventListener("click", openMarket);
+$("o-go-settings").addEventListener("click", () => openSettings());
+
+// ---------- Analytics: Marknad, Fynd och Konkurrenter ----------
+function openAnalytics(sub = store.get("analytics_tab", "bi")) {
+  store.set("analytics_tab", sub);
+  for (const b of document.querySelectorAll(".a-tabs .chip")) b.classList.toggle("on", b.dataset.a === sub);
+  if (sub === "lots") return openLots();
+  if (sub === "seller") return openCompetitors();
+  show("bi");
+  loadBi();
+}
+for (const b of document.querySelectorAll(".a-tabs .chip")) b.addEventListener("click", () => openAnalytics(b.dataset.a));
+
+function openOps() {
+  show("ops");
+  loadOps();
+}
 
 const sek = (n) => `${n.toFixed(2).replace(".", ",")} kr`;
 function meter(id, share) {
@@ -1583,60 +1635,71 @@ function meter(id, share) {
   bar.className = p <= 0.05 ? "empty" : p <= 0.2 ? "low" : "";
 }
 
-// Siffrorna på startsidan: Lens live från SerpApi, Google Cloud från din
-// avläsning + appens räkning sedan dess, och antal exporterade annonser.
+// Startsidan: dagens läge – vad som väntar i annonsflödet, pågående inköp, fynd
+// och om något i driften har stannat. Varje kort leder dit du ska.
 async function renderHome() {
-  const groups = await allGroups().catch(() => []);
-  $("h-capture-note").textContent = groups.length
-    ? `${groups.length} ${groups.length === 1 ? "annons" : "annonser"} i telefonen, inte skickade`
-    : "Fota det du ska sälja";
+  const unsent = (await allGroups().catch(() => [])).length;
+  const row = (id, n, one, many, done) => {
+    $(id).textContent = n ? `${n} ${n === 1 ? one : many}` : done;
+    $(id).classList.toggle("todo", Boolean(n));
+  };
+  row("h-todo-send", unsent, "annons att skicka till AI", "annonser att skicka till AI", "Inget att skicka – fota med ＋");
+  renderHomeLots();
+  renderHomePurchase();
   if (!getToken()) return;
-  const budget = getSettings().budget;
-  let data;
   try {
     const res = await fetch("/api/home", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-app-token": getToken() },
-      body: JSON.stringify({ since: budget.google_spent_at }),
+      body: JSON.stringify({ since: getSettings().budget.google_spent_at }),
     });
-    data = await res.json();
+    const data = await res.json();
     if (!res.ok) throw new Error(data.error || `Fel ${res.status}`);
+    const l = data.listings ?? {};
+    row("h-todo-review", l.ready ?? 0, "annons att granska", "annonser att granska", "Inget att granska");
+    row("h-todo-ready", l.approved ?? 0, "godkänd att exportera", "godkända att exportera", "Inget att exportera");
+    $("h-todo-note").textContent = l.exported ? `${l.exported} exporterade totalt` : "";
     $("h-status").textContent = "";
   } catch (err) {
-    $("h-status").textContent = `⚠️ Kunde inte hämta siffrorna: ${err.message}`;
+    $("h-status").textContent = `⚠️ Kunde inte hämta annonserna: ${err.message}`;
+  }
+  renderHomeOps();
+}
+
+function renderHomeLots() {
+  const d = store.get("lots_djur", null);
+  if (!d) {
+    $("h-lots-text").textContent = "Partier av Schleich-djur och smurfar – billigt per figur.";
+    $("h-lots-note").textContent = "";
     return;
   }
+  const deals = (d.deals ?? []).filter((l) => l.deal);
+  const auctions = (d.deals ?? []).filter((l) => l.under_max).length;
+  $("h-lots-text").textContent = `${deals.length} Köp nu-fynd · ${auctions} auktioner under budtak`;
+  $("h-lots-note").textContent = d.fetched_at ? `hämtat ${new Date(d.fetched_at).toLocaleString("sv-SE", { dateStyle: "short", timeStyle: "short" })}` : "";
+}
 
-  const lens = data.lens;
-  if (lens?.left != null) {
-    const total = lens.per_month ?? 250;
-    $("m-lens").textContent = `${lens.left} kvar av ${total}`;
-    meter("m-lens-bar", lens.left / total);
-    $("m-lens-note").textContent = lens.used != null ? `${lens.used} använda denna period` : "";
-  } else {
-    $("m-lens").textContent = "–";
-    $("m-lens-note").textContent = lens?.error ? `⚠️ ${lens.error}` : "SerpApi är inte inställt";
+function renderHomePurchase() {
+  const p = purchaseList.find((x) => x.status !== "klar" && !x.legacy) ?? purchaseList.find((x) => x.status !== "klar");
+  $("h-purchase").hidden = !p;
+  if (!p) return;
+  $("h-purchase-title").textContent = `🧾 ${p.title || "Inköp"}`;
+  const done = p.items_registered ?? 0;
+  $("h-purchase-note").textContent = p.item_count ? `${done} av ${p.item_count} fotade` : `${done} fotade`;
+  meter("h-purchase-bar", p.item_count ? done / p.item_count : 0);
+  $("h-purchase-bar").className = "";
+}
+
+async function renderHomeOps() {
+  try {
+    const d = await marketApi({ action: "dashboard" });
+    const bad = opsHealth(d).filter(([l]) => l !== "ok");
+    $("h-ops-note").textContent = bad.length ? `⚠️ ${bad.length} saker att titta på` : "Allt rullar";
+    $("h-ops-dot").className = `dot ${bad.some(([l]) => l === "bad") ? "bad" : bad.length ? "warn" : "ok"}`;
+  } catch {
+    $("h-ops-note").textContent = "Drift";
+    $("h-ops-dot").className = "dot";
   }
-
-  if (budget.google_limit > 0 && data.usage && !data.usage.error) {
-    const spent = (Number(budget.google_spent) || 0) + (data.usage.sek_since ?? 0);
-    const left = budget.google_limit - spent;
-    $("m-google").textContent = `${sek(Math.max(0, left))} kvar av ${sek(budget.google_limit)}`;
-    meter("m-google-bar", left / budget.google_limit);
-    const at = budget.google_spent_at ? new Date(budget.google_spent_at).toLocaleDateString("sv-SE", { day: "numeric", month: "short" }) : "";
-    $("m-google-note").textContent = at
-      ? `${sek(spent)} förbrukat · avläst ${at} + ${sek(data.usage.sek_since ?? 0)} sedan dess`
-      : `${sek(spent)} förbrukat enligt appen · stäm av under ⚙︎ → Budget`;
-  } else {
-    $("m-google").textContent = "–";
-    $("m-google-note").textContent = data.usage?.error ? `⚠️ ${data.usage.error}` : "Ställ in saldot under ⚙︎ → Budget";
-  }
-
-  const l = data.listings;
-  $("m-exported").textContent = l ? String(l.exported) : "–";
-  $("h-groups-note").textContent = l
-    ? [l.ready ? `${l.ready} att granska` : "", l.approved ? `${l.approved} godkända att exportera` : ""].filter(Boolean).join(" · ") || "Skicka, granska och exportera"
-    : "Skicka, granska och exportera";
 }
 
 $("btn-settings-save").addEventListener("click", () => {
@@ -2174,27 +2237,7 @@ async function loadDbStatus() {
   }
 }
 
-$("m-db-copy").addEventListener("click", async () => {
-  const btn = $("m-db-copy");
-  btn.disabled = true;
-  try {
-    let offset = 0;
-    for (;;) {
-      $("m-db-status").textContent = `Kopierar… ${offset} annonser klara`;
-      const r = await marketApi({ action: "db_copy", offset });
-      offset = r.next;
-      if (r.done) {
-        $("m-db-status").textContent = `✓ ${r.total} annonser kopierade.`;
-        break;
-      }
-    }
-    await loadDbStatus();
-  } catch (err) {
-    $("m-db-status").textContent = `⚠️ ${err.message}`;
-  } finally {
-    btn.disabled = false;
-  }
-});
+
 
 async function loadMarketSellers() {
   if (!marketSellers.length) $("m-status").textContent = "Hämtar…";
@@ -2289,15 +2332,17 @@ function renderFound() {
 }
 
 async function watchSeller(s, watch) {
-  if (!watch && !confirm(`Sluta bevaka ${s.alias}? Annonserna som redan samlats in ligger kvar i Sheet.`)) return;
+  if (!watch && !confirm(`Sluta bevaka ${s.alias}? Annonserna som redan samlats in ligger kvar i Sheet.`)) return false;
   $("m-status").textContent = watch ? `Lägger till ${s.alias}…` : `Tar bort ${s.alias}…`;
   try {
     const res = await marketApi({ action: "watch", seller: { id: s.id, alias: s.alias, total: s.total, active: s.active, ended: s.ended, number_share: s.number_share, rating: s.rating, niche: s.niche }, watch });
     await loadMarketSellers();
     // Första insamlingen direkt, så att databasen inte står tom till i natt.
     if (watch) await collectNow(res.seller ?? s);
+    return true;
   } catch (err) {
     $("m-status").textContent = `⚠️ ${err.message}`;
+    return false;
   }
 }
 
@@ -2359,6 +2404,68 @@ function openSeller() {
   $("k-alias").value = seller?.alias ?? store.get("seller_alias", "");
   renderSeller();
 }
+
+// Konkurrenter (Analytics): rullista med bevakade säljare först och sedan förslag
+// från databasen. Välj en säljare så hämtas hans/hennes annonser och modeller.
+let competitorList = store.get("competitors_cache", []);
+async function openCompetitors() {
+  openSeller();
+  renderCompetitorPicker();
+  try {
+    const [c, st] = await Promise.all([marketApi({ action: "competitors", limit: 40 }), marketApi({ action: "status" }).catch(() => null)]);
+    const fromDb = new Map((c.sellers ?? []).map((x) => [String(x.id), x]));
+    const watched = (st?.sellers ?? []).filter((x) => x.watched).map((x) => ({ ...(fromDb.get(String(x.id)) ?? {}), id: String(x.id), alias: x.alias, watched: true }));
+    const ids = new Set(watched.map((x) => x.id));
+    competitorList = [...watched.sort((a, b) => (b.sold ?? 0) - (a.sold ?? 0)), ...(c.sellers ?? []).filter((x) => !ids.has(String(x.id)) && !x.watched)];
+    store.set("competitors_cache", competitorList);
+    renderCompetitorPicker();
+  } catch (err) {
+    $("k-status").textContent = `⚠️ ${err.message}`;
+  }
+}
+
+function renderCompetitorPicker() {
+  const sel = $("k-pick");
+  const option = (x) => Object.assign(document.createElement("option"), { value: x.alias, textContent: `${x.alias}${x.sold != null ? ` · ${x.sold} sålda` : ""}` });
+  const group = (label, list) => {
+    const g = Object.assign(document.createElement("optgroup"), { label });
+    g.append(...list.map(option));
+    return g;
+  };
+  const watched = competitorList.filter((x) => x.watched);
+  const others = competitorList.filter((x) => !x.watched);
+  sel.replaceChildren(
+    Object.assign(document.createElement("option"), { value: "", textContent: "Välj säljare…" }),
+    ...(watched.length ? [group("Bevakade", watched)] : []),
+    ...(others.length ? [group("Förslag (mest sålt Schleich)", others)] : []),
+  );
+  sel.value = competitorList.some((x) => x.alias === seller?.alias) ? seller.alias : "";
+  renderWatchButton();
+}
+
+function renderWatchButton() {
+  const x = competitorList.find((c) => c.alias === $("k-pick").value);
+  $("k-watch").hidden = !x;
+  if (!x) return;
+  $("k-watch").textContent = x.watched ? "✓ Bevakas" : "Bevaka";
+  $("k-watch").classList.toggle("on", Boolean(x.watched));
+}
+
+$("k-pick").addEventListener("change", () => {
+  renderWatchButton();
+  if (!$("k-pick").value) return;
+  $("k-alias").value = $("k-pick").value;
+  fetchSeller();
+});
+
+$("k-watch").addEventListener("click", async () => {
+  const x = competitorList.find((c) => c.alias === $("k-pick").value);
+  if (!x) return;
+  if (!(await watchSeller({ id: x.id, alias: x.alias, total: x.listings, active: x.active, ended: (x.sold ?? 0) + (x.unsold ?? 0), niche: "djur" }, !x.watched))) return;
+  x.watched = !x.watched;
+  store.set("competitors_cache", competitorList);
+  renderCompetitorPicker();
+});
 
 async function fetchSeller() {
   const alias = $("k-alias").value.trim();
@@ -2519,12 +2626,6 @@ $("btn-test-lego").addEventListener("click", async () => {
   }
 });
 
-if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
-if (!getToken()) openSettings("Välkommen! Ange ditt lösenord (APP_TOKEN) och tryck Spara.");
-else {
-  openHome();
-  retryFailed();
-}
 
 // ---------- Drift: körningar, anrop och databasen ----------
 const RUN_INFO = {
@@ -2843,10 +2944,7 @@ $("o-relink").addEventListener("click", async () => {
   }
 });
 
-$("h-go-ops").addEventListener("click", () => {
-  show("ops");
-  loadOps();
-});
+
 $("o-refresh").addEventListener("click", loadOps);
 
 // ---------- Marknadsanalys (Schleich på Tradera) ----------
@@ -2963,10 +3061,7 @@ async function loadBi() {
   }
 }
 
-$("h-go-bi").addEventListener("click", () => {
-  show("bi");
-  loadBi();
-});
+
 for (const b of document.querySelectorAll("#bi-period .chip")) {
   b.addEventListener("click", () => {
     biDays = b.dataset.days;
@@ -3120,3 +3215,12 @@ function openPurchases() {
   loadPurchases();
 }
 $("h-go-purchases").addEventListener("click", openPurchases);
+
+// ---------- start ----------
+// Sist i filen, så att allt ovan är definierat.
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+if (!getToken()) openSettings("Välkommen! Ange ditt lösenord (APP_TOKEN) och tryck Spara.");
+else {
+  openHome();
+  retryFailed();
+}

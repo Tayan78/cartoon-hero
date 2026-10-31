@@ -25,76 +25,29 @@
   <main>
     <!-- Startsida -->
     <section id="view-home" class="view">
-      <div class="metrics">
-        <div class="metric">
-          <span class="metric-label">Google Lens</span>
-          <span id="m-lens" class="metric-value">–</span>
-          <div class="meter"><span id="m-lens-bar"></span></div>
-          <span id="m-lens-note" class="metric-note"></span>
-        </div>
-        <div class="metric">
-          <span class="metric-label">Google Cloud</span>
-          <span id="m-google" class="metric-value">–</span>
-          <div class="meter"><span id="m-google-bar"></span></div>
-          <span id="m-google-note" class="metric-note"></span>
-        </div>
-        <div class="metric wide">
-          <span class="metric-label">Publicerade via appen</span>
-          <span id="m-exported" class="metric-value big-number">–</span>
-          <span id="m-exported-note" class="metric-note">annonser exporterade till ProLister</span>
-        </div>
+      <div class="home-card">
+        <div class="hc-head"><b>Att göra</b><span id="h-todo-note" class="muted small"></span></div>
+        <button id="h-todo-send" type="button" class="hc-row"></button>
+        <button id="h-todo-review" type="button" class="hc-row"></button>
+        <button id="h-todo-ready" type="button" class="hc-row"></button>
       </div>
-
-      <nav class="home-nav" aria-label="Delar av appen">
-        <button id="h-go-scan" type="button" class="home-btn">
-          <span class="home-icon">📷</span>
-          <span><b>Skanna</b><small>Köpbeslut på loppis</small></span>
-        </button>
-        <button id="h-go-capture" type="button" class="home-btn">
-          <span class="home-icon">📦</span>
-          <span><b>Fota annonser</b><small id="h-capture-note">Fota det du ska sälja</small></span>
-        </button>
-        <button id="h-go-groups" type="button" class="home-btn">
-          <span class="home-icon">📋</span>
-          <span><b>Annonser</b><small id="h-groups-note">Skicka, granska och exportera</small></span>
-        </button>
-        <button id="h-go-purchases" type="button" class="home-btn">
-          <span class="home-icon">🧾</span>
-          <span><b>Inköp</b><small>Registrera partier – annonserna kopplas när du fotar</small></span>
-        </button>
-        <button id="h-go-lego" type="button" class="home-btn">
-          <span class="home-icon">🧱</span>
-          <span><b>Lego i bulk</b><small>Kilopris från sålda partier på Tradera</small></span>
-        </button>
-        <button id="h-go-seller" type="button" class="home-btn">
-          <span class="home-icon">🔍</span>
-          <span><b>Konkurrent</b><small>Vad en säljare säljer, priser och säljgrad</small></span>
-        </button>
-        <button id="h-go-lots" type="button" class="home-btn">
-          <span class="home-icon">💎</span>
-          <span><b>Fynd: partier</b><small>Schleich-djur och Smurfar – billigt per figur inkl. frakt</small></span>
-        </button>
-        <button id="h-go-market" type="button" class="home-btn">
-          <span class="home-icon">📊</span>
-          <span><b>Marknadsdata</b><small>Bevaka konkurrenter, samlas in varje natt</small></span>
-        </button>
-        <button id="h-go-bi" type="button" class="home-btn">
-          <span class="home-icon">📈</span>
-          <span><b>Marknadsanalys</b><small>Schleich på Tradera: försäljning, säljgrad, bästa tider</small></span>
-        </button>
-        <button id="h-go-ops" type="button" class="home-btn">
-          <span class="home-icon">🩺</span>
-          <span><b>Drift</b><small id="h-ops-note">Körningar, anrop och databasen</small></span>
-        </button>
-        <button id="h-go-history" type="button" class="home-btn">
-          <span class="home-icon">🕘</span>
-          <span><b>Historik</b><small>Alla skanningar</small></span>
-        </button>
-        <button id="h-go-settings" type="button" class="home-btn">
-          <span class="home-icon">⚙︎</span>
-          <span><b>Inställningar</b><small>Lösenord, regler, budget</small></span>
-        </button>
-      </nav>
+      <button id="h-purchase" type="button" class="home-card hc-button" hidden>
+        <div class="hc-head"><b id="h-purchase-title">Inköp</b><span id="h-purchase-note" class="muted small"></span></div>
+        <div class="meter"><span id="h-purchase-bar"></span></div>
+      </button>
+      <button id="h-lots" type="button" class="home-card hc-button">
+        <div class="hc-head"><b>💎 Fynd</b><span id="h-lots-note" class="muted small"></span></div>
+        <div id="h-lots-text" class="small"></div>
+      </button>
+      <button id="h-ops" type="button" class="home-card hc-button hc-inline">
+        <span><span id="h-ops-dot" class="dot"></span><span id="h-ops-note">Drift</span></span>
+        <span class="muted small">Drift →</span>
+      </button>
+      <div class="home-links">
+        <button id="h-go-capture" type="button" class="link">📷 Fota</button>
+        <button id="h-go-purchases" type="button" class="link">🧾 Inköp</button>
+        <button id="h-go-scan" type="button" class="link">🔍 Skanna på loppis</button>
+      </div>
       <p id="h-status" class="hint"></p>
     </section>
 
@@ -169,46 +122,62 @@
 
     <!-- Annonsgrupper att skicka vidare -->
     <section id="view-groups" class="view" hidden>
-      <div class="hist-head">
-        <h2>Annonser</h2>
-        <span id="g-count" class="muted small"></span>
+      <div id="g-tabs" class="chips seg" role="tablist" aria-label="Annonser">
+        <button type="button" class="chip" data-panel="send">Skicka <span id="g-n-send"></span></button>
+        <button type="button" class="chip" data-panel="review">Granska <span id="g-n-review"></span></button>
+        <button type="button" class="chip" data-panel="ready">Klara <span id="g-n-ready"></span></button>
+        <button type="button" class="chip" data-panel="exported">Utlagda <span id="g-n-exported"></span></button>
       </div>
-      <div class="chips">
-        <button id="g-all" type="button" class="chip">Markera alla</button>
-        <button id="g-none" type="button" class="chip">Avmarkera alla</button>
-      </div>
-      <ul id="g-list" class="hist-list"></ul>
-      <p id="g-empty" class="hint" hidden>Inga annonser att skicka.</p>
-      <button id="g-send" class="primary big" disabled>Skicka till AI</button>
-      <p id="g-hint" class="hint"></p>
-      <button id="g-capture" class="secondary big">📷 Fota fler</button>
 
-      <div class="hist-head">
-        <h3>Skickade</h3>
-        <button id="g-refresh" type="button" class="chip">↻ Uppdatera</button>
+      <div id="g-panel-send" class="g-panel">
+        <div class="hist-head">
+          <span id="g-count" class="muted small"></span>
+          <span class="acts-inline">
+            <button id="g-all" type="button" class="chip">Markera alla</button>
+            <button id="g-none" type="button" class="chip">Avmarkera alla</button>
+          </span>
+        </div>
+        <ul id="g-list" class="hist-list"></ul>
+        <p id="g-empty" class="hint" hidden>Inga annonser att skicka – fota med ＋ i mitten.</p>
+        <button id="g-send" class="primary big" disabled>Skicka till AI</button>
+        <p id="g-hint" class="hint"></p>
+        <button id="g-capture" class="secondary big">📷 Fota fler</button>
       </div>
-      <p id="g-sent-hint" class="hint">AI:n arbetar i bakgrunden – du kan stänga appen.</p>
-      <div id="g-approve-tools" class="chips" hidden>
-        <button id="g-approve-all" type="button" class="chip">Markera alla klara</button>
-        <button id="g-approve-none" type="button" class="chip">Avmarkera alla</button>
+
+      <div id="g-panel-review" class="g-panel" hidden>
+        <div class="hist-head">
+          <p id="g-sent-hint" class="hint">AI:n arbetar i bakgrunden – du kan stänga appen.</p>
+          <button id="g-refresh" type="button" class="chip">↻</button>
+        </div>
+        <div id="g-approve-tools" class="chips" hidden>
+          <button id="g-approve-all" type="button" class="chip">Markera alla klara</button>
+          <button id="g-approve-none" type="button" class="chip">Avmarkera alla</button>
+        </div>
+        <ul id="g-sent" class="hist-list"></ul>
+        <button id="g-approve" class="primary big" hidden>✓ Godkänn markerade</button>
+        <p id="g-approve-hint" class="hint"></p>
       </div>
-      <ul id="g-sent" class="hist-list"></ul>
-      <button id="g-approve" class="primary big" hidden>✓ Godkänn markerade</button>
-      <p id="g-approve-hint" class="hint"></p>
-      <button id="g-export" class="primary big" hidden>📄 Exportera till ProLister</button>
-      <label id="g-export-all-label" class="check" hidden>
-        <input id="g-export-all" type="checkbox">
-        <span>Ta med redan exporterade</span>
-      </label>
-      <p id="g-export-hint" class="hint"></p>
-      <details id="g-exported" class="fold" hidden>
-        <summary>Exporterade (<span id="g-exported-count">0</span>)</summary>
+
+      <div id="g-panel-ready" class="g-panel" hidden>
+        <p id="g-ready-hint" class="hint"></p>
+        <ul id="g-ready" class="hist-list"></ul>
+        <button id="g-export" class="primary big" hidden>📄 Exportera till ProLister</button>
+        <label id="g-export-all-label" class="check" hidden>
+          <input id="g-export-all" type="checkbox">
+          <span>Ta med redan exporterade</span>
+        </label>
+        <p id="g-export-hint" class="hint"></p>
+        <ul id="g-export-skipped" class="flags"></ul>
+        <div id="g-export-links" class="actions" hidden>
+          <button id="g-export-save" type="button" class="secondary big">💾 Spara / dela filen</button>
+          <a id="g-export-drive" class="secondary big link-btn" target="_blank" rel="noopener">Öppna i Drive</a>
+        </div>
+      </div>
+
+      <div id="g-panel-exported" class="g-panel" hidden>
+        <p class="hint"><span id="g-exported-count">0</span> exporterade annonser.</p>
+        <div id="g-exported" hidden></div>
         <ul id="g-exported-list" class="hist-list"></ul>
-      </details>
-      <ul id="g-export-skipped" class="flags"></ul>
-      <div id="g-export-links" class="actions" hidden>
-        <button id="g-export-save" type="button" class="secondary big">💾 Spara / dela filen</button>
-        <a id="g-export-drive" class="secondary big link-btn" target="_blank" rel="noopener">Öppna i Drive</a>
       </div>
     </section>
 
@@ -242,7 +211,7 @@
         <input id="v-price" type="number" inputmode="numeric" min="0">
       </label>
       <p id="v-price-basis" class="hint"></p>
-      <div class="field">
+      <div class="field" hidden>
         <span>Kanal</span>
         <div id="v-channel" class="chips">
           <button type="button" class="chip" data-channel="Tradera">Tradera</button>
@@ -403,10 +372,22 @@
 
     <!-- Konkurrent: en säljares annonser på Tradera per modellnummer -->
     <section id="view-seller" class="view" hidden>
-      <div class="inline-field">
-        <label class="field"><span>Säljarens alias på Tradera</span><input id="k-alias" type="text" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="t.ex. figurbutiken"></label>
-        <button id="k-fetch" type="button" class="primary">Hämta</button>
+      <div class="chips seg a-tabs" role="tablist" aria-label="Analytics">
+        <button type="button" class="chip" data-a="bi">Marknad</button>
+        <button type="button" class="chip" data-a="lots">Fynd</button>
+        <button type="button" class="chip" data-a="seller">Konkurrenter</button>
       </div>
+      <div class="inline-field">
+        <label class="field"><span>Konkurrent</span><select id="k-pick"><option value="">Välj säljare…</option></select></label>
+        <button id="k-watch" type="button" class="chip" hidden>Bevaka</button>
+      </div>
+      <details class="fold">
+        <summary>Sök ett annat alias</summary>
+        <div class="inline-field">
+          <label class="field"><span>Säljarens alias på Tradera</span><input id="k-alias" type="text" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="t.ex. figurbutiken"></label>
+          <button id="k-fetch" type="button" class="primary">Hämta</button>
+        </div>
+      </details>
       <p id="k-status" class="hint">Aktiva och avslutade annonser senaste året. Såld = fick en köpare (auktion eller Köp nu).</p>
       <div id="k-body" hidden>
         <div class="metrics">
@@ -449,14 +430,15 @@
       </div>
 
       <h3>Databasen</h3>
-      <p class="hint">Marknadsdatan flyttas till en egen databas (Cloudflare D1). Under övergången sparas allt både där och i arket.</p>
+      <p class="hint">Marknadsdatan ligger i databasen (Cloudflare D1).</p>
       <p id="m-db-status" class="hint"></p>
-      <button id="m-db-copy" type="button" class="secondary">Kopiera arket till databasen</button>
+
       <h3>All Schleich på Tradera</h3>
       <p class="hint">Varje natt efter säljarna hämtas alla annonser med Schleich, Bayala och Eldrador på hela Tradera – aktiva och avslutade, oavsett säljare – till databasen, märkta med serie (Bayala, Harry Potter, riddare, Snobben …).</p>
       <p id="m-sweep-status" class="hint"></p>
       <button id="m-sweep" type="button" class="secondary">Hämta all Schleich nu</button>
 
+      <div hidden>
       <div class="hist-head">
         <h3>Förslag från databasen</h3>
         <span class="acts-inline"><button id="m-suggest-refresh" type="button" class="chip">↻</button></span>
@@ -464,7 +446,9 @@
       <p class="hint">Säljare som sålt mest Schleich enligt databasen (all Schleich på Tradera sedan nov 2023), även de du inte bevakar. Bevaka för att även samla in resten av deras sortiment.</p>
       <p id="m-suggest-status" class="hint"></p>
       <ul id="m-suggest" class="lego-lots"></ul>
+      </div>
 
+      <div hidden>
       <h3>Hitta konkurrenter</h3>
       <div id="m-niche" class="chips" role="group" aria-label="Nisch">
         <button type="button" class="chip on" data-niche="djur">Schleich-djur</button>
@@ -474,6 +458,7 @@
       <button id="m-discover" class="secondary big">🔍 Hitta konkurrenter</button>
       <p id="m-discover-status" class="hint"></p>
       <ul id="m-found" class="lego-lots"></ul>
+      </div>
     </section>
 
     <!-- Inköp: partier, loppisfynd och gammalt lager -->
@@ -515,6 +500,11 @@
 
     <!-- Marknadsanalys: Schleich på Tradera, räknat ur databasen -->
     <section id="view-bi" class="view" hidden>
+      <div class="chips seg a-tabs" role="tablist" aria-label="Analytics">
+        <button type="button" class="chip" data-a="bi">Marknad</button>
+        <button type="button" class="chip" data-a="lots">Fynd</button>
+        <button type="button" class="chip" data-a="seller">Konkurrenter</button>
+      </div>
       <div id="bi-period" class="chips" role="group" aria-label="Period">
         <button type="button" class="chip" data-days="7">7 dagar</button>
         <button type="button" class="chip on" data-days="30">30 dagar</button>
@@ -586,10 +576,21 @@
       <p id="o-products-status" class="hint"></p>
       <div id="o-products" class="metrics"></div>
       <div id="o-top-products" class="ops-breakdown"></div>
+
+      <h3>Underhåll</h3>
+      <div class="actions stack">
+        <button id="o-go-market" type="button" class="secondary big">Säljare och insamling</button>
+        <button id="o-go-settings" type="button" class="secondary big">⚙︎ Inställningar</button>
+      </div>
     </section>
 
     <!-- Fynd: underprisade Schleich-partier (kr per figur) -->
     <section id="view-lots" class="view" hidden>
+      <div class="chips seg a-tabs" role="tablist" aria-label="Analytics">
+        <button type="button" class="chip" data-a="bi">Marknad</button>
+        <button type="button" class="chip" data-a="lots">Fynd</button>
+        <button type="button" class="chip" data-a="seller">Konkurrenter</button>
+      </div>
       <div class="hist-head">
         <div id="f-niche" class="chips" role="group" aria-label="Nisch">
           <button type="button" class="chip on" data-niche="djur">Schleich-djur</button>
@@ -624,9 +625,11 @@
       </label>
       <button id="btn-test" class="secondary">Testa anslutning</button>
       <p id="s-test" class="hint"></p>
-      <button id="btn-test-lego" class="secondary">Testa Tradera: sålda Lego-partier</button>
-      <p id="s-test-lego" class="hint"></p>
+      <button id="btn-test-lego" class="secondary" hidden>Testa Tradera: sålda Lego-partier</button>
+      <p id="s-test-lego" class="hint" hidden></p>
 
+      <details class="fold">
+      <summary>Avancerat</summary>
       <h3>Läge</h3>
       <label class="field">
         <span>Hur skanningen görs</span>
@@ -710,6 +713,7 @@
       <div id="s-fx" class="fx"></div>
 
       <p id="s-costs" class="hint"></p>
+      </details>
 
       <div class="actions">
         <button id="btn-settings-save" class="primary big">Spara</button>
@@ -720,10 +724,10 @@
   <!-- Flikrad längst ner, som i Vinted -->
   <nav id="tabbar" class="tabbar" aria-label="Huvudmeny">
     <button type="button" class="tab" data-tab="home"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg><span>Hem</span></button>
-    <button type="button" class="tab" data-tab="scan"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><circle cx="12" cy="12" r="3.5"/></svg><span>Skanna</span></button>
-    <button type="button" class="tab" data-tab="capture"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg><span>Fota</span></button>
     <button type="button" class="tab" data-tab="groups"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/></svg><span>Annonser</span></button>
-    <button type="button" class="tab" data-tab="history"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span>Historik</span></button>
+    <button type="button" class="tab tab-fab" data-tab="capture" aria-label="Fota"><span class="fab"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6v12M6 12h12"/></svg></span><span>Fota</span></button>
+    <button type="button" class="tab" data-tab="analytics"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><span>Analytics</span></button>
+    <button type="button" class="tab" data-tab="ops"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg><span>Drift</span></button>
   </nav>
 
   <script src="/app.js" type="module"></script>
