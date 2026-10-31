@@ -76,6 +76,6 @@ Migration `0007_purchases.sql`: `purchases` (inköp: datum, källa, länk, pris,
 
 - Hem → **Inköp**: klistra in en Tradera-länk så fylls pris, frakt (billigaste – kontrollera vad du valde), köparskydd, antal och datum i; eller fyll i för hand. *Gammalt lager* för det du sålde innan spårningen fanns (hålls utanför avkastningen).
 - **Fota**: väljaren *Från inköp* – det senaste öppna inköpet är förvalt. Kopplingen sparas bara i databasen när annonsen laddas upp; arket och annonsen påverkas inte.
-- **Ditt Tradera-konto** (Joulupukkin): bevakas och samlas in varje natt.
+- **Ditt Tradera-konto** (Joulupukkin, fast i koden: `OWN_ALIAS` i `lib/purchases.js`): kopplas automatiskt när det saknas (vid Inköp, Sålt 7 dagar), bevakas och samlas in varje natt.
 
 Steg 2: försäljningar kopplas till objekten (ditt konto), vinst/avkastning per inköp, kostnadsfördelning efter förväntat värde och restpartier.

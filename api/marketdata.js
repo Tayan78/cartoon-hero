@@ -21,7 +21,7 @@
 //     { action: "purchases" }               dina inköp (med antal fotade objekt) och ditt eget konto
 //     { action: "purchase_lookup", link }   förslag på inköp från en Tradera-länk
 //     { action: "purchase_save", purchase } spara/ändra ett inköp
-//     { action: "own_account", alias }      ditt eget Tradera-konto (samlas in, men är ingen konkurrent)
+//     { action: "own_account" }             ditt eget Tradera-konto (fast: OWN_ALIAS) – samlas in, men är ingen konkurrent
 //     { action: "products_relink" }         koppla annonser utan produkt + uppdatera kategorierna
 //   Från Apps Script-timern (x-script-secret): { action: "nightly" }
 //   Från servern själv (x-script-secret):     { action: "continue", state } – nästa steg,
@@ -33,7 +33,7 @@ import { waitUntil } from "@vercel/functions";
 import { checkAuth, json } from "../lib/http.js";
 import { dbCompetitors, dbConfigured, dbWeek, dbDashboard, dbMarket, dbProducts, dbStatus } from "../lib/db.js";
 import { relinkProducts, syncCategories } from "../lib/productsync.js";
-import { lookupPurchase, purchasesCall } from "../lib/purchases.js";
+import { OWN_ALIAS, lookupPurchase, purchasesCall } from "../lib/purchases.js";
 import { collectSeller, copyToDb, discoverSellers, listSellers, runStatus, runStep, startRun, watchSeller } from "../lib/marketdata.js";
 import { checkLot, findLots, singlesForNiches } from "../lib/lots.js";
 import { runSweep, sweepStatus } from "../lib/sweep.js";
@@ -41,6 +41,14 @@ import { detailStep } from "../lib/detail.js";
 import { mergeSettings } from "../lib/settings.js";
 import { storageConfigured } from "../lib/storage.js";
 import { traderaConfigured, traderaGet } from "../lib/tradera.js";
+
+// Ditt konto (OWN_ALIAS) bevakas och märks som ditt – görs automatiskt när det saknas.
+async function ensureOwnAccount(origin) {
+  const seller = await resolve({ alias: OWN_ALIAS });
+  await watchSeller({ ...seller, niche: "djur" }, true, { url: origin + "/api/marketdata" });
+  await purchasesCall({ op: "own_seller", seller_id: seller.id });
+  return { id: seller.id, alias: seller.alias };
+}
 
 function scriptAllowed(request) {
   const expected = process.env.APPS_SCRIPT_SECRET;
@@ -127,20 +135,22 @@ export async function POST(request) {
         return json({ ok: true, ...(await dbCompetitors({ limit: body.limit, min: body.min })) });
       case "week":
         if (!dbConfigured()) return json({ ok: false, error: "APP_TOKEN saknas på servern" }, 400);
-        return json({ ok: true, ...(await dbWeek({ days: body.days })) });
-      case "purchases":
-        return json({ ok: true, ...(await purchasesCall({ op: "list" })) });
+        {
+          const w = await dbWeek({ days: body.days });
+          if (!w.own) waitUntil(ensureOwnAccount(new URL(request.url).origin).catch(() => {}));
+          return json({ ok: true, ...w });
+        }
+      case "purchases": {
+        const d = await purchasesCall({ op: "list" });
+        if (!d.own_seller) d.own_seller = await ensureOwnAccount(new URL(request.url).origin).catch(() => null);
+        return json({ ok: true, ...d });
+      }
       case "purchase_lookup":
         return json({ ok: true, purchase: await lookupPurchase(body.link) });
       case "purchase_save":
         return json({ ok: true, ...(await purchasesCall({ op: "save", purchase: body.purchase ?? {} })) });
-      case "own_account": {
-        // Bevakas som säljare (nattlig insamling) och märks som ditt eget konto.
-        const seller = await resolve({ alias: body.alias });
-        await watchSeller({ ...seller, niche: "djur" }, true, { url: new URL(request.url).origin + "/api/marketdata" });
-        await purchasesCall({ op: "own_seller", seller_id: seller.id });
-        return json({ ok: true, seller: { id: seller.id, alias: seller.alias } });
-      }
+      case "own_account":
+        return json({ ok: true, seller: await ensureOwnAccount(new URL(request.url).origin) });
       case "market":
         if (!dbConfigured()) return json({ ok: false, error: "APP_TOKEN saknas på servern" }, 400);
         return json({ ok: true, ...(await dbMarket({ days: body.days === "all" ? null : body.days })) });
