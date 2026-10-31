@@ -194,6 +194,11 @@ export async function POST(request) {
       case "nightly": {
         if (body.action === "nightly" && !fromScript) return json({ ok: false, error: "Inte tillåtet" }, 403);
         const only = Array.isArray(body.only) && body.only.length ? body.only.map(String) : null;
+        // Ditt konto kopplas av sig självt före insamlingen om det saknas – ingen app behöver vara öppen.
+        if (body.action === "nightly" && !only) {
+          const own = await purchasesCall({ op: "list" }).then((d) => d.own_seller).catch(() => null);
+          if (!own) await ensureOwnAccount(origin).catch(() => {});
+        }
         const run = await startRun(only);
         if (run.started) waitUntil(chain(run.state, origin).catch(() => {}));
         // more: false – Apps Script-timern behöver inte vänta, servern fortsätter själv.
