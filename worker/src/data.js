@@ -5,7 +5,7 @@
 export const LISTING_COLUMNS = [
   "id", "seller", "seller_id", "title", "model_number", "number_source", "type", "status", "price",
   "first_price", "lowest_price", "price_changes", "bids", "shipping", "condition", "start_at", "end_at",
-  "days", "restarts", "url", "first_seen", "last_seen", "sold_seen", "text", "niche", "category_id",
+  "days", "restarts", "url", "first_seen", "last_seen", "sold_seen", "text", "niche", "category_id", "raw", "source",
 ];
 export const SELLER_COLUMNS = [
   "id", "alias", "watched", "niches", "listings_found", "active", "ended", "number_share", "rating",
@@ -15,15 +15,41 @@ export const MAX_ROWS = 500;
 
 const field = (c) => `json_extract(value, '$.${c}')`;
 
-// Upsert: saknade fält (null) skriver inte över det som redan finns.
-function upsertSql(table, columns) {
-  const set = columns.filter((c) => c !== "id").map((c) => `${c} = COALESCE(excluded.${c}, ${table}.${c})`);
+// Upsert: saknade fält (null) skriver inte över det som redan finns. special =
+// egna regler för vissa kolumner; changed = uppdatera bara om något av det ändrats.
+function upsertSql(table, columns, { special = {}, changed = null, insert = {} } = {}) {
+  const set = columns.filter((c) => c !== "id").map((c) => `${c} = ${special[c] ?? `COALESCE(excluded.${c}, ${table}.${c})`}`);
   return (
-    `INSERT INTO ${table} (${columns.join(", ")}) SELECT ${columns.map(field).join(", ")} FROM json_each(?1) WHERE ${field("id")} IS NOT NULL ` +
-    `ON CONFLICT(id) DO UPDATE SET ${set.join(", ")}`
+    `INSERT INTO ${table} (${columns.join(", ")}) SELECT ${columns.map((c) => insert[c] ?? field(c)).join(", ")} FROM json_each(?1) WHERE ${field("id")} IS NOT NULL ` +
+    `ON CONFLICT(id) DO UPDATE SET ${set.join(", ")}` +
+    (changed ? ` WHERE ${changed.map((c) => `(excluded.${c} IS NOT NULL AND excluded.${c} IS NOT listings.${c})`).join(" OR ")}` : "")
   );
 }
-const UPSERT_LISTINGS = upsertSql("listings", LISTING_COLUMNS);
+
+// Annonser: databasen räknar själv fram första pris, lägsta pris och antal
+// prisändringar (bud på auktioner räknas inte), så att det blir rätt även för
+// annonser som inte finns i arket. En oförändrad annons skrivs inte alls – det
+// håller nere antalet skrivningar (D1:s gratisnivå: 100 000 rader per dygn).
+// last_seen = senast annonsen ändrades.
+const IS_AUCTION = "COALESCE(excluded.type, listings.type, '') = 'auktion'";
+const UPSERT_LISTINGS = upsertSql("listings", LISTING_COLUMNS, {
+  special: {
+    first_price: "COALESCE(listings.first_price, excluded.first_price, excluded.price)",
+    first_seen: "COALESCE(listings.first_seen, excluded.first_seen)",
+    sold_seen: "COALESCE(listings.sold_seen, excluded.sold_seen)",
+    lowest_price: `CASE WHEN excluded.price IS NULL OR ${IS_AUCTION} THEN COALESCE(listings.lowest_price, excluded.lowest_price)
+      ELSE MIN(COALESCE(listings.lowest_price, excluded.price), excluded.price) END`,
+    price_changes: `CASE WHEN NOT ${IS_AUCTION} AND excluded.price IS NOT NULL AND listings.price IS NOT NULL AND excluded.price <> listings.price
+      THEN COALESCE(listings.price_changes, 0) + 1 ELSE COALESCE(listings.price_changes, excluded.price_changes) END`,
+  },
+  // Ny annons: första och lägsta pris = priset, först sedd = nu, om de inte skickats med.
+  insert: {
+    first_price: `COALESCE(${field("first_price")}, ${field("price")})`,
+    lowest_price: `COALESCE(${field("lowest_price")}, ${field("price")})`,
+    first_seen: `COALESCE(${field("first_seen")}, ${field("last_seen")})`,
+  },
+  changed: ["status", "price", "bids", "end_at", "title", "text", "model_number", "niche", "shipping", "condition", "category_id", "restarts", "seller", "type", "start_at", "url"],
+});
 const UPSERT_SELLERS = upsertSql("sellers", SELLER_COLUMNS);
 
 // Prishistorik, före upserten: första priset för nya annonser, och nuvarande pris

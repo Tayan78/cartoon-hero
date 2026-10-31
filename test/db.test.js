@@ -85,3 +85,26 @@ test("Styckpriserna läses från databasen i arkets format; svarar den inte anv�
   const store = async (action, p) => ({ ok: true, rows: [{ Rubrik: "y", Status: p.filter.equals }] });
   assert.equal((await loadMarketRows(store, { db: down })).source, "ark");
 });
+
+test("Insamling: allt från säljaren till databasen (med kategori och rådata), bara nischerna till arket", async () => {
+  const gs = fakeAppsScript();
+  const written = [];
+  const db = async (table, rows) => table === "listings" && written.push(...rows);
+  let opts;
+  const all = async (alias, o) => (
+    (opts = o),
+    {
+      alias: "Daisy93",
+      user_id: "42",
+      detail: {},
+      items: [item(1, { category_id: 1000532, raw: '{"id":1}' }), item(2, { title: "Lego Technic 42100", text: "Lego", number: "", category_id: 1612, raw: '{"id":2}' })],
+    }
+  );
+  const r = await collectSeller({ alias: "Daisy93", user_id: "42" }, { store: gs.store, db, fetchItems: all });
+  assert.equal(opts.only, undefined); // inget filter längre…
+  assert.ok(opts.detailFor.test("Schleich häst")); // …men beskrivning bara för nischerna
+  assert.deepEqual([r.items, r.all_items], [1, 2]);
+  assert.deepEqual(gs.table("Marknad").map((x) => String(x["Annons-ID"])), ["1"]);
+  assert.deepEqual(written.map((x) => [x["Annons-ID"], x.Kategori, x.Rådata, x.Källa]), [["1", 1000532, '{"id":1}', "säljare"], ["2", 1612, '{"id":2}', "säljare"]]);
+  assert.deepEqual(toDbListing(written[1]).category_id, 1612);
+});
