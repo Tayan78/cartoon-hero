@@ -2074,7 +2074,55 @@ function openMarket() {
   loadMarketSellers();
   loadDbStatus();
   loadSweepStatus();
+  loadSuggestions();
 }
+
+// Förslag på konkurrenter: mest sålt Schleich enligt databasen.
+const MIX_LABELS = { djur: "djur", smurfar: "smurfar", övrigt: "övrigt" };
+let suggestions = null;
+async function loadSuggestions() {
+  $("m-suggest-status").textContent = suggestions ? "" : "Hämtar…";
+  try {
+    suggestions = (await marketApi({ action: "competitors", limit: 40 })).sellers ?? [];
+    renderSuggestions();
+  } catch (err) {
+    $("m-suggest-status").textContent = `⚠️ ${err.message}`;
+  }
+}
+
+function renderSuggestions() {
+  if (!suggestions) return;
+  const watchedIds = new Set(marketSellers.filter((s) => s.watched).map((s) => String(s.id)));
+  const fresh = suggestions.filter((s) => !s.watched && !watchedIds.has(String(s.id))).length;
+  $("m-suggest-status").textContent = suggestions.length ? `${suggestions.length} säljare med minst 10 Schleich-annonser – ${fresh} bevakas inte.` : "Inga säljare i databasen än – kör Hämta all Schleich nu.";
+  $("m-suggest").replaceChildren(
+    ...suggestions.map((s) => {
+      const li = Object.assign(document.createElement("li"), { className: "m-row" });
+      const t = Object.assign(document.createElement("div"), { className: "t" });
+      const mix = (s.mix ?? []).map((m) => `${SERIES_LABELS[m.key] ?? MIX_LABELS[m.key] ?? m.key}\u00a0${m.share}\u00a0%`).join(", ");
+      t.append(
+        Object.assign(document.createElement("b"), { textContent: s.alias || `Säljare ${s.id}` }),
+        Object.assign(document.createElement("small"), {
+          textContent:
+            `${s.sold} sålda${s.sold_90d ? ` (${s.sold_90d} senaste 90 dagarna)` : ""} av ${s.listings} annonser · ${s.active} aktiva` +
+            (s.sell_through != null ? ` · säljgrad ${s.sell_through}\u00a0%` : "") +
+            (s.median_sold ? ` · median ${kr(s.median_sold)}` : "") +
+            (mix ? ` · mest ${mix}` : ""),
+        }),
+      );
+      const on = s.watched || watchedIds.has(String(s.id));
+      const niche = s.mix?.find((m) => m.key === "smurfar" || m.key === "djur")?.key ?? "djur";
+      li.append(
+        t,
+        on
+          ? Object.assign(document.createElement("span"), { className: "chip on", textContent: "✓ Bevakas" })
+          : smallBtn("Bevaka", "chip", () => watchSeller({ id: s.id, alias: s.alias, total: s.listings, active: s.active, ended: (s.sold ?? 0) + (s.unsold ?? 0), niche }, true)),
+      );
+      return li;
+    }),
+  );
+}
+$("m-suggest-refresh").addEventListener("click", loadSuggestions);
 
 // Schleich-insamlingen (hela Tradera): status, uppdateras medan den pågår.
 let sweepPoll = null;
@@ -2153,6 +2201,7 @@ async function loadMarketSellers() {
     renderRun();
     renderWatched();
     renderFound();
+    renderSuggestions();
   } catch (err) {
     $("m-status").textContent = `⚠️ ${err.message}`;
   }
