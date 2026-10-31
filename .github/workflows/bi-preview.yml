@@ -6,6 +6,7 @@ on:
   pull_request:
     paths:
       - scripts/bi-preview.mjs
+      - .github/workflows/bi-preview.yml
 
 permissions:
   contents: read
@@ -19,6 +20,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
+      - run: npm ci
       - run: node scripts/bi-preview.mjs
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
