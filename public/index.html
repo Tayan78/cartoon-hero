@@ -74,6 +74,10 @@
           <span class="home-icon">📊</span>
           <span><b>Marknadsdata</b><small>Bevaka konkurrenter, samlas in varje natt</small></span>
         </button>
+        <button id="h-go-ops" type="button" class="home-btn">
+          <span class="home-icon">🩺</span>
+          <span><b>Drift</b><small id="h-ops-note">Körningar, anrop och databasen</small></span>
+        </button>
         <button id="h-go-history" type="button" class="home-btn">
           <span class="home-icon">🕘</span>
           <span><b>Historik</b><small>Alla skanningar</small></span>
@@ -450,6 +454,34 @@
       <button id="m-discover" class="secondary big">🔍 Hitta konkurrenter</button>
       <p id="m-discover-status" class="hint"></p>
       <ul id="m-found" class="lego-lots"></ul>
+    </section>
+
+    <!-- Drift: körningar, anrop per dygn och databasen på ett ställe -->
+    <section id="view-ops" class="view" hidden>
+      <div class="hist-head">
+        <h3>Läget</h3>
+        <span class="acts-inline"><button id="o-refresh" type="button" class="chip">↻</button></span>
+      </div>
+      <ul id="o-health" class="ops-health"></ul>
+
+      <h3>Körningar</h3>
+      <div id="o-runs" class="ops-runs"></div>
+
+      <h3>Anrop i dag</h3>
+      <p class="hint">Räknas från och med att översikten byggdes. Tradera: 10 000 per dygn och metod. Databasen (Cloudflare D1): 100 000 skrivna rader per dygn gratis.</p>
+      <div id="o-usage" class="ops-usage"></div>
+
+      <h3>Databasen</h3>
+      <div id="o-db" class="metrics"></div>
+      <div class="ops-chart">
+        <p class="metric-label">Nya annonser i databasen per dag</p>
+        <div id="o-growth"></div>
+      </div>
+      <div class="ops-chart">
+        <p class="metric-label">Sålda Schleich-annonser per månad (marknaden)</p>
+        <div id="o-sold"></div>
+      </div>
+      <div id="o-breakdown" class="ops-breakdown"></div>
     </section>
 
     <!-- Fynd: underprisade Schleich-partier (kr per figur) -->

@@ -32,3 +32,12 @@ Appen (Vercel) använder dem via `lib/db.js`; `DATA_URL` kan sättas i Vercel om
 
 ## Serier (`lib/series.js`)
 Bayala, Eldrador, Wizarding World/Harry Potter, Riddartiden, Vilda Västern, Peanuts/Snobben, Star Wars och Smurfar räknas inte som Schleich-djur (påverkar inte styckpriserna för djur). Horse Club, Wild Life, Farm World och Dinosaurs är djur. Nya serier läggs till i listan.
+
+## Drift (översikten i appen)
+Hem → **Drift** visar på ett ställe:
+- **Läget** – kontroller med ✓/!/✕: bevakningen söker (senast inom 3 min), Telegram kopplat, nattens säljarinsamling och Schleich-insamlingen har körts senaste 26 h utan fel, anrop under 80 % av gränsen.
+- **Körningar** – de 3 senaste per typ (tabellen `runs`, migration `0004_monitoring.sql`) och bevakningens status.
+- **Anrop i dag** – per tjänst och dygn (tabellen `usage`): Tradera per metod (gräns 10 000), D1 skrivna rader (gräns 100 000), Gemini, Google Lens, Vision, Claude, notiser och fel. Appservern räknar i minnet och skickar samlat (`lib/usage.js`); bevakningen skriver var 10:e sökning; workern räknar D1:s skrivna rader.
+- **Databasen** – siffror, nya annonser per dag, sålda per månad och fördelning per nisch, serie och källa.
+
+Adresser: `GET /data/dashboard`, `POST /data/usage { counts }`, `POST /data/run { name, started_at }` → id, sedan `{ id, finished_at, status, summary }`.

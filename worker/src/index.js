@@ -15,6 +15,11 @@ export default {
     const url = new URL(request.url);
     const token = url.searchParams.get("token") ?? request.headers.get("x-app-token");
     if (!env.APP_TOKEN || token !== env.APP_TOKEN) return new Response("Fel token", { status: 401 });
+    if (url.pathname === "/data/dashboard") {
+      // Översikten får även bevakningens status.
+      const status = await watcher(env).fetch("https://watcher/status").then((r) => r.json()).catch(() => null);
+      return handleData(request, env, url.pathname, { watcher: status });
+    }
     if (url.pathname.startsWith("/data/")) return handleData(request, env, url.pathname);
     return watcher(env).fetch(`https://watcher${url.pathname}${url.search}`);
   },

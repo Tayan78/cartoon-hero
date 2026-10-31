@@ -78,7 +78,7 @@ const getSettings = () => {
 };
 
 // ---------- vyer ----------
-const views = ["home", "scan", "result", "history", "capture", "groups", "review", "settings", "lego", "seller", "market", "lots"];
+const views = ["home", "scan", "result", "history", "capture", "groups", "review", "settings", "lego", "seller", "market", "lots", "ops"];
 const TITLES = {
   home: "Loppisskannern",
   scan: "Skanna",
@@ -92,6 +92,7 @@ const TITLES = {
   seller: "Konkurrent",
   market: "Marknadsdata",
   lots: "Fynd",
+  ops: "Drift",
 };
 let currentView = "home";
 // Flikraden: vilken flik som lyser för varje vy.
@@ -2471,3 +2472,253 @@ else {
   openHome();
   retryFailed();
 }
+
+// ---------- Drift: körningar, anrop och databasen ----------
+const RUN_INFO = {
+  marknad: { label: "Nattlig säljarinsamling", every: 26 },
+  schleich: { label: "All Schleich på Tradera", every: 26 },
+};
+// Gränser per dygn (Tradera per metod, D1 gratisnivå). Övriga visas som antal.
+const USAGE_INFO = [
+  { api: "tradera_search", label: "Tradera – sökningar", limit: 10000 },
+  { api: "tradera_item", label: "Tradera – annonsdetaljer", limit: 10000 },
+  { api: "tradera_seller", label: "Tradera – säljarnas annonser", limit: 10000 },
+  { api: "d1_rows", label: "Databasen – skrivna rader", limit: 100000 },
+  { api: "gemini", label: "Gemini (AI)" },
+  { api: "serpapi", label: "Google Lens (SerpApi)" },
+  { api: "vision", label: "Google Vision" },
+  { api: "claude", label: "Claude (AI)" },
+  { api: "notis_telegram", label: "Notiser via Telegram" },
+  { api: "notis_ntfy", label: "Notiser via ntfy (reserv)" },
+  { api: "fel_notis", label: "Notiser som inte gick fram", bad: true },
+  { api: "fel_bevakning", label: "Fel i bevakningen", bad: true },
+];
+const SERIES_LABELS = {
+  bayala: "Bayala", eldrador: "Eldrador", wizarding_world: "Harry Potter", riddare: "Riddartiden", vilda_vastern: "Vilda Västern",
+  peanuts: "Snobben", star_wars: "Star Wars", smurfar: "Smurfar", horse_club: "Horse Club", wild_life: "Wild Life", farm_world: "Farm World", dinosaurs: "Dinosaurs",
+};
+const nf = (n) => Number(n ?? 0).toLocaleString("sv-SE");
+const ago = (iso) => {
+  const min = Math.round((Date.now() - Date.parse(iso)) / 60000);
+  return min < 1 ? "nyss" : min < 60 ? `${min} min sedan` : min < 48 * 60 ? `${Math.round(min / 60)} h sedan` : `${Math.round(min / 1440)} dagar sedan`;
+};
+const fmtTime = (iso) => (iso ? new Date(iso).toLocaleString("sv-SE", { dateStyle: "short", timeStyle: "short" }) : "–");
+const duration = (a, b) => {
+  if (!a || !b) return "";
+  const s = Math.round((Date.parse(b) - Date.parse(a)) / 1000);
+  return s < 90 ? `${s} s` : `${Math.round(s / 60)} min`;
+};
+
+// Hälsokontroller: ok / warn / bad med en mening var.
+function opsHealth(d) {
+  const out = [];
+  const w = d.watcher;
+  if (!w) out.push(["bad", "Bevakningen svarar inte."]);
+  else if (w.paused) out.push(["warn", "Bevakningen är pausad."]);
+  else if (!w.stats?.last_poll || Date.now() - Date.parse(w.stats.last_poll) > 3 * 60000) out.push(["bad", `Bevakningen har inte sökt sedan ${w.stats?.last_poll ? ago(w.stats.last_poll) : "start"}.`]);
+  else out.push(["ok", `Bevakningen söker – senast ${ago(w.stats.last_poll)}.`]);
+  if (w?.last_error && Date.now() - Date.parse(w.last_error.at) < 6 * 3600000) out.push(["warn", `Fel i bevakningen ${ago(w.last_error.at)}: ${w.last_error.message}`]);
+  if (w && !w.telegram?.linked) out.push(["warn", "Telegram är inte kopplat – notiserna går via ntfy."]);
+  else if (w?.telegram?.error) out.push(["warn", `Telegram: ${w.telegram.error}`]);
+  for (const [name, info] of Object.entries(RUN_INFO)) {
+    const last = d.runs?.[name]?.[0];
+    if (!last) out.push(["warn", `${info.label}: ingen körning registrerad än.`]);
+    else if (last.status === "Pågår" && Date.now() - Date.parse(last.started_at) > 30 * 60000) out.push(["bad", `${info.label} har stannat (startade ${ago(last.started_at)}).`]);
+    else if (/^Fel/.test(last.status ?? "")) out.push(["bad", `${info.label}: ${last.status}`]);
+    else if (Date.now() - Date.parse(last.started_at) > info.every * 3600000) out.push(["bad", `${info.label} har inte körts sedan ${ago(last.started_at)}.`]);
+    else if (/fel/.test(last.status ?? "")) out.push(["warn", `${info.label}: ${last.status}`]);
+    else out.push(["ok", `${info.label}: ${last.status === "Pågår" ? "pågår" : `klar ${ago(last.finished_at ?? last.started_at)}`}.`]);
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  for (const u of USAGE_INFO.filter((x) => x.limit)) {
+    const n = d.usage?.find((r) => r.day === today && r.api === u.api)?.count ?? 0;
+    if (n > u.limit * 0.8) out.push([n >= u.limit ? "bad" : "warn", `${u.label}: ${nf(n)} av ${nf(u.limit)} i dag.`]);
+  }
+  if (d.db?.unresolved > 1000) out.push(["warn", `${nf(d.db.unresolved)} avslutade Köp nu-annonser väntar på utfall.`]);
+  return out;
+}
+
+// Stapeldiagram (en serie): tunna staplar med rundade toppar, 2 px mellanrum,
+// baslinje, högsta värdet som skala. Tryck/hovra på en stapel visar värdet.
+function barChart(points, { unit = "" } = {}) {
+  const wrap = Object.assign(document.createElement("div"), { className: "bars" });
+  if (!points.length) {
+    wrap.append(Object.assign(document.createElement("p"), { className: "hint", textContent: "Ingen data än." }));
+    return wrap;
+  }
+  const W = 320, H = 120, PAD_TOP = 14, PAD_BOTTOM = 18;
+  const max = Math.max(...points.map((p) => p.value), 1);
+  const step = W / points.length;
+  const barW = Math.max(2, step - 2);
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.setAttribute("role", "img");
+  const caption = Object.assign(document.createElement("p"), { className: "bars-caption" });
+  const setCaption = (p) => (caption.textContent = p ? `${p.label}: ${nf(p.value)}${unit}` : `Högst ${nf(max)}${unit} · ${points[0].label} – ${points[points.length - 1].label}`);
+  const base = H - PAD_BOTTOM;
+  const line = document.createElementNS(ns, "line");
+  Object.entries({ x1: 0, x2: W, y1: base + 0.5, y2: base + 0.5, class: "bars-axis" }).forEach(([k, v]) => line.setAttribute(k, v));
+  svg.append(line);
+  points.forEach((p, i) => {
+    const h = p.value ? Math.max(2, ((base - PAD_TOP) * p.value) / max) : 0;
+    const x = i * step + (step - barW) / 2;
+    const r = Math.min(4, barW / 2, h);
+    const g = document.createElementNS(ns, "g");
+    if (h) {
+      const bar = document.createElementNS(ns, "path");
+      const y = base - h;
+      bar.setAttribute("d", `M${x},${base} V${y + r} Q${x},${y} ${x + r},${y} H${x + barW - r} Q${x + barW},${y} ${x + barW},${y + r} V${base} Z`);
+      bar.setAttribute("class", "bars-bar");
+      g.append(bar);
+    }
+    // Träffytan är hela kolumnen, större än stapeln.
+    const hit = document.createElementNS(ns, "rect");
+    Object.entries({ x: i * step, y: 0, width: step, height: H, fill: "transparent" }).forEach(([k, v]) => hit.setAttribute(k, v));
+    const title = document.createElementNS(ns, "title");
+    title.textContent = `${p.label}: ${nf(p.value)}${unit}`;
+    hit.append(title);
+    hit.addEventListener("pointerenter", () => setCaption(p));
+    hit.addEventListener("click", () => setCaption(p));
+    g.append(hit);
+    svg.append(g);
+  });
+  svg.addEventListener("pointerleave", () => setCaption(null));
+  const labels = Object.assign(document.createElement("div"), { className: "bars-labels" });
+  labels.append(Object.assign(document.createElement("span"), { textContent: points[0].label }), Object.assign(document.createElement("span"), { textContent: points[points.length - 1].label }));
+  setCaption(null);
+  wrap.append(caption, svg, labels);
+  return wrap;
+}
+
+// Dagar utan nya annonser fylls med 0, så att tiden blir rätt.
+function dailySeries(rows, days = 30) {
+  const by = Object.fromEntries((rows ?? []).map((r) => [r.day, r.n]));
+  return Array.from({ length: days }, (_, i) => {
+    const day = new Date(Date.now() - (days - 1 - i) * 86400000).toISOString().slice(0, 10);
+    return { label: day.slice(5), value: by[day] ?? 0 };
+  });
+}
+
+function renderOps(d) {
+  $("o-health").replaceChildren(
+    ...opsHealth(d).map(([level, text]) => {
+      const li = Object.assign(document.createElement("li"), { className: `ops-${level}` });
+      li.append(Object.assign(document.createElement("span"), { className: "ops-icon", textContent: level === "ok" ? "✓" : level === "warn" ? "!" : "✕" }), Object.assign(document.createElement("span"), { textContent: text }));
+      return li;
+    }),
+  );
+  const bad = opsHealth(d).filter(([l]) => l !== "ok").length;
+  $("h-ops-note").textContent = bad ? `⚠️ ${bad} saker att titta på` : "Allt rullar";
+
+  // Körningar: de tre senaste per typ + bevakningen.
+  const runCards = Object.entries(RUN_INFO).map(([name, info]) => {
+    const card = Object.assign(document.createElement("div"), { className: "metric wide ops-run" });
+    card.append(Object.assign(document.createElement("span"), { className: "metric-label", textContent: info.label }));
+    const runs = d.runs?.[name] ?? [];
+    if (!runs.length) card.append(Object.assign(document.createElement("span"), { className: "metric-note", textContent: "Ingen körning registrerad än." }));
+    for (const r of runs) {
+      const row = Object.assign(document.createElement("div"), { className: "ops-run-row" });
+      row.append(
+        Object.assign(document.createElement("b"), { textContent: `${fmtTime(r.started_at)}${r.finished_at ? ` · ${duration(r.started_at, r.finished_at)}` : ""}` }),
+        Object.assign(document.createElement("span"), { className: /^Fel|fel/.test(r.status ?? "") ? "ops-bad-text" : "", textContent: r.status ?? "" }),
+        Object.assign(document.createElement("small"), { textContent: r.summary ?? "" }),
+      );
+      card.append(row);
+    }
+    return card;
+  });
+  const w = d.watcher;
+  const wc = Object.assign(document.createElement("div"), { className: "metric wide ops-run" });
+  wc.append(Object.assign(document.createElement("span"), { className: "metric-label", textContent: "Bevakningen (var 30:e sekund)" }));
+  wc.append(
+    Object.assign(document.createElement("span"), {
+      className: "metric-note",
+      textContent: w
+        ? `${w.running ? "Igång" : w.paused ? "Pausad" : "Stoppad"} · senaste sökning ${w.stats?.last_poll ? ago(w.stats.last_poll) : "–"} · ${nf(w.stats?.polls)} sökningar, ${nf(w.stats?.items)} nya annonser, ${nf(w.stats?.candidates)} kandidater, ${nf(w.stats?.deals)} notiser sedan start` +
+          (w.stats?.last_deal ? ` · senaste träff ${fmtTime(w.stats.last_deal.at)}: ${w.stats.last_deal.title}` : "") +
+          ` · Telegram: ${w.telegram?.linked ?? "inte kopplat"}`
+        : "Svarar inte.",
+    }),
+  );
+  $("o-runs").replaceChildren(...runCards, wc);
+
+  // Anrop i dag (mot gränsen) + summa senaste 7 dagarna.
+  const today = new Date().toISOString().slice(0, 10);
+  const weekAgo = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10);
+  const sum = (api, from) => (d.usage ?? []).filter((r) => r.api === api && r.day >= from).reduce((a, r) => a + r.count, 0);
+  $("o-usage").replaceChildren(
+    ...USAGE_INFO.filter((u) => u.limit || sum(u.api, weekAgo)).map((u) => {
+      const n = sum(u.api, today);
+      const row = Object.assign(document.createElement("div"), { className: "ops-usage-row" });
+      const head = Object.assign(document.createElement("div"), { className: "ops-usage-head" });
+      head.append(
+        Object.assign(document.createElement("span"), { textContent: u.label }),
+        Object.assign(document.createElement("b"), { className: u.bad && n ? "ops-bad-text" : "", textContent: `${nf(n)}${u.limit ? ` / ${nf(u.limit)}` : ""}` }),
+      );
+      row.append(head);
+      if (u.limit) {
+        const meter = Object.assign(document.createElement("div"), { className: "meter" });
+        const share = n / u.limit;
+        const fill = Object.assign(document.createElement("span"), { className: share >= 1 ? "empty" : share > 0.8 ? "low" : "" });
+        fill.style.width = `${Math.min(100, Math.max(n ? 1 : 0, share * 100))}%`;
+        meter.append(fill);
+        row.append(meter);
+      }
+      row.append(Object.assign(document.createElement("small"), { className: "metric-note", textContent: `${nf(sum(u.api, weekAgo))} senaste 7 dagarna` }));
+      return row;
+    }),
+  );
+
+  // Databasen: siffror, tillväxt, sålda per månad och fördelning.
+  const db = d.db ?? {};
+  const tile = (label, value, note = "") => {
+    const t = Object.assign(document.createElement("div"), { className: "metric" });
+    t.append(Object.assign(document.createElement("span"), { className: "metric-label", textContent: label }), Object.assign(document.createElement("span"), { className: "metric-value", textContent: value }));
+    if (note) t.append(Object.assign(document.createElement("span"), { className: "metric-note", textContent: note }));
+    return t;
+  };
+  $("o-db").replaceChildren(
+    tile("Annonser", nf(db.listings), `${nf(db.active)} aktiva`),
+    tile("Sålda", nf(db.sold), `${nf(db.unsold)} osålda`),
+    tile("Utan utfall", nf(db.unresolved), "avslutade Köp nu som väntar"),
+    tile("Säljare", nf(db.all_sellers), `${nf(db.watched)} bevakade`),
+    tile("Prispunkter", nf(db.price_points), "pris vid varje ändring"),
+    tile("Storlek", db.size_bytes ? `${(db.size_bytes / 1e6).toLocaleString("sv-SE", { maximumFractionDigits: 1 })} MB` : "–", "av 5 000 MB gratis"),
+  );
+  $("o-growth").replaceChildren(barChart(dailySeries(d.growth, 30), { unit: " nya" }));
+  const months = (d.sold_by_month ?? []).filter((m) => m.month && m.month >= "2023-01");
+  $("o-sold").replaceChildren(barChart(months.map((m) => ({ label: m.month, value: m.n })), { unit: " sålda" }));
+  const list = (title, rows, labelOf) => {
+    const box = Object.assign(document.createElement("div"), { className: "metric wide" });
+    box.append(Object.assign(document.createElement("span"), { className: "metric-label", textContent: title }));
+    const ul = Object.assign(document.createElement("ul"), { className: "ops-list" });
+    for (const r of rows ?? []) {
+      const li = document.createElement("li");
+      li.append(Object.assign(document.createElement("span"), { textContent: labelOf(r.key) }), Object.assign(document.createElement("b"), { textContent: `${nf(r.listings)}${r.sold != null ? ` · ${nf(r.sold)} sålda` : ""}` }));
+      ul.append(li);
+    }
+    box.append(ul);
+    return box;
+  };
+  $("o-breakdown").replaceChildren(
+    list("Per nisch", db.niches, (k) => ({ djur: "Schleich-djur", smurfar: "Smurfar", "": "Övrigt (inte nisch)" })[k] ?? k),
+    list("Per serie", db.series, (k) => (k ? k.split(",").map((s) => SERIES_LABELS[s] ?? s).join(" + ") : "Ingen serie")),
+    list("Per källa", db.sources, (k) => ({ säljare: "Bevakade säljare", sök: "Schleich-sökningen", arket: "Kopierat från arket" })[k] ?? k),
+  );
+}
+
+async function loadOps() {
+  $("o-health").replaceChildren(Object.assign(document.createElement("li"), { className: "ops-ok", textContent: "Hämtar…" }));
+  try {
+    renderOps(await marketApi({ action: "dashboard" }));
+  } catch (err) {
+    $("o-health").replaceChildren(Object.assign(document.createElement("li"), { className: "ops-bad", textContent: `⚠️ ${err.message}` }));
+  }
+}
+
+$("h-go-ops").addEventListener("click", () => {
+  show("ops");
+  loadOps();
+});
+$("o-refresh").addEventListener("click", loadOps);

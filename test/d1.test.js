@@ -8,7 +8,7 @@ import { dbStatus, handleData, queryListings, unresolvedListings, upsertListings
 // Minimal D1: prepare().bind().all()/run() och batch() i en transaktion.
 function fakeD1() {
   const sqlite = new DatabaseSync(":memory:");
-  for (const f of ["0001_market.sql", "0002_raw.sql", "0003_series.sql"]) sqlite.exec(readFileSync(new URL(`../worker/migrations/${f}`, import.meta.url), "utf8"));
+  for (const f of ["0001_market.sql", "0002_raw.sql", "0003_series.sql", "0004_monitoring.sql"]) sqlite.exec(readFileSync(new URL(`../worker/migrations/${f}`, import.meta.url), "utf8"));
   const prepare = (sql) => {
     let params = [];
     const s = {
@@ -132,4 +132,31 @@ test("Okänt utfall: avslutade Köp nu utan status (eller fortfarande Aktiv), in
   // Sökningen skickar ingen status för avslutad Köp nu: en redan känd status står kvar.
   await upsertListings(db, [{ id: "3", title: "c", type: "köp nu", status: null, price: 99, end_at: "2026-10-03" }]);
   assert.equal(db.sqlite.prepare("SELECT status FROM listings WHERE id = '3'").get().status, "Såld");
+});
+
+test("Översikten: anrop summeras per dygn, körningar (3 senaste per typ), tillväxt och sålda per månad", async () => {
+  const { addUsage, dashboard, recordRun } = await import("../worker/src/monitor.js");
+  const db = fakeD1();
+  const now = Date.parse("2026-10-31T12:00:00Z");
+  await addUsage(db, { tradera_search: 3, gemini: 1, tom: 0 }, now);
+  await addUsage(db, { tradera_search: 2 }, now);
+  await addUsage(db, { tradera_search: 5 }, now - 86400000);
+  for (let i = 1; i <= 4; i++) {
+    const { id } = await recordRun(db, { name: "schleich", started_at: `2026-10-2${i}T03:00:00Z` });
+    await recordRun(db, { id, finished_at: `2026-10-2${i}T03:01:00Z`, status: "Klar", summary: `körning ${i}` });
+  }
+  await recordRun(db, { name: "marknad", started_at: "2026-10-31T03:00:00Z" });
+  await upsertListings(db, [
+    { id: "1", title: "a", status: "Såld", end_at: "2026-09-10T10:00:00+02:00", first_seen: "2026-10-30T03:00:00Z" },
+    { id: "2", title: "b", status: "Såld", end_at: "2026-10-01T10:00:00+02:00", first_seen: "2026-10-31T03:00:00Z" },
+    { id: "3", title: "c", type: "köp nu", status: null, end_at: "2026-10-02T10:00:00+02:00", first_seen: "2026-10-31T03:00:00Z", series: "bayala" },
+  ]);
+  const d = await dashboard(db, { now });
+  assert.deepEqual(d.usage.map((u) => [u.day, u.api, u.count]).sort(), [["2026-10-30", "tradera_search", 5], ["2026-10-31", "gemini", 1], ["2026-10-31", "tradera_search", 5]]);
+  assert.deepEqual(d.runs.schleich.map((r) => r.summary), ["körning 4", "körning 3", "körning 2"]);
+  assert.deepEqual([d.runs.marknad[0].status, d.runs.marknad[0].finished_at], ["Pågår", null]);
+  assert.deepEqual(d.growth.map((g) => [g.day, g.n]), [["2026-10-30", 1], ["2026-10-31", 2]]);
+  assert.deepEqual(d.sold_by_month.map((m) => [m.month, m.n]), [["2026-09", 1], ["2026-10", 1]]);
+  assert.deepEqual([d.db.listings, d.db.sold, d.db.unresolved], [3, 2, 1]);
+  assert.ok(d.db.series.some((s) => s.key === "bayala"));
 });
