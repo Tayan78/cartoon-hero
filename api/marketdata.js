@@ -15,6 +15,7 @@
 //     { action: "sweep_status" }            hur den senaste Schleich-insamlingen gick
 //     { action: "dashboard" }               översikten: körningar, anrop per dygn, databasen
 //     { action: "competitors" }             förslag på konkurrenter från databasen (mest sålt Schleich)
+//     { action: "week", days }              startsidan: sålda senaste dygnen – marknaden, du och topp 5
 //     { action: "products" }                produkter: täckning och mest sålda modeller
 //     { action: "market", days }            marknadsanalys för Schleich (7/30/90 dagar eller "all")
 //     { action: "purchases" }               dina inköp (med antal fotade objekt) och ditt eget konto
@@ -30,7 +31,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { waitUntil } from "@vercel/functions";
 import { checkAuth, json } from "../lib/http.js";
-import { dbCompetitors, dbConfigured, dbDashboard, dbMarket, dbProducts, dbStatus } from "../lib/db.js";
+import { dbCompetitors, dbConfigured, dbWeek, dbDashboard, dbMarket, dbProducts, dbStatus } from "../lib/db.js";
 import { relinkProducts, syncCategories } from "../lib/productsync.js";
 import { lookupPurchase, purchasesCall } from "../lib/purchases.js";
 import { collectSeller, copyToDb, discoverSellers, listSellers, runStatus, runStep, startRun, watchSeller } from "../lib/marketdata.js";
@@ -97,7 +98,7 @@ export async function POST(request) {
   if (fromScript && !["nightly", "continue", "sweep_bg", "details_bg"].includes(body.action)) return json({ ok: false, error: "Inte tillåtet" }, 403);
   const origin = new URL(request.url).origin;
   if (!traderaConfigured()) return json({ ok: false, error: "Tradera är inte konfigurerat" }, 400);
-  if (!["discover", "lots", "lots_check", "db_status", "dashboard", "competitors", "products", "products_relink", "market", "purchases", "purchase_lookup", "purchase_save"].includes(body.action) && !storageConfigured()) return json({ ok: false, error: "Google Sheet är inte konfigurerat" }, 400);
+  if (!["discover", "lots", "lots_check", "db_status", "dashboard", "competitors", "week", "products", "products_relink", "market", "purchases", "purchase_lookup", "purchase_save"].includes(body.action) && !storageConfigured()) return json({ ok: false, error: "Google Sheet är inte konfigurerat" }, 400);
 
   try {
     switch (body.action) {
@@ -124,6 +125,9 @@ export async function POST(request) {
       case "competitors":
         if (!dbConfigured()) return json({ ok: false, error: "APP_TOKEN saknas på servern" }, 400);
         return json({ ok: true, ...(await dbCompetitors({ limit: body.limit, min: body.min })) });
+      case "week":
+        if (!dbConfigured()) return json({ ok: false, error: "APP_TOKEN saknas på servern" }, 400);
+        return json({ ok: true, ...(await dbWeek({ days: body.days })) });
       case "purchases":
         return json({ ok: true, ...(await purchasesCall({ op: "list" })) });
       case "purchase_lookup":

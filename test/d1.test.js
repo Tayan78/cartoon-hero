@@ -306,3 +306,26 @@ test("Inköp: spara, lista med antal fotade, koppla annonser, eget konto räknas
   assert.deepEqual({ ...(await purchases(db, { op: "list" })).own_seller }, { id: "9", alias: "Joulupukkin" });
   assert.deepEqual((await competitors(db, { min: 5 })).sellers.map((s) => s.alias), ["Daisy"]);
 });
+
+test("Veckan: dina sålda mot marknaden, topp 5 utan dig själv, veckan före", async () => {
+  const { weekStats } = await import("../worker/src/monitor.js");
+  const db = fakeD1();
+  const now = Date.parse("2026-11-10T12:00:00Z");
+  const day = (d) => new Date(now - d * 86400000).toISOString();
+  await upsertSellers(db, [{ id: "9", alias: "Joulupukkin" }, { id: "1", alias: "A" }, { id: "2", alias: "B" }]);
+  await db.prepare("UPDATE sellers SET own = 1 WHERE id = '9'").run();
+  const rows = [];
+  const add = (seller, alias, n, ago, extra = {}) => { for (let i = 0; i < n; i++) rows.push({ id: `${seller}-${ago}-${i}`, seller_id: seller, seller: alias, title: "Schleich häst", niche: "djur", source: "sök", status: "Såld", price: 100, end_at: day(ago), ...extra }); };
+  add("9", "Joulupukkin", 2, 1);
+  add("1", "A", 5, 2);
+  add("2", "B", 3, 3);
+  add("1", "A", 4, 10); // veckan före
+  add("2", "B", 9, 1, { niche: null, source: "säljare" }); // inte Schleich
+  add("2", "B", 1, 2, { status: "Osåld", id: "x" });
+  await upsertListings(db, rows);
+  const w = await weekStats(db, { now });
+  assert.deepEqual(w.market, { sold: 10, revenue: 1000, prev: 4 });
+  assert.deepEqual({ ...w.mine }, { sold: 2, revenue: 200, prev: 0, share: 20 });
+  assert.deepEqual(w.top.map((t) => [t.alias, t.sold, t.share]), [["A", 5, 50], ["B", 3, 30]]);
+  assert.equal(w.own.alias, "Joulupukkin");
+});
