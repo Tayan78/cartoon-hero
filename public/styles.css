@@ -381,3 +381,13 @@ button:disabled { opacity: .4; }
 .ops-list { width: 100%; }
 .ops-products li span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ops-products li small { color: var(--muted); font-size: 13px; }
+
+/* Marknadsanalys */
+.legend { display: flex; gap: 14px; font-size: 13px; color: var(--muted); margin: 0 0 4px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+.sw-sold { background: var(--accent); }
+.sw-unsold { background: #5b6577; }
+.bars-bar2 { fill: #5b6577; }
+#bi-period { margin-bottom: 8px; }
+.bars-tick { fill: var(--muted); font-size: 10px; }
+.bars-value { fill: var(--text); font-size: 10px; font-weight: 600; }

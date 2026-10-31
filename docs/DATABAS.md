@@ -63,3 +63,8 @@ Varje natt efter Schleich-insamlingen kopplas annonser som saknar produkt och ka
 
 ## Annonsdetaljer (`lib/detail.js`, migration `0006_detail.sql`)
 Sökningen ger bara rubrik och pris. Efter Schleich-insamlingen hämtas annonsdetaljen (`GET /v4/items/{id}`) för Schleich-annonser som saknar den, **nyast först**: nya annonser får full information samma natt, historiken tas med högst 2 500 per natt (700 per anrop till servern, i en kedja). Detaljen ger hela beskrivningen (reglerna letar modellnummer i den), startdatum, utropspris, Köp nu-pris, frakt, antal bilder, reservpris och verifierat utfall (`gotWinner` – även auktioner där reservpriset inte nåddes blir Osåld). En annons som inte finns kvar markeras som hämtad. Körningen syns i Drift (*Annonsdetaljer*), liksom andelen annonser med detalj.
+
+## Marknadsanalys (Hem → Marknadsanalys)
+Schleich på Tradera för vald period (7, 30, 90 dagar eller allt, räknat på slutdatum): sålda, säljgrad, medianpris, säljare; avslutade per dag/vecka (sålda och osålda); publicerade (startdatum, komplett när alla har annonsdetalj); andel sålda per slutdag och sluttimme (auktioner, timmar med minst 20 avslut); segment (sålda, säljgrad, median, utbud i månader) och aktiva annonser som slutar de kommande veckorna. Allt räknas i SQL i D1 (`worker/src/analytics.js`, `POST /data/market { days }`) – workerns gratisnivå har bara 10 ms processortid per anrop. Segmenten i SQL är en förenklad version av indelningen i appen (partier via ord som "st", "paket", "samling").
+
+`scripts/bi-preview.mjs` (Actions → *BI-förhandsvisning*) skriver ut samma slags sammanställning för hand.

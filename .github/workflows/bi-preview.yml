@@ -1,0 +1,28 @@
+# Förhandsvisning av BI: läser D1 (bara läsning) och skriver ut en sammanställning.
+name: BI-förhandsvisning
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - scripts/bi-preview.mjs
+      - .github/workflows/bi-preview.yml
+
+permissions:
+  contents: read
+
+jobs:
+  bi:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node scripts/bi-preview.mjs
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
