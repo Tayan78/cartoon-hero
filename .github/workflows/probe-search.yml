@@ -1,12 +1,9 @@
 # Provar Traderas sökfilter med riktiga nycklar och skriver ut antal (inga hemligheter).
 name: Prova Tradera-sökning
 
+# Körs för hand: Actions → Prova Tradera-sökning → Run workflow.
 on:
   workflow_dispatch:
-  pull_request:
-    paths:
-      - scripts/probe-search.mjs
-      - .github/workflows/probe-search.yml
 
 permissions:
   contents: read

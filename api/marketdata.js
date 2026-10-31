@@ -11,8 +11,11 @@
 //     { action: "lots", niche }             partier (djur/smurfar): kr per figur inkl. frakt och fynd (lib/lots.js)
 //     { action: "db_status" }               databasen (Cloudflare D1): antal annonser, sålda, säljare
 //     { action: "db_copy", offset }         kopiera Säljare + Marknad från arket till databasen
+//     { action: "sweep" }                   all Schleich på Tradera till databasen (i bakgrunden)
+//     { action: "sweep_status" }            hur den senaste Schleich-insamlingen gick
 //   Från Apps Script-timern (x-script-secret): { action: "nightly" }
-//   Från servern själv (x-script-secret):     { action: "continue", state } – nästa steg
+//   Från servern själv (x-script-secret):     { action: "continue", state } – nästa steg,
+//                                             { action: "sweep_bg" } – Schleich-insamlingen efter säljarna
 // Insamlingen körs med waitUntil: svaret kommer direkt och arbetet fortsätter.
 import { timingSafeEqual } from "node:crypto";
 import { waitUntil } from "@vercel/functions";
@@ -20,6 +23,7 @@ import { checkAuth, json } from "../lib/http.js";
 import { dbConfigured, dbStatus } from "../lib/db.js";
 import { collectSeller, copyToDb, discoverSellers, listSellers, runStatus, runStep, startRun, watchSeller } from "../lib/marketdata.js";
 import { checkLot, findLots, singlesForNiches } from "../lib/lots.js";
+import { runSweep, sweepStatus } from "../lib/sweep.js";
 import { mergeSettings } from "../lib/settings.js";
 import { storageConfigured } from "../lib/storage.js";
 import { traderaConfigured, traderaGet } from "../lib/tradera.js";
@@ -47,14 +51,22 @@ async function resolve(seller) {
 // Kör ett steg och startar nästa steg som ett nytt anrop (varje anrop får ca 2 min).
 async function chain(state, origin) {
   const out = await runStep(state);
-  if (!out.more) return;
-  await fetch(`${origin}/api/marketdata`, {
+  // Alla säljare klara → hela Schleich-insamlingen, som ett eget anrop (egen tid).
+  if (!out.more) {
+    if (!state?.only) await selfCall(origin, { action: "sweep_bg" });
+    return;
+  }
+  await selfCall(origin, { action: "continue", state: out.state });
+}
+
+// Startar nästa steg som ett nytt anrop till servern själv.
+const selfCall = (origin, body) =>
+  fetch(`${origin}/api/marketdata`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-script-secret": process.env.APPS_SCRIPT_SECRET },
-    body: JSON.stringify({ action: "continue", state: out.state }),
+    body: JSON.stringify(body),
     signal: AbortSignal.timeout(15000),
   }).catch(() => {});
-}
 
 export async function POST(request) {
   const fromScript = scriptAllowed(request);
@@ -63,7 +75,7 @@ export async function POST(request) {
     if (denied) return denied;
   }
   const body = await request.json().catch(() => ({}));
-  if (fromScript && !["nightly", "continue"].includes(body.action)) return json({ ok: false, error: "Inte tillåtet" }, 403);
+  if (fromScript && !["nightly", "continue", "sweep_bg"].includes(body.action)) return json({ ok: false, error: "Inte tillåtet" }, 403);
   const origin = new URL(request.url).origin;
   if (!traderaConfigured()) return json({ ok: false, error: "Tradera är inte konfigurerat" }, 400);
   if (!["discover", "lots", "lots_check", "db_status"].includes(body.action) && !storageConfigured()) return json({ ok: false, error: "Google Sheet är inte konfigurerat" }, 400);
@@ -89,6 +101,18 @@ export async function POST(request) {
         return json({ ok: true, db: await dbStatus() });
       case "db_copy":
         return json({ ok: true, ...(await copyToDb({ offset: Number(body.offset) || 0 })) });
+      case "sweep": {
+        const st = await sweepStatus();
+        if (st?.running) return json({ ok: true, started: false, sweep: st });
+        waitUntil(runSweep().catch(() => {}));
+        return json({ ok: true, started: true });
+      }
+      case "sweep_bg":
+        if (!fromScript) return json({ ok: false, error: "Inte tillåtet" }, 403);
+        waitUntil(runSweep().catch(() => {}));
+        return json({ ok: true });
+      case "sweep_status":
+        return json({ ok: true, sweep: await sweepStatus() });
       case "sellers":
         return json({ ok: true, sellers: await listSellers() });
       case "watch": {

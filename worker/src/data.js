@@ -5,7 +5,7 @@
 export const LISTING_COLUMNS = [
   "id", "seller", "seller_id", "title", "model_number", "number_source", "type", "status", "price",
   "first_price", "lowest_price", "price_changes", "bids", "shipping", "condition", "start_at", "end_at",
-  "days", "restarts", "url", "first_seen", "last_seen", "sold_seen", "text", "niche", "category_id", "raw", "source",
+  "days", "restarts", "url", "first_seen", "last_seen", "sold_seen", "text", "niche", "category_id", "raw", "source", "series",
 ];
 export const SELLER_COLUMNS = [
   "id", "alias", "watched", "niches", "listings_found", "active", "ended", "number_share", "rating",
@@ -48,7 +48,7 @@ const UPSERT_LISTINGS = upsertSql("listings", LISTING_COLUMNS, {
     lowest_price: `COALESCE(${field("lowest_price")}, ${field("price")})`,
     first_seen: `COALESCE(${field("first_seen")}, ${field("last_seen")})`,
   },
-  changed: ["status", "price", "bids", "end_at", "title", "text", "model_number", "niche", "shipping", "condition", "category_id", "restarts", "seller", "type", "start_at", "url"],
+  changed: ["status", "price", "bids", "end_at", "title", "text", "model_number", "niche", "series", "shipping", "condition", "category_id", "restarts", "seller", "type", "start_at", "url"],
 });
 const UPSERT_SELLERS = upsertSql("sellers", SELLER_COLUMNS);
 
@@ -104,6 +104,19 @@ export async function queryListings(db, { statuses = [] } = {}) {
   return { rows: results };
 }
 
+// Avslutade Köp nu-annonser där vi ännu inte vet om de sålts (sökningen säger
+// inte det – annonsdetaljen gör). Äldst först.
+export async function unresolvedListings(db, { limit = 500, now = new Date().toISOString() } = {}) {
+  const { results } = await db
+    .prepare(
+      `SELECT id FROM listings WHERE COALESCE(type, '') <> 'auktion' AND end_at IS NOT NULL AND end_at < ?1
+         AND (status IS NULL OR status = 'Aktiv') ORDER BY end_at LIMIT ?2`,
+    )
+    .bind(now, Math.min(Number(limit) || 500, 2000))
+    .all();
+  return { ids: results.map((r) => r.id) };
+}
+
 // /data/status (GET), /data/listings och /data/sellers (POST { rows }),
 // /data/query (POST { statuses }).
 export async function handleData(request, env, path) {
@@ -113,6 +126,7 @@ export async function handleData(request, env, path) {
     if (request.method !== "POST") return Response.json({ ok: false, error: "POST krävs" }, { status: 405 });
     const body = await request.json();
     if (path === "/data/query") return Response.json({ ok: true, ...(await queryListings(env.DB, body)) });
+    if (path === "/data/unresolved") return Response.json({ ok: true, ...(await unresolvedListings(env.DB, body)) });
     const { rows } = body;
     if (!Array.isArray(rows)) return Response.json({ ok: false, error: "rows saknas" }, { status: 400 });
     if (rows.length > MAX_ROWS) return Response.json({ ok: false, error: `Högst ${MAX_ROWS} rader per anrop` }, { status: 400 });
