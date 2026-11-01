@@ -1717,18 +1717,35 @@ async function renderHome() {
 
 // Veckoligan: måndag–söndag, placering, förändring sedan i går och förra veckans resultat.
 let leagueWeek = 0;
+let leaguePeriod = store.get("league_period", "week") === "month" ? "month" : "week";
 const MEDALS = { 1: "🥇", 2: "🥈", 3: "🥉" };
 const shortDate = (iso) => new Date(iso).toLocaleDateString("sv-SE", { weekday: "short", day: "numeric", month: "numeric", timeZone: "Europe/Stockholm" });
 
 function paintHomeWeek(w) {
-  if (!w?.market || !w.week) return;
+  if (!w?.market || !(w.week || w.month)) return;
+  if ((w.period ?? "week") !== leaguePeriod) return; // svar för den andra fliken
+  const monthly = w.period === "month";
+  const days = w.days || 7;
+  const name = monthly ? w.label : `vecka ${w.week}`;
   $("h-week").hidden = false;
-  for (const b of document.querySelectorAll("#h-week-tabs .chip")) b.classList.toggle("on", Number(b.dataset.week) === leagueWeek);
-  $("h-week-title").textContent = `Vecka ${w.week}`;
+  for (const b of document.querySelectorAll("#h-week-period .chip")) b.classList.toggle("on", b.dataset.period === leaguePeriod);
+  for (const b of document.querySelectorAll("#h-week-period .chip")) {
+  b.addEventListener("click", () => {
+    leaguePeriod = b.dataset.period === "month" ? "month" : "week";
+    store.set("league_period", leaguePeriod);
+    leagueWeek = 0;
+    renderHomeWeek();
+  });
+}
+for (const b of document.querySelectorAll("#h-week-tabs .chip")) {
+    b.classList.toggle("on", Number(b.dataset.week) === leagueWeek);
+    b.textContent = Number(b.dataset.week) === 0 ? (monthly ? "Denna månad" : "Denna vecka") : monthly ? "Förra månaden" : "Förra veckan";
+  }
+  $("h-week-title").textContent = monthly ? `${w.label[0].toUpperCase()}${w.label.slice(1)} ${w.year}` : `Vecka ${w.week}`;
   $("h-week-dates").textContent = `${shortDate(w.start)} – ${shortDate(w.end)}`;
-  $("h-week-day").style.width = `${Math.round((100 * w.day) / 7)}%`;
-  $("h-week-day-note").textContent = w.final ? "Slutresultat" : w.day === 7 ? "Sista dagen" : `Dag ${w.day} av 7`;
-  const trend = (now, prev) => (prev ? `${now >= prev ? "▲" : "▼"} ${Math.abs(Math.round((100 * (now - prev)) / prev))} % mot samma dag förra veckan` : "");
+  $("h-week-day").style.width = `${Math.round((100 * w.day) / days)}%`;
+  $("h-week-day-note").textContent = w.final ? "Slutresultat" : w.day === days ? "Sista dagen" : `Dag ${w.day} av ${days}`;
+  const trend = (now, prev) => (prev ? `${now >= prev ? "▲" : "▼"} ${Math.abs(Math.round((100 * (now - prev)) / prev))} % mot samma dag förra ${monthly ? "månaden" : "veckan"}` : "");
   $("h-week-mine").textContent = w.own ? String(w.mine.sold) : "–";
   $("h-week-mine-note").textContent = w.own ? [w.mine.revenue ? kr(w.mine.revenue) : "", w.final ? "" : trend(w.mine.sold, w.mine.prev)].filter(Boolean).join(" · ") : "Ditt konto kopplas vid nattens insamling";
   $("h-week-market").textContent = w.market.sold.toLocaleString("sv-SE");
@@ -1739,11 +1756,11 @@ function paintHomeWeek(w) {
   let rankLine = "";
   if (me) {
     rankLine = w.final
-      ? `${MEDALS[me.rank] ?? ""} ${me.rank === 1 ? `Du vann vecka ${w.week}!` : `Du kom på plats ${me.rank} av ${w.sellers}`}`.trim()
+      ? `${MEDALS[me.rank] ?? ""} ${me.rank === 1 ? `Du vann ${name}!` : `Du kom på plats ${me.rank} av ${w.sellers}`}`.trim()
       : `Plats ${me.rank} av ${w.sellers}` + (me.move ? ` ${move(me.move)} sedan i går` : "") +
         (w.mine.to_next ? ` · ${w.mine.to_next.needed} till för att gå om ${w.mine.to_next.alias}` : me.rank === 1 ? " · du leder!" : "");
   } else if (w.own) {
-    rankLine = w.final ? "Ingen försäljning den veckan." : "Ingen försäljning än den här veckan.";
+    rankLine = w.final ? `Ingen försäljning ${monthly ? "den månaden" : "den veckan"}.` : `Ingen försäljning än ${monthly ? "den här månaden" : "den här veckan"}.`;
   }
   $("h-week-rank").textContent = rankLine;
   $("h-week-share").textContent = w.own ? `Din andel: ${String(w.mine.share).replace(".", ",")} % av alla sålda` : "";
@@ -1773,7 +1790,10 @@ function paintHomeWeek(w) {
 
   const h = w.history;
   $("h-week-history").textContent = h
-    ? [h.best ? `Bästa placering: ${h.best.rank} (v${h.best.week})` : "", h.top3_streak >= 2 ? `${h.top3_streak} veckor i rad i topp 3` : ""].filter(Boolean).join(" · ")
+    ? [
+        h.best ? `Bästa placering: ${h.best.rank} (${monthly ? h.best.label : `v${h.best.week}`})` : "",
+        h.top3_streak >= 2 ? `${h.top3_streak} ${monthly ? "månader" : "veckor"} i rad i topp 3` : "",
+      ].filter(Boolean).join(" · ")
     : "";
 }
 
@@ -1785,10 +1805,10 @@ for (const b of document.querySelectorAll("#h-week-tabs .chip")) {
 }
 
 async function renderHomeWeek() {
-  const key = `league_cache_${leagueWeek}`;
+  const key = `league_cache_${leaguePeriod}_${leagueWeek}`;
   paintHomeWeek(store.get(key, null));
   try {
-    const w = await marketApi({ action: "league", week: leagueWeek });
+    const w = await marketApi({ action: "league", period: leaguePeriod, offset: leagueWeek });
     store.set(key, w);
     paintHomeWeek(w);
   } catch {

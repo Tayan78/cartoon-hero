@@ -51,3 +51,32 @@ test("Ligan: placering, förändring sedan i går, till nästa placering, förra
   assert.deepEqual([last.week, last.final, last.top.map((t) => [t.rank, t.alias])], [44, true, [[1, "Joulupukkin"], [2, "Siri"]]]);
   assert.equal(last.top[0].move, undefined);
 });
+
+test("Månadsligan: denna och förra månaden, dag i månaden, samma tid förra månaden, bästa månad", async () => {
+  const { monthBounds } = await import("../worker/src/league.js");
+  const nov = monthBounds(Date.parse("2026-11-04T11:00:00Z"));
+  assert.deepEqual([new Date(nov.start).toISOString(), new Date(nov.end).toISOString(), nov.label, nov.day, nov.days], ["2026-10-31T23:00:00.000Z", "2026-11-30T23:00:00.000Z", "november", 4, 30]);
+  const oct = monthBounds(Date.parse("2026-11-04T11:00:00Z"), -1);
+  assert.deepEqual([new Date(oct.start).toISOString(), oct.label, oct.days], ["2026-09-30T22:00:00.000Z", "oktober", 31]);
+
+  const db = fakeD1();
+  await upsertSellers(db, [{ id: "1", alias: "Siri" }, { id: "9", alias: "Joulupukkin" }]);
+  await db.prepare("UPDATE sellers SET own = 1 WHERE id = '9'").run();
+  const rows = [];
+  let n = 0;
+  const sell = (seller, alias, count, at) => {
+    for (let i = 0; i < count; i++) rows.push({ id: `m${n++}`, seller_id: seller, seller: alias, title: "Schleich häst", niche: "djur", source: "sök", status: "Såld", price: 50, end_at: at });
+  };
+  sell("1", "Siri", 4, "2026-11-02T10:00:00Z");
+  sell("9", "Joulupukkin", 2, "2026-11-03T10:00:00Z");
+  sell("9", "Joulupukkin", 9, "2026-10-02T10:00:00Z"); // oktober: du vann, 9 st före den 4:e
+  sell("1", "Siri", 5, "2026-10-20T10:00:00Z");
+  await upsertListings(db, rows);
+  const now = Date.parse("2026-11-04T11:00:00Z");
+  const m = await league(db, { period: "month", now });
+  assert.deepEqual([m.period, m.label, m.day, m.days, m.mine.rank, m.mine.prev, m.market.prev], ["month", "november", 4, 30, 2, 9, 9]);
+  assert.deepEqual(m.mine.to_next, { alias: "Siri", rank: 1, needed: 3 });
+  assert.deepEqual(m.history.best, { month: 10, label: "oktober", rank: 1 });
+  const last = await league(db, { period: "month", offset: -1, now });
+  assert.deepEqual([last.label, last.final, last.top.map((t) => [t.rank, t.alias, t.sold])], ["oktober", true, [[1, "Joulupukkin", 9], [2, "Siri", 5]]]);
+});

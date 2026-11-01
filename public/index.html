@@ -33,7 +33,11 @@
       </div>
       <div id="h-week" class="home-card" hidden>
         <div class="hc-head"><b id="h-week-title">Veckan</b><span id="h-week-dates" class="muted small"></span></div>
-        <div id="h-week-tabs" class="chips seg wk-tabs" role="tablist" aria-label="Vecka">
+        <div id="h-week-period" class="chips seg wk-tabs" role="tablist" aria-label="Period">
+          <button type="button" class="chip on" data-period="week">Vecka</button>
+          <button type="button" class="chip" data-period="month">Månad</button>
+        </div>
+        <div id="h-week-tabs" class="chips seg wk-tabs" role="tablist" aria-label="Denna eller förra">
           <button type="button" class="chip on" data-week="0">Denna vecka</button>
           <button type="button" class="chip" data-week="-1">Förra veckan</button>
         </div>
