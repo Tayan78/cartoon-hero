@@ -46,6 +46,23 @@ export function weekBounds(now = Date.now(), offset = 0) {
   return { start: monday, end: nextMonday, week, year, day: offset === 0 ? dow : 7, today };
 }
 
+// Månaden (offset 0 = denna, -1 = förra), svensk tid.
+const MONTHS = ["januari", "februari", "mars", "april", "maj", "juni", "juli", "augusti", "september", "oktober", "november", "december"];
+export function monthBounds(now = Date.now(), offset = 0) {
+  const local = new Date(now + stockholmOffset(now) * 60000);
+  const y = local.getUTCFullYear();
+  const m = local.getUTCMonth() + offset;
+  const first = (yy, mm) => {
+    const guess = Date.UTC(yy, mm, 1);
+    return guess - stockholmOffset(guess) * 60000;
+  };
+  const start = first(y, m);
+  const end = first(y, m + 1);
+  const s = new Date(start + stockholmOffset(start) * 60000);
+  const days = Math.round((end - start) / DAY);
+  return { start, end, month: s.getUTCMonth() + 1, label: MONTHS[s.getUTCMonth()], year: s.getUTCFullYear(), day: offset === 0 ? local.getUTCDate() : days, days, today: localMidnight(now) };
+}
+
 const iso = (ms) => new Date(ms).toISOString();
 
 // Alla säljare med sålda annonser mellan from och to, rangordnade.
@@ -78,10 +95,13 @@ function board(list, before = null) {
     .map((r) => ({ id: r.id, alias: r.alias, sold: r.sold, revenue: r.revenue ?? 0, rank: r.rank, own: r.own, ...(prev ? { move: prev.has(r.id) ? prev.get(r.id) - r.rank : null } : {}) }));
 }
 
-export async function league(db, { week = 0, now = Date.now(), history = 8 } = {}) {
-  const offset = Math.min(0, Math.max(-52, Number(week) || 0));
-  const w = weekBounds(now, offset);
-  const cutoff = offset === 0 ? Math.min(now, w.end) : w.end;
+// period: "week" (måndag–söndag) eller "month". offset 0 = pågående, -1 = förra.
+export async function league(db, { period = "week", offset, week = 0, now = Date.now(), history } = {}) {
+  const monthly = period === "month";
+  const off = Math.min(0, Math.max(-52, Number(offset ?? week) || 0));
+  const bounds = (o) => (monthly ? monthBounds(now, o) : weekBounds(now, o));
+  const w = bounds(off);
+  const cutoff = off === 0 ? Math.min(now, w.end) : w.end;
   const [list, market, ownRow] = await Promise.all([
     ranking(db, w.start, cutoff),
     totals(db, w.start, cutoff),
@@ -90,28 +110,31 @@ export async function league(db, { week = 0, now = Date.now(), history = 8 } = {
   const own = ownRow.results[0] ?? null;
   const me = list.find((r) => r.own) ?? null;
   const out = {
-    week: w.week,
+    period: monthly ? "month" : "week",
+    ...(monthly ? { month: w.month, label: w.label, days: w.days } : { week: w.week, days: 7 }),
     year: w.year,
     start: iso(w.start),
     end: iso(w.end - 1),
     day: w.day,
-    final: offset < 0,
+    final: off < 0,
     own,
     market,
     mine: { sold: me?.sold ?? 0, revenue: me?.revenue ?? 0, rank: me?.rank ?? null, share: market.sold ? Math.round((1000 * (me?.sold ?? 0)) / market.sold) / 10 : 0 },
     sellers: list.length,
   };
 
-  if (offset === 0) {
-    // Förändring sedan i går (ställningen vid midnatt i dag) och jämförelse mot samma dag förra veckan.
-    const [yesterday, lastWeek, lastWeekMine] = await Promise.all([
+  if (off === 0) {
+    // Förändring sedan i går och jämförelse mot samma tid in i förra perioden.
+    const prev = bounds(-1);
+    const prevCut = Math.min(prev.end, prev.start + (cutoff - w.start));
+    const [yesterday, lastPeriod, lastMine] = await Promise.all([
       w.today > w.start ? ranking(db, w.start, w.today) : null,
-      totals(db, w.start - 7 * DAY, cutoff - 7 * DAY),
-      ranking(db, w.start - 7 * DAY, cutoff - 7 * DAY).then((l) => l.find((r) => r.own)?.sold ?? 0),
+      totals(db, prev.start, prevCut),
+      ranking(db, prev.start, prevCut).then((l) => l.find((r) => r.own)?.sold ?? 0),
     ]);
     out.top = board(list, yesterday);
-    out.market.prev = lastWeek.sold;
-    out.mine.prev = lastWeekMine;
+    out.market.prev = lastPeriod.sold;
+    out.mine.prev = lastMine;
     if (me && me.rank > 1) {
       const ahead = list[me.rank - 2];
       out.mine.to_next = { alias: ahead.alias, rank: ahead.rank, needed: ahead.sold - me.sold + 1 };
@@ -120,24 +143,29 @@ export async function league(db, { week = 0, now = Date.now(), history = 8 } = {
     out.top = board(list);
   }
 
-  // Din historik: placering vecka för vecka (avslutade veckor).
-  if (own && history > 0) {
-    const weeks = [];
-    for (let i = 1; i <= history; i++) {
-      const b = weekBounds(now, offset - i + (offset < 0 ? 1 : 0));
+  // Din historik: placering period för period (avslutade perioder).
+  const count = history ?? (monthly ? 6 : 8);
+  if (own && count > 0) {
+    const periods = [];
+    for (let i = 1; i <= count; i++) {
+      const b = bounds(Math.min(off, 0) - i + (off < 0 ? 1 : 0));
       if (b.start === w.start) continue;
       const l = await ranking(db, b.start, b.end);
       const r = l.find((x) => x.own);
-      weeks.push({ week: b.week, rank: r?.rank ?? null, sold: r?.sold ?? 0, sellers: l.length });
+      periods.push({ ...(monthly ? { month: b.month, label: b.label } : { week: b.week }), rank: r?.rank ?? null, sold: r?.sold ?? 0, sellers: l.length });
     }
-    const placed = weeks.filter((x) => x.rank);
+    const placed = periods.filter((x) => x.rank);
     const best = placed.reduce((a, x) => (!a || x.rank < a.rank ? x : a), null);
     let streak = 0;
-    for (const x of weeks) {
+    for (const x of periods) {
       if (x.rank && x.rank <= 3) streak++;
       else break;
     }
-    out.history = { weeks, best: best ? { week: best.week, rank: best.rank } : null, top3_streak: streak };
+    out.history = {
+      ...(monthly ? { months: periods } : { weeks: periods }),
+      best: best ? { ...(monthly ? { month: best.month, label: best.label } : { week: best.week }), rank: best.rank } : null,
+      top3_streak: streak,
+    };
   }
   return out;
 }
