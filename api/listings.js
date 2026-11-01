@@ -10,12 +10,9 @@
 //   { action: "delete", id }                   ta bort annonsen och dess bilder
 //   { action: "export", include_exported }     CSV till ProLister av godkända Tradera-annonser;
 //       sparas i Drive (Loppisskannern/Export) och annonserna markeras Exporterad
-// Själva berikningen startar direkt när annonsen läggs i kön (lib/listingnow.js,
-// en annons per anrop, parallellt); Apps Script-timern är reserv. Appen kan
-// stängas efter uppladdningen.
-import { waitUntil } from "@vercel/functions";
+// Själva berikningen sker i kön (Apps Script → /api/listing-process), så appen
+// kan stängas efter uppladdningen.
 import { checkAuth, json, parseDataUrl } from "../lib/http.js";
-import { processListingNow } from "../lib/listingnow.js";
 import { purchasesCall } from "../lib/purchases.js";
 import { researchListing } from "../lib/listing.js";
 import { mockDefect, mockLens, mockListingText, mockSimple, mockTradera } from "../lib/mock.js";
@@ -113,10 +110,6 @@ export async function POST(request) {
   // annonsen påverkas inte, och ett fel här stoppar inte uppladdningen).
   if (body.action === "submit" && res.ok && body.purchase_id !== undefined) {
     await purchasesCall({ op: "item", item: { id, purchase_id: body.purchase_id } }).catch(() => {});
-  }
-  // I kön → bearbeta direkt, i ett eget anrop per annons (timern i Apps Script är reserv).
-  if ((body.action === "commit" || body.action === "requeue") && res.ok && storageConfigured()) {
-    waitUntil(processListingNow(id).catch(() => {}));
   }
   return json(res, res.ok ? 200 : 502);
 }
