@@ -226,6 +226,7 @@ export async function productStats(db, { limit = 30 } = {}) {
 // ---------- Veckan (startsidan) ----------
 // Sålda Schleich-annonser senaste N dygnen: hela marknaden, ditt eget konto och
 // de fem konkurrenter som sålt mest. Föregående period för jämförelse.
+const TOP_N = 10;
 export async function weekStats(db, { days = 7, now = Date.now() } = {}) {
   const n = Math.min(Math.max(Number(days) || 7, 1), 90);
   const since = new Date(now - n * 86400000).toISOString();
@@ -245,14 +246,18 @@ export async function weekStats(db, { days = 7, now = Date.now() } = {}) {
          FROM listings l JOIN sellers s ON s.id = l.seller_id AND s.own = 1 WHERE ${SOLD} AND l.end_at >= ?2 AND l.end_at <= ?3`,
       )
       .bind(since, before, nowIso),
+    // Topplistan: alla säljare inklusive dig, rangordnade. Topp N + din rad om du är längre ner.
     db
       .prepare(
-        `SELECT l.seller_id AS id, MAX(l.seller) AS alias, COUNT(*) AS sold, SUM(l.price) AS revenue
-         FROM listings l LEFT JOIN sellers s ON s.id = l.seller_id
-         WHERE ${SOLD} AND l.end_at >= ?1 AND l.end_at <= ?2 AND l.seller_id IS NOT NULL AND COALESCE(s.own, 0) = 0
-         GROUP BY l.seller_id ORDER BY sold DESC, revenue DESC LIMIT 5`,
+        `WITH ranked AS (
+           SELECT l.seller_id AS id, MAX(l.seller) AS alias, COUNT(*) AS sold, SUM(l.price) AS revenue, COALESCE(MAX(s.own), 0) AS own,
+             ROW_NUMBER() OVER (ORDER BY COUNT(*) DESC, SUM(l.price) DESC) AS rank
+           FROM listings l LEFT JOIN sellers s ON s.id = l.seller_id
+           WHERE ${SOLD} AND l.end_at >= ?1 AND l.end_at <= ?2 AND l.seller_id IS NOT NULL
+           GROUP BY l.seller_id)
+         SELECT * FROM ranked WHERE rank <= ?3 OR own = 1 ORDER BY rank`,
       )
-      .bind(since, nowIso),
+      .bind(since, nowIso, TOP_N),
     db.prepare("SELECT id, alias FROM sellers WHERE own = 1 LIMIT 1"),
   ]);
   const m = market.results[0] ?? {};
@@ -264,6 +269,6 @@ export async function weekStats(db, { days = 7, now = Date.now() } = {}) {
     own: own.results[0] ?? null,
     market: { sold, revenue: m.revenue ?? 0, prev: m.prev ?? 0 },
     mine: { sold: y.sold ?? 0, revenue: y.revenue ?? 0, prev: y.prev ?? 0, share: sold ? Math.round((1000 * (y.sold ?? 0)) / sold) / 10 : 0 },
-    top: top.results.map((t) => ({ ...t, share: sold ? Math.round((1000 * t.sold) / sold) / 10 : 0 })),
+    top: top.results.map((t) => ({ ...t, own: Number(t.own) === 1, share: sold ? Math.round((1000 * t.sold) / sold) / 10 : 0 })),
   };
 }

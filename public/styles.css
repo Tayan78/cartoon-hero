@@ -478,3 +478,12 @@ button:disabled { opacity: .4; }
 .vm-recent a { display: grid; grid-template-columns: 1fr auto 78px; gap: 8px; align-items: baseline; padding: 7px 0; border-top: 1px solid var(--line); color: var(--text); text-decoration: none; font-size: 14px; }
 .vm-recent a span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vm-recent small { color: var(--muted); font-size: 12px; text-align: right; }
+
+/* Topplistan: placering, du markerad, "…" före din rad om du är längre ner */
+.wk-top { counter-reset: none; }
+.wk-top li { counter-increment: none; grid-template-columns: 26px 1fr auto 64px; }
+.wk-top li::before { content: none; }
+.wk-top .wk-rank { color: var(--muted); font-weight: 700; font-variant-numeric: tabular-nums; }
+.wk-top li.wk-me { background: color-mix(in srgb, var(--accent) 18%, transparent); border-top-color: transparent; border-radius: 10px; margin: 2px -8px; padding: 8px; font-weight: 600; }
+.wk-top li.wk-me .wk-rank, .wk-top li.wk-me small { color: var(--text); }
+.wk-top li.wk-gap { display: block; text-align: center; color: var(--muted); padding: 2px 0; }

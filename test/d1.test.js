@@ -298,7 +298,7 @@ test("Veckan: dina sålda mot marknaden, topp 5 utan dig själv, veckan före", 
   const w = await weekStats(db, { now });
   assert.deepEqual(w.market, { sold: 10, revenue: 1000, prev: 4 });
   assert.deepEqual({ ...w.mine }, { sold: 2, revenue: 200, prev: 0, share: 20 });
-  assert.deepEqual(w.top.map((t) => [t.alias, t.sold, t.share]), [["A", 5, 50], ["B", 3, 30]]);
+  assert.deepEqual(w.top.map((t) => [t.rank, t.alias, t.sold, t.share, t.own]), [[1, "A", 5, 50, false], [2, "B", 3, 30, false], [3, "Joulupukkin", 2, 20, true]]);
   assert.equal(w.own.alias, "Joulupukkin");
 });
 
@@ -380,4 +380,22 @@ test("Avbruten körning: en körning som stått som Pågår markeras Avbruten n�
   await recordRun(db, { name: "marknad", started_at: "2026-11-02T02:37:00Z" });
   const { results } = await db.prepare("SELECT status FROM runs ORDER BY started_at").all();
   assert.deepEqual(results.map((r) => r.status), ["Avbruten", "Pågår"]);
+});
+
+test("Topplistan: topp 10, och du längst ner med din placering om du inte är med", async () => {
+  const { weekStats } = await import("../worker/src/monitor.js");
+  const db = fakeD1();
+  const now = Date.parse("2026-11-10T12:00:00Z");
+  const end = new Date(now - 86400000).toISOString();
+  const sellers = Array.from({ length: 12 }, (_, i) => ({ id: String(i + 1), alias: `S${i + 1}` }));
+  await upsertSellers(db, [...sellers, { id: "99", alias: "Joulupukkin" }]);
+  await db.prepare("UPDATE sellers SET own = 1 WHERE id = '99'").run();
+  const rows = [];
+  sellers.forEach((s, i) => { for (let k = 0; k < 20 - i; k++) rows.push({ id: `${s.id}-${k}`, seller_id: s.id, seller: s.alias, title: "Schleich häst", niche: "djur", source: "sök", status: "Såld", price: 50, end_at: end }); });
+  rows.push({ id: "me-1", seller_id: "99", seller: "Joulupukkin", title: "Schleich häst", niche: "djur", source: "sök", status: "Såld", price: 50, end_at: end });
+  await upsertListings(db, rows);
+  const w = await weekStats(db, { now });
+  assert.equal(w.top.length, 11);
+  assert.deepEqual(w.top.slice(0, 3).map((t) => [t.rank, t.alias]), [[1, "S1"], [2, "S2"], [3, "S3"]]);
+  assert.deepEqual([w.top.at(-1).rank, w.top.at(-1).alias, w.top.at(-1).own], [13, "Joulupukkin", true]);
 });
