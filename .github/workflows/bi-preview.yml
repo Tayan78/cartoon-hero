@@ -6,6 +6,7 @@ on:
   pull_request:
     paths:
       - scripts/bi-preview.mjs
+      - scripts/drift-status.mjs
       - .github/workflows/bi-preview.yml
 
 permissions:
@@ -22,6 +23,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: node scripts/drift-status.mjs
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       - run: node scripts/bi-preview.mjs
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
