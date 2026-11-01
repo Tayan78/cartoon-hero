@@ -1724,22 +1724,31 @@ function paintHomeWeek(w) {
   $("h-week-mine-note").textContent = w.own ? [w.mine.revenue ? kr(w.mine.revenue) : "", trend(w.mine.sold, w.mine.prev)].filter(Boolean).join(" · ") : "Ditt konto kopplas – siffran kommer efter nattens insamling";
   $("h-week-market").textContent = w.market.sold.toLocaleString("sv-SE");
   $("h-week-market-note").textContent = [w.market.revenue ? kr(w.market.revenue) : "", trend(w.market.sold, w.market.prev)].filter(Boolean).join(" · ");
-  const top = w.top?.[0]?.sold || 1;
-  $("h-week-bar").style.width = `${Math.min(100, (100 * (w.mine.sold || 0)) / top)}%`;
+  // Stapeln: du mot den bästa konkurrenten (inte dig själv).
+  const rival = (w.top ?? []).find((t) => !t.own);
+  const me = (w.top ?? []).find((t) => t.own);
+  $("h-week-bar").style.width = `${Math.min(100, (100 * (w.mine.sold || 0)) / (rival?.sold || 1))}%`;
   $("h-week-share").textContent = w.own
-    ? `Din andel: ${String(w.mine.share).replace(".", ",")} % av alla sålda${w.top?.length ? ` · stapeln: du mot ettan (${w.top[0].sold})` : ""}`
+    ? `Din andel: ${String(w.mine.share).replace(".", ",")} % av alla sålda` +
+      (me ? ` · plats ${me.rank}` : "") +
+      (rival ? ` · stapeln: du mot ${rival.alias} (${rival.sold})` : "")
     : "";
-  $("h-week-top").replaceChildren(
-    ...(w.top ?? []).map((t) => {
-      const li = document.createElement("li");
-      li.append(
-        Object.assign(document.createElement("span"), { className: "wk-name", textContent: t.alias || t.id }),
-        Object.assign(document.createElement("b"), { textContent: `${t.sold} st` }),
-        Object.assign(document.createElement("small"), { textContent: t.revenue ? kr(t.revenue) : "" }),
-      );
-      return li;
-    }),
-  );
+  const rows = [];
+  let last = 0;
+  for (const t of w.top ?? []) {
+    if (t.rank > last + 1 && last) rows.push(Object.assign(document.createElement("li"), { className: "wk-gap", textContent: "…" }));
+    last = t.rank;
+    const li = document.createElement("li");
+    if (t.own) li.className = "wk-me";
+    li.append(
+      Object.assign(document.createElement("span"), { className: "wk-rank", textContent: String(t.rank) }),
+      Object.assign(document.createElement("span"), { className: "wk-name", textContent: t.own ? `${t.alias || t.id} (du)` : t.alias || t.id }),
+      Object.assign(document.createElement("b"), { textContent: `${t.sold} st` }),
+      Object.assign(document.createElement("small"), { textContent: t.revenue ? kr(t.revenue) : "" }),
+    );
+    rows.push(li);
+  }
+  $("h-week-top").replaceChildren(...rows);
 }
 
 // Granska: modellens siffror ur databasen (sålt senaste 4 mån, säljgrad, till salu nu).
