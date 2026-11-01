@@ -22,6 +22,11 @@ export async function recordRun(db, { id, name, started_at, finished_at, status,
     return { id: Number(id) };
   }
   if (!name) throw new Error("name saknas");
+  // En körning som aldrig blev klar (servern dog) markeras som avbruten när nästa startar.
+  await db
+    .prepare("UPDATE runs SET status = 'Avbruten', finished_at = COALESCE(finished_at, ?2) WHERE name = ?1 AND status = 'Pågår' AND started_at < ?3")
+    .bind(String(name), started_at ?? new Date().toISOString(), new Date(Date.parse(started_at ?? new Date().toISOString()) - 30 * 60000).toISOString())
+    .run();
   const row = await db
     .prepare("INSERT INTO runs (name, started_at, status, summary) VALUES (?1, ?2, ?3, ?4) RETURNING id")
     .bind(String(name), started_at ?? new Date().toISOString(), status ?? "Pågår", summary ?? null)

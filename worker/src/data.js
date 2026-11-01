@@ -56,7 +56,9 @@ const UPSERT_LISTINGS = upsertSql("listings", LISTING_COLUMNS, {
   },
   changed: [
     "status", "price", "bids", "end_at", "title", "text", "model_number", "niche", "series", "shipping", "condition", "category_id",
-    "restarts", "seller", "type", "start_at", "url", "description", "detail_at", "opening_price", "buy_now_price", "image_count", "reserve_met",
+    // url och alias räknas inte: säljarens och sökningens svar skriver dem olika, och
+    // annonsen skulle då skrivas om varje natt utan att något ändrats.
+    "restarts", "type", "start_at", "description", "detail_at", "opening_price", "buy_now_price", "image_count", "reserve_met",
   ],
 });
 const UPSERT_SELLERS = upsertSql("sellers", SELLER_COLUMNS);
@@ -97,7 +99,18 @@ const LINKS = `INSERT INTO listing_products (listing_id, product_key, quantity, 
   WHERE COALESCE(excluded.confidence, 0) > COALESCE(listing_products.confidence, 0)`;
 
 // Rader som D1 faktiskt skrev (för översikten; D1:s gratisgräns är 100 000 per dygn).
-const written = (results) => [].concat(results).reduce((sum, r) => sum + (Number(r?.meta?.rows_written) || 0), 0);
+const rowsWritten = (r) => Number(r?.meta?.rows_written) || 0;
+const written = (results) => [].concat(results).reduce((sum, r) => sum + rowsWritten(r), 0);
+
+// Skrivbudget per dygn (UTC, som Cloudflare räknar): stora skrivningar (annonser,
+// kopplingar, kategorier) stoppas innan gratisgränsen nås. Små skrivningar
+// (körningar, inköp, ditt konto, räknare) går alltid igenom.
+export const DAILY_WRITE_BUDGET = 85000;
+export async function writtenToday(db, now = Date.now()) {
+  const day = new Date(now).toISOString().slice(0, 10);
+  const { results } = await db.prepare("SELECT count FROM usage WHERE day = ?1 AND api = 'd1_rows'").bind(day).all();
+  return Number(results[0]?.count) || 0;
+}
 
 export async function upsertListings(db, rows) {
   const json = JSON.stringify(rows);
@@ -109,7 +122,10 @@ export async function upsertListings(db, rows) {
     db.prepare(NEW_PRODUCTS).bind(json),
     db.prepare(LINKS).bind(json),
   ]);
-  return { rows: rows.length, written: written(results) };
+  const [first, change, snap, upsert, products, links] = results.map(rowsWritten);
+  // Per del, så att Drift kan visa vad som skriver mest.
+  const parts = { d1_rows_prices: first + change, d1_rows_snapshots: snap, d1_rows_listings: upsert, d1_rows_links: products + links };
+  return { rows: rows.length, written: written(results), parts };
 }
 
 // Bara produktkopplingar (efterhandskoppling av annonser som redan finns).
@@ -236,8 +252,15 @@ export async function handleData(request, env, path, extra = {}) {
     if (rows.length > MAX_ROWS) return Response.json({ ok: false, error: `Högst ${MAX_ROWS} rader per anrop` }, { status: 400 });
     if (["/data/listings", "/data/sellers", "/data/links", "/data/categories"].includes(path)) {
       const write = { "/data/listings": upsertListings, "/data/sellers": upsertSellers, "/data/links": linkProducts, "/data/categories": upsertCategories }[path];
+      const budget = Number(env.DAILY_WRITE_BUDGET) || DAILY_WRITE_BUDGET;
+      if (path !== "/data/sellers") {
+        const today = await writtenToday(env.DB).catch(() => 0);
+        if (today >= budget) {
+          return Response.json({ ok: false, error: `Dygnets skrivbudget i databasen är slut (${today} av ${budget} rader) – fortsätter efter midnatt (UTC)`, budget: true }, { status: 429 });
+        }
+      }
       const out = await write(env.DB, rows);
-      await addUsage(env.DB, { d1_rows: out.written }).catch(() => {});
+      await addUsage(env.DB, { d1_rows: out.written, ...(out.parts ?? {}) }).catch(() => {});
       return Response.json({ ok: true, ...out });
     }
     return Response.json({ ok: false, error: "Okänd adress" }, { status: 404 });

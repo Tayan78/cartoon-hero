@@ -372,3 +372,40 @@ test("Ditt konto i databasen: nyckeln sparas, status visar aldrig nyckeln, förs
   assert.ok(!JSON.stringify(d).includes("HEMLIG"));
   await assert.rejects(() => own(db, { op: "auth_set", auth: {} }), /token/);
 });
+
+test("Skrivbudget: annonser stoppas när dygnets budget är nådd, små skrivningar går igenom; skrivningar räknas per del", async () => {
+  const db = fakeD1();
+  const env = { DB: db, APP_TOKEN: "t", DAILY_WRITE_BUDGET: "50" };
+  const post = (path, body) => handleData(new Request(`https://w${path}`, { method: "POST", headers: { "x-app-token": "t" }, body: JSON.stringify(body) }), env, path);
+  const row = { id: "1", title: "Schleich häst 13773", status: "Aktiv", price: 80, niche: "djur", last_seen: "2026-11-01T03:00:00Z" };
+  // fakeD1 ger inga rows_written, så räknaren sätts för hand.
+  const { addUsage } = await import("../worker/src/monitor.js");
+  assert.equal((await post("/data/listings", { rows: [row] })).status, 200);
+  await addUsage(db, { d1_rows: 60 });
+  const stopped = await post("/data/listings", { rows: [{ ...row, price: 70 }] });
+  assert.equal(stopped.status, 429);
+  assert.match((await stopped.json()).error, /skrivbudget/);
+  assert.equal((await post("/data/sellers", { rows: [{ id: "9", alias: "A" }] })).status, 200);
+  const { results } = await db.prepare("SELECT price FROM listings WHERE id = '1'").all();
+  assert.equal(results[0].price, 80, "stoppad skrivning ändrade inget");
+  const parts = await upsertListings(db, [{ ...row, id: "2" }]);
+  assert.deepEqual(Object.keys(parts.parts), ["d1_rows_prices", "d1_rows_snapshots", "d1_rows_listings", "d1_rows_links"]);
+});
+
+test("Oförändrad annons skrivs inte om även om länk och alias skiljer sig (säljarens och sökningens svar)", async () => {
+  const db = fakeD1();
+  const base = { id: "5", title: "Schleich häst", status: "Aktiv", price: 80, type: "auktion", niche: "djur", last_seen: "2026-11-01T03:00:00Z" };
+  await upsertListings(db, [{ ...base, url: "https://www.tradera.com/item/1/5/schleich-hast", seller: "Daisy" }]);
+  await upsertListings(db, [{ ...base, url: "https://www.tradera.com/item/5", seller: "daisy", last_seen: "2026-11-02T03:00:00Z" }]);
+  const { results } = await db.prepare("SELECT last_seen FROM listings WHERE id = '5'").all();
+  assert.equal(results[0].last_seen, "2026-11-01T03:00:00Z", "ingen omskrivning");
+});
+
+test("Avbruten körning: en körning som stått som Pågår markeras Avbruten när nästa startar", async () => {
+  const { recordRun } = await import("../worker/src/monitor.js");
+  const db = fakeD1();
+  await recordRun(db, { name: "marknad", started_at: "2026-11-01T02:37:00Z" });
+  await recordRun(db, { name: "marknad", started_at: "2026-11-02T02:37:00Z" });
+  const { results } = await db.prepare("SELECT status FROM runs ORDER BY started_at").all();
+  assert.deepEqual(results.map((r) => r.status), ["Avbruten", "Pågår"]);
+});
