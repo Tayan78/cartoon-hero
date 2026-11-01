@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { DB_CHUNK, dbMarketRows, dbWrite, toDbListing, toDbSeller } from "../lib/db.js";
 import { loadMarketRows } from "../lib/lots.js";
-import { collectSeller, copyToDb, MARKET_HEADERS, SELLER_HEADERS } from "../lib/marketdata.js";
+import { copyToDb, MARKET_HEADERS, SELLER_HEADERS } from "../lib/marketdata.js";
 import { fakeAppsScript } from "./helpers/apps-script.js";
 
 test("Arkets rader → databasens fält: tal, datum, Ja/Nej, tomma tal blir null", () => {
@@ -30,26 +30,6 @@ test("Skrivning: delas upp i delar, skickar token och kastar fel från databasen
   assert.equal(calls[0].init.headers["x-app-token"], "hemligt");
   const failing = async () => new Response(JSON.stringify({ ok: false, error: "D1 nere" }), { status: 500 });
   await assert.rejects(dbWrite("sellers", [{ "Säljar-ID": "1" }], { fetchImpl: failing }), /Databasen: D1 nere/);
-});
-
-const item = (id, o = {}) => ({ id, title: "Schleich Tinker sto", number: "13279", number_source: "text", type: "köp nu", price: 89, bids: 0, shipping: 49, condition: "", start: "2026-10-01T10:00:00.000Z", end: "2026-10-31T10:00:00.000Z", days: 27, restarts: 0, url: "u", text: "Schleich 13279", sold: false, ended: false, ...o });
-const fetchItems = async () => ({ alias: "Daisy93", user_id: "42", detail: {}, items: [item(1), item(2)] });
-
-test("Insamling skriver samma rader till databasen; fel där stoppar inte arket men syns på säljaren", async () => {
-  const gs = fakeAppsScript();
-  const written = [];
-  const db = async (table, rows) => written.push([table, rows.map((r) => r["Annons-ID"] ?? r["Säljar-ID"])]);
-  const r = await collectSeller({ alias: "Daisy93", user_id: "42" }, { store: gs.store, db, fetchItems, now: Date.parse("2026-10-31T03:00:00Z") });
-  assert.deepEqual(written, [["listings", ["1", "2"]], ["sellers", ["42"]]]);
-  assert.equal(r.db_error, null);
-
-  const broken = async () => {
-    throw new Error("Databasen: D1 nere");
-  };
-  const r2 = await collectSeller({ alias: "Daisy93", user_id: "42" }, { store: gs.store, db: broken, fetchItems });
-  assert.equal(r2.db_error, "Databasen: D1 nere");
-  assert.equal(gs.table("Marknad").length, 2); // arket uppdaterades ändå
-  assert.equal(gs.table("Säljare")[0].Fel, "Databasen: D1 nere");
 });
 
 test("Kopiering från arket: säljare första gången, annonserna i delar tills allt är kopierat", async () => {
@@ -84,29 +64,6 @@ test("Styckpriserna läses från databasen i arkets format; svarar den inte anv�
   // Ett eget ark (som i Fynd-testerna) läses alltid därifrån.
   const store = async (action, p) => ({ ok: true, rows: [{ Rubrik: "y", Status: p.filter.equals }] });
   assert.equal((await loadMarketRows(store, { db: down })).source, "ark");
-});
-
-test("Insamling: allt från säljaren till databasen (med kategori och rådata), bara nischerna till arket", async () => {
-  const gs = fakeAppsScript();
-  const written = [];
-  const db = async (table, rows) => table === "listings" && written.push(...rows);
-  let opts;
-  const all = async (alias, o) => (
-    (opts = o),
-    {
-      alias: "Daisy93",
-      user_id: "42",
-      detail: {},
-      items: [item(1, { category_id: 1000532, raw: '{"id":1}' }), item(2, { title: "Lego Technic 42100", text: "Lego", number: "", category_id: 1612, raw: '{"id":2}' })],
-    }
-  );
-  const r = await collectSeller({ alias: "Daisy93", user_id: "42" }, { store: gs.store, db, fetchItems: all });
-  assert.equal(opts.only, undefined); // inget filter längre…
-  assert.ok(opts.detailFor.test("Schleich häst")); // …men beskrivning bara för nischerna
-  assert.deepEqual([r.items, r.all_items], [1, 2]);
-  assert.deepEqual(gs.table("Marknad").map((x) => String(x["Annons-ID"])), ["1"]);
-  assert.deepEqual(written.map((x) => [x["Annons-ID"], x.Kategori, x.Rådata, x.Källa]), [["1", 1000532, '{"id":1}', "säljare"], ["2", 1612, '{"id":2}', "säljare"]]);
-  assert.deepEqual(toDbListing(written[1]).category_id, 1612);
 });
 
 test("Anropsräkning: Traderas metoder delas upp; ingen räkning utanför Vercel", async () => {

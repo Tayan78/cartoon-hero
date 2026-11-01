@@ -15,20 +15,29 @@ export async function addUsage(db, counts, now = Date.now()) {
   return { added: rows.length };
 }
 
-// En körning: utan id = start (ger id), med id = klar/fel.
-export async function recordRun(db, { id, name, started_at, finished_at, status, summary }) {
+// En körning: utan id = start (ger id), med id + progress = livstecken (förloppet i
+// summary), med id = klar/fel. latest = senaste körningen av ett slag.
+export async function recordRun(db, { id, name, started_at, finished_at, status, summary, progress, latest }) {
+  if (latest) {
+    const { results } = await db.prepare("SELECT id, name, started_at, finished_at, updated_at, status, summary FROM runs WHERE name = ?1 ORDER BY started_at DESC LIMIT 1").bind(String(latest)).all();
+    return { run: results[0] ?? null };
+  }
+  if (id && progress) {
+    await db.prepare("UPDATE runs SET updated_at = ?2, summary = ?3 WHERE id = ?1").bind(Number(id), new Date().toISOString(), summary ?? null).run();
+    return { id: Number(id) };
+  }
   if (id) {
-    await db.prepare("UPDATE runs SET finished_at = ?2, status = ?3, summary = ?4 WHERE id = ?1").bind(Number(id), finished_at ?? null, status ?? null, summary ?? null).run();
+    await db.prepare("UPDATE runs SET finished_at = ?2, updated_at = ?2, status = ?3, summary = ?4 WHERE id = ?1").bind(Number(id), finished_at ?? null, status ?? null, summary ?? null).run();
     return { id: Number(id) };
   }
   if (!name) throw new Error("name saknas");
   // En körning som aldrig blev klar (servern dog) markeras som avbruten när nästa startar.
   await db
-    .prepare("UPDATE runs SET status = 'Avbruten', finished_at = COALESCE(finished_at, ?2) WHERE name = ?1 AND status = 'Pågår' AND started_at < ?3")
-    .bind(String(name), started_at ?? new Date().toISOString(), new Date(Date.parse(started_at ?? new Date().toISOString()) - 30 * 60000).toISOString())
+    .prepare("UPDATE runs SET status = 'Avbruten', finished_at = COALESCE(finished_at, ?2) WHERE name = ?1 AND status = 'Pågår' AND COALESCE(updated_at, started_at) < ?3")
+    .bind(String(name), started_at ?? new Date().toISOString(), new Date(Date.parse(started_at ?? new Date().toISOString()) - 5 * 60000).toISOString())
     .run();
   const row = await db
-    .prepare("INSERT INTO runs (name, started_at, status, summary) VALUES (?1, ?2, ?3, ?4) RETURNING id")
+    .prepare("INSERT INTO runs (name, started_at, updated_at, status, summary) VALUES (?1, ?2, ?2, ?3, ?4) RETURNING id")
     .bind(String(name), started_at ?? new Date().toISOString(), status ?? "Pågår", summary ?? null)
     .all();
   // Rensa: behåll de 50 senaste per typ.

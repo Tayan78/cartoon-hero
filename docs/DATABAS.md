@@ -107,3 +107,10 @@ Varje natt (och med *Hämta försäljningar nu*): `GET /v4/orders` med `X-User-I
 - **Ingen onödig omskrivning:** länk och alias räknas inte som ändring, och säljarinsamlingen ger samma pris som Schleich-sökningen för auktioner utan bud (nästa bud), så att en annons som hämtas från båda inte skrivs om varje natt.
 - **Ordning:** `nightly` startar säljarinsamlingen och Schleich-sökningen (följd av annonsdetaljerna) parallellt – sökningen körs även om säljarinsamlingen dör. En körning som stått som *Pågår* markeras *Avbruten* när nästa av samma slag startar.
 - **Kontroll:** GitHub Actions → *BI-förhandsvisning* skriver även ut driftläget ur databasen (`scripts/drift-status.mjs`, bara läsning).
+
+## Säljarinsamlingen utan Google Sheet (migration 0009)
+
+- **Säljarna** läses och skrivs i databasen (`sellers`, `POST /data/seller-list`). Första gången kopieras säljarna från arkets flik Säljare om databasen saknar bevakade säljare.
+- **Insamlingen** hämtar bara säljarens lista (2 anrop per säljare), fyra säljare åt gången. Schleich- och Smurf-annonser sparas (ditt konto: allt) med `source = 'säljare'`. Inga beskrivningar hämtas där – annonsdetaljerna tar dem, en gång per annons, bevakade säljare och ditt konto först.
+- **Förloppet** ligger i `runs` (`updated_at` = livstecken, `summary` = "7 klara, 26 kvar"). Inget livstecken på 3 minuter = avbruten.
+- Arkets flikar Marknad och Säljare uppdateras inte längre. Apps Script-timern (kl 03) och Fota/Granska/export använder arket som förut.
