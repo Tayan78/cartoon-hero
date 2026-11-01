@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { candidateNumbers, channelFor, checkListingText, formatYears, marketPrice, minPriceFor, researchListing, schleichTitle } from "../lib/listing.js";
+import { candidateNumbers, channelFor, checkListingText, formatYears, marketPrice, minPriceFor, relevantListing, researchListing, schleichTitle } from "../lib/listing.js";
 import { mockDefect, mockLens, mockListingText, mockSimple, mockTradera } from "../lib/mock.js";
 import { DEFAULT_CLOSING } from "../lib/settings.js";
 
@@ -197,4 +197,17 @@ test("berikning med databasen: bekräftat nummer slås upp och priset sätts fr�
   const down = await researchListing({ images: [{ mediaType: "image/jpeg", data: "" }], confirmed: "13803" }, { ...deps, market: async () => { throw new Error("nere"); } });
   assert.ok(down.price > 0);
   assert.ok(down.flags.some((f) => /Databasen kunde inte läsas/.test(f)));
+});
+
+test("Tradera-träffar som inte gäller figuren räknas bort; databasen vinner över ett orimligt högt pris", async () => {
+  assert.equal(relevantListing({ title: "Leopard, WWF, Lisa Larson, Gustavsberg" }, { number: "14622", brand: "Schleich" }), false);
+  assert.equal(relevantListing({ title: "Schleich Jaguarunge 14622" }, { number: "14622", brand: "Schleich" }), true);
+  assert.equal(relevantListing({ title: "Jaguarunge 14622" }, { number: "14622", brand: "Schleich" }), true);
+  assert.equal(relevantListing({ title: "Schleich jaguar unge" }, { number: "14622", brand: "Schleich" }), true);
+  const leopard = { title: "Leopard, WWF, Lisa Larson, Gustavsberg", url: "https://www.tradera.com/item/1/2", platform: "Tradera", price: 1000, price_sek: 1000, currency: "SEK", sold: false, via: "tradera" };
+  const tradera = async () => ({ listings: [leopard], queries: [] });
+  const market = async (n) => ({ number: n, sold: 1, median: 69, p25: 69, p75: 69, active: 0, recent: [] });
+  const l = await researchListing({ images: [{ mediaType: "image/jpeg", data: "" }], confirmed: "13803" }, { ...deps, tradera, market });
+  assert.ok(l.price < 1000);
+  assert.ok(l.flags.some((f) => /räknades bort/.test(f)));
 });

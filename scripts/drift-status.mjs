@@ -18,6 +18,10 @@ const report = {
   own_listings: q("SELECT status, COUNT(*) AS n FROM listings WHERE seller_id IN (SELECT id FROM sellers WHERE own = 1) GROUP BY status"),
   own_auth: q("SELECT key, json_extract(value, '$.expires') AS expires, updated_at FROM app_secrets"),
   own_sales: q("SELECT COUNT(*) AS n FROM own_sales"),
+  ads: q(`SELECT id, status, title, price, price_basis, model_number, confirmed, brand, name, category, error,
+    json_extract(result, '$.flags') AS flags, json_extract(result, '$.market') AS market, json_extract(result, '$.article') AS article,
+    json_extract(result, '$.candidates') AS candidates, json_extract(result, '$.sources') AS sources, json_extract(result, '$.for_sale') AS for_sale
+    FROM ads ORDER BY created_at DESC LIMIT 5`),
   counts: q(`SELECT (SELECT COUNT(*) FROM listings) AS listings, (SELECT COUNT(*) FROM listing_products) AS linked,
     (SELECT COUNT(*) FROM products) AS products, (SELECT COUNT(*) FROM categories) AS categories,
     (SELECT COUNT(*) FROM listings WHERE detail_at IS NOT NULL) AS detailed, (SELECT COUNT(*) FROM purchases) AS purchases`),
