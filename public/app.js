@@ -916,7 +916,9 @@ $("c-next").addEventListener("click", async () => {
 
 // Skicka till AI direkt vid "Nästa annons" (på från början): annonsen laddas upp
 // och berikas medan du fotar nästa.
-const autoSend = () => store.get("auto_send", true) !== false;
+function autoSend() {
+  return store.get("auto_send", true) !== false;
+}
 $("s-auto-send").checked = autoSend();
 $("s-ads-db").checked = adsDb();
 $("s-ads-db").addEventListener("change", () => {
@@ -1050,8 +1052,13 @@ $("g-capture").addEventListener("click", () => openCapture());
 // Avbryts något (skärmen släcks, täckningen försvinner) fortsätter det av sig
 // självt nästa gång appen är öppen.
 // Annonserna i databasen (Cloudflare) i stället för Google Sheet/Drive.
-const adsDb = () => store.get("ads_db", false) === true;
-const backend = () => (adsDb() ? { backend: "db" } : {});
+// (funktionsdeklarationer: används redan när inställningarna kopplas, högre upp i filen)
+function adsDb() {
+  return store.get("ads_db", false) === true;
+}
+function backend() {
+  return adsDb() ? { backend: "db" } : {};
+}
 
 async function listingsApi(body) {
   const res = await fetch("/api/listings", {
