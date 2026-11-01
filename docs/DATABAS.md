@@ -102,7 +102,7 @@ Varje natt (och med *Hämta försäljningar nu*): `GET /v4/orders` med `X-User-I
 
 ## Skrivbudget och nattjobbets ordning
 
-- **Skrivbudget:** workern stoppar stora skrivningar (annonser, produktkopplingar, kategorier) när dygnets räknare `d1_rows` når 85 000 rader (`DAILY_WRITE_BUDGET`, kan sättas som variabel på workern). Svaret blir 429 med förklaring; insamlingen visar felet och fortsätter efter midnatt UTC. Små skrivningar (körningar, säljare, inköp, ditt konto, räknare) går alltid igenom.
+- **Skrivbudget:** workern stoppar stora skrivningar (annonser, produktkopplingar, kategorier) när dygnets räknare `d1_rows` når 1 000 000 rader (Workers Paid: 50 miljoner per månad) (`DAILY_WRITE_BUDGET`, kan sättas som variabel på workern). Svaret blir 429 med förklaring; insamlingen visar felet och fortsätter efter midnatt UTC. Små skrivningar (körningar, säljare, inköp, ditt konto, räknare) går alltid igenom.
 - **Per del:** räknaren delas upp i `d1_rows_listings`, `d1_rows_snapshots`, `d1_rows_prices` och `d1_rows_links` (Drift → Anrop).
 - **Ingen onödig omskrivning:** länk och alias räknas inte som ändring, och säljarinsamlingen ger samma pris som Schleich-sökningen för auktioner utan bud (nästa bud), så att en annons som hämtas från båda inte skrivs om varje natt.
 - **Ordning:** `nightly` startar säljarinsamlingen och Schleich-sökningen (följd av annonsdetaljerna) parallellt – sökningen körs även om säljarinsamlingen dör. En körning som stått som *Pågår* markeras *Avbruten* när nästa av samma slag startar.

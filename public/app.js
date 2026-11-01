@@ -2708,7 +2708,7 @@ const USAGE_INFO = [
   { api: "tradera_search", label: "Tradera – sökningar", limit: 10000 },
   { api: "tradera_item", label: "Tradera – annonsdetaljer", limit: 10000 },
   { api: "tradera_seller", label: "Tradera – säljarnas annonser", limit: 10000 },
-  { api: "d1_rows", label: "Databasen – skrivna rader", limit: 100000 },
+  { api: "d1_rows", label: "Databasen – skrivna rader", limit: 1000000 },
   { api: "d1_rows_listings", label: "  varav annonser" },
   { api: "d1_rows_snapshots", label: "  varav observationer" },
   { api: "d1_rows_prices", label: "  varav prishistorik" },

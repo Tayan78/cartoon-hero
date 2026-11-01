@@ -105,7 +105,7 @@ const written = (results) => [].concat(results).reduce((sum, r) => sum + rowsWri
 // Skrivbudget per dygn (UTC, som Cloudflare räknar): stora skrivningar (annonser,
 // kopplingar, kategorier) stoppas innan gratisgränsen nås. Små skrivningar
 // (körningar, inköp, ditt konto, räknare) går alltid igenom.
-export const DAILY_WRITE_BUDGET = 85000;
+export const DAILY_WRITE_BUDGET = 1_000_000; // Workers Paid: 50 milj. per månad – spärren skyddar mot loopar
 export async function writtenToday(db, now = Date.now()) {
   const day = new Date(now).toISOString().slice(0, 10);
   const { results } = await db.prepare("SELECT count FROM usage WHERE day = ?1 AND api = 'd1_rows'").bind(day).all();
