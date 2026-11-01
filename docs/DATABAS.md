@@ -107,3 +107,31 @@ Varje natt (och med *Hämta försäljningar nu*): `GET /v4/orders` med `X-User-I
 - **Ingen onödig omskrivning:** länk och alias räknas inte som ändring, och säljarinsamlingen ger samma pris som Schleich-sökningen för auktioner utan bud (nästa bud), så att en annons som hämtas från båda inte skrivs om varje natt.
 - **Ordning:** `nightly` startar säljarinsamlingen och Schleich-sökningen (följd av annonsdetaljerna) parallellt – sökningen körs även om säljarinsamlingen dör. En körning som stått som *Pågår* markeras *Avbruten* när nästa av samma slag startar.
 - **Kontroll:** GitHub Actions → *BI-förhandsvisning* skriver även ut driftläget ur databasen (`scripts/drift-status.mjs`, bara läsning).
+
+## Säljarinsamlingen utan Google Sheet (migration 0009)
+
+- **Säljarna** läses och skrivs i databasen (`sellers`, `POST /data/seller-list`). Första gången kopieras säljarna från arkets flik Säljare om databasen saknar bevakade säljare.
+- **Insamlingen** hämtar bara säljarens lista (2 anrop per säljare), fyra säljare åt gången. Schleich- och Smurf-annonser sparas (ditt konto: allt) med `source = 'säljare'`. Inga beskrivningar hämtas där – annonsdetaljerna tar dem, en gång per annons, bevakade säljare och ditt konto först.
+- **Förloppet** ligger i `runs` (`updated_at` = livstecken, `summary` = "7 klara, 26 kvar"). Inget livstecken på 3 minuter = avbruten.
+- Arkets flikar Marknad och Säljare uppdateras inte längre. Apps Script-timern (kl 03) och Fota/Granska/export använder arket som förut.
+
+## Dina annonser i databasen och bilderna i R2 (migration 0010)
+
+Inställningen **Annonser i databasen** (Inställningar) flyttar Fota → Granska → Exportera från fliken Annonser och Drive till tabellen `ads` och R2-bucketen `loppis-bilder` (publik adress i `IMAGE_BASE`, wrangler.toml). Av som standard; Google-flödet finns kvar orört.
+
+- **Uppladdning:** appen → Vercel `/api/listings` (backend: db) → workern `/data/ads` (op `create`, `image`) → R2 `ads/<id>/<n>.jpg`.
+- **AI direkt:** `commit`/`requeue` lägger annonsen i kön och startar `processAd` (lib/ads.js) i samma anrop – en annons per anrop, parallellt. `claim` tar bara annonser som väntar (eller fastnat i Bearbetas > 10 min); `list` startar om annonser som fastnat.
+- **Export:** CSV med bildlänkar direkt till R2; annonserna markeras Exporterad. Filen sparas/delas från appen (inte i Drive).
+- **Kopiering från Google Sheet:** knappen *Kopiera annonserna från Google Sheet* läser fliken Annonser (bara läsning) och kopierar varje annons och dess bilder (Drive → R2). Körs i steg i bakgrunden (`runs`: kopiering) och hoppar över det som redan kopierats.
+
+### Kostnadsspärrar (Cloudflare Workers Paid)
+Cloudflare har inget tak som stänger av vid en summa, så appen stoppar själv långt under det som ingår:
+
+| Tjänst | Ingår per månad | Appens spärr |
+|---|---|---|
+| D1 skrivna rader | 50 miljoner | 1 miljon per dygn (`DAILY_WRITE_BUDGET`) |
+| R2 lagring | 10 GB | stopp vid 8 GB (`R2_MAX_BYTES`) |
+| R2 skrivningar | 1 miljon | 3 000 bilder per dygn (`R2_DAILY_PUTS`) |
+| R2 läsningar / nedladdning | 10 miljoner / gratis | – |
+
+Drift visar bilder uppladdade i dag; Inställningar visar lagringen.

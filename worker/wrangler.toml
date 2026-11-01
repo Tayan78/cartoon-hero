@@ -10,6 +10,7 @@ workers_dev = true
 
 [vars]
 APP_URL = "https://cartoon-hero-theta.vercel.app"
+IMAGE_BASE = "https://pub-d66eac2fc4f24009a9f776d9e035776b.r2.dev"
 
 [[durable_objects.bindings]]
 name = "WATCHER"
@@ -21,6 +22,11 @@ binding = "DB"
 database_name = "loppis"
 database_id = "bbdd6616-66f0-47cf-920c-95137463d082"
 migrations_dir = "migrations"
+
+# Bilderna till dina annonser (publika länkar via r2.dev, för ProLister).
+[[r2_buckets]]
+binding = "IMAGES"
+bucket_name = "loppis-bilder"
 
 [[migrations]]
 tag = "v1"

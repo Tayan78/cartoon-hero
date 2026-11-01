@@ -426,7 +426,7 @@
 
     <!-- Marknadsdata: bevakade säljare, insamling till Sheet varje natt -->
     <section id="view-market" class="view" hidden>
-      <p class="hint">Bevakade säljare samlas in varje natt kl 03 till fliken <b>Marknad</b> i Google Sheet – en rad per annons, med pris, prisändringar och om den sålts. Tradera visar bara ca 8 veckor bakåt, så historiken växer från och med nu.</p>
+      <p class="hint">Bevakade säljare och ditt konto samlas in varje natt kl 03 till databasen – fyra säljare åt gången, bara deras Schleich- och Smurf-annonser (ditt konto: allt). Beskrivningarna hämtas efteråt av annonsdetaljerna, bevakade säljare först.</p>
       <div class="hist-head">
         <h3>Bevakade säljare</h3>
         <span class="acts-inline">
@@ -639,6 +639,16 @@
         <span>Lösenord (APP_TOKEN)</span>
         <input id="s-token" type="password" autocomplete="current-password">
       </label>
+      <label class="check">
+        <input id="s-auto-send" type="checkbox">
+        <span>Skicka till AI direkt när du trycker Nästa annons</span>
+      </label>
+      <label class="check">
+        <input id="s-ads-db" type="checkbox">
+        <span>Annonser i databasen (Cloudflare) i stället för Google Sheet och Drive – snabbare</span>
+      </label>
+      <button id="s-ads-import" type="button" class="secondary">Kopiera annonserna från Google Sheet</button>
+      <p id="s-ads-db-status" class="hint">Kopieringen läser bara från Google – arket och Drive lämnas orörda.</p>
       <button id="btn-test" class="secondary">Testa anslutning</button>
       <p id="s-test" class="hint"></p>
       <button id="btn-test-lego" class="secondary" hidden>Testa Tradera: sålda Lego-partier</button>

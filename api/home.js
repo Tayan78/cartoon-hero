@@ -6,6 +6,8 @@
 // Google har inget API som visar saldot för en API-nyckel, därför avläsning + räkning.
 import { checkAuth, json } from "../lib/http.js";
 import { lensAccount, lensConfigured } from "../lib/lens.js";
+import { adsCall } from "../lib/ads.js";
+import { dbConfigured } from "../lib/db.js";
 import { callAppsScript, storageConfigured } from "../lib/storage.js";
 
 const MOCK = process.env.MOCK === "1";
@@ -22,7 +24,9 @@ export async function POST(request) {
       : lensConfigured()
         ? lensAccount().catch((err) => ({ error: err.message }))
         : null,
-    MOCK && !storageConfigured()
+    body.backend === "db" && dbConfigured()
+      ? adsCall({ op: "summary" }).then((s) => ({ ok: true, sek_since: 0, ...s }), (err) => ({ ok: false, error: err.message }))
+      : MOCK && !storageConfigured()
       ? { ok: true, sek_since: 1.84, exported: 23, ready: 2, approved: 1 }
       : storageConfigured()
         ? callAppsScript("summary", { since }).catch((err) => ({ ok: false, error: err.message }))

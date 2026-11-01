@@ -4,6 +4,7 @@
 import { marketStats } from "./analytics.js";
 import { modelStats } from "./model.js";
 import { own } from "./own.js";
+import { ads } from "./ads.js";
 import { purchases } from "./purchases.js";
 import { addUsage, competitors, dashboard, productStats, recordRun, weekStats } from "./monitor.js";
 
@@ -154,8 +155,9 @@ export async function listingTexts(db, { after = "", limit = 1000, unlinked = fa
 export async function needsDetail(db, { limit = 500 } = {}) {
   const { results } = await db
     .prepare(
+      // Dina bevakade säljare och ditt konto först, sedan nyast först.
       `SELECT id FROM listings WHERE detail_at IS NULL AND (niche IS NOT NULL OR series IS NOT NULL OR source = 'sök')
-       ORDER BY first_seen DESC, id DESC LIMIT ?1`,
+       ORDER BY (seller_id IN (SELECT id FROM sellers WHERE watched = 1 OR own = 1)) DESC, first_seen DESC, id DESC LIMIT ?1`,
     )
     .bind(Math.min(Number(limit) || 500, 2000))
     .all();
@@ -179,6 +181,20 @@ export async function upsertCategories(db, rows) {
 export async function upsertSellers(db, rows) {
   const result = await db.prepare(UPSERT_SELLERS).bind(JSON.stringify(rows)).run();
   return { rows: rows.length, written: written(result) };
+}
+
+// Säljarna med siffror ur databasen (bevakade, ditt konto och övriga kända).
+export async function sellerList(db, { watched = false } = {}) {
+  const { results } = await db
+    .prepare(
+      `SELECT s.id, s.alias, s.watched, s.own, s.niches, s.listings_found, s.active, s.ended, s.number_share, s.rating,
+         s.added_at, s.collected_at, s.error,
+         (SELECT COUNT(*) FROM listings l WHERE l.seller_id = s.id) AS in_db,
+         (SELECT COUNT(*) FROM listings l WHERE l.seller_id = s.id AND l.status = 'Såld') AS sold_in_db
+       FROM sellers s ${watched ? "WHERE s.watched = 1 OR s.own = 1" : ""} ORDER BY s.alias`,
+    )
+    .all();
+  return { sellers: results };
 }
 
 export async function dbStatus(db) {
@@ -239,6 +255,8 @@ export async function handleData(request, env, path, extra = {}) {
     if (path === "/data/usage") return Response.json({ ok: true, ...(await addUsage(env.DB, body.counts)) });
     if (path === "/data/run") return Response.json({ ok: true, ...(await recordRun(env.DB, body)) });
     if (path === "/data/competitors") return Response.json({ ok: true, ...(await competitors(env.DB, body)) });
+    if (path === "/data/ads") return Response.json({ ok: true, ...(await ads(env, body)) });
+    if (path === "/data/seller-list") return Response.json({ ok: true, ...(await sellerList(env.DB, body)) });
     if (path === "/data/own") return Response.json({ ok: true, ...(await own(env.DB, body)) });
     if (path === "/data/model") return Response.json({ ok: true, ...(await modelStats(env.DB, body)) });
     if (path === "/data/week") return Response.json({ ok: true, ...(await weekStats(env.DB, body)) });

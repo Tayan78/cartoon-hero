@@ -1,37 +1,9 @@
 // Databasens SQL (worker/src/data.js) mot riktig SQLite – samma motor som D1.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { DatabaseSync } from "node:sqlite";
+import { fakeD1 } from "./helpers/fake-d1.js";
 import { dbStatus, handleData, linkProducts, listingTexts, needsDetail, queryListings, unresolvedListings, upsertCategories, upsertListings, upsertSellers } from "../worker/src/data.js";
 
-// Minimal D1: prepare().bind().all()/run() och batch() i en transaktion.
-function fakeD1() {
-  const sqlite = new DatabaseSync(":memory:");
-  for (const f of ["0001_market.sql", "0002_raw.sql", "0003_series.sql", "0004_monitoring.sql", "0005_products.sql", "0006_detail.sql", "0007_purchases.sql", "0008_own_sales.sql"]) sqlite.exec(readFileSync(new URL(`../worker/migrations/${f}`, import.meta.url), "utf8"));
-  const prepare = (sql) => {
-    let params = [];
-    const s = {
-      bind: (...p) => ((params = p), s),
-      all: async () => ({ results: sqlite.prepare(sql).all(...params) }),
-      run: async () => (sqlite.prepare(sql).run(...params), { success: true }),
-    };
-    return s;
-  };
-  const batch = async (list) => {
-    sqlite.exec("BEGIN");
-    try {
-      const out = [];
-      for (const st of list) out.push(await st.all());
-      sqlite.exec("COMMIT");
-      return out;
-    } catch (err) {
-      sqlite.exec("ROLLBACK");
-      throw err;
-    }
-  };
-  return { prepare, batch, sqlite };
-}
 
 const listing = (o) => ({ id: "1", seller: "Daisy", seller_id: "9", title: "Schleich Tinker sto 13279", status: "Aktiv", price: 89, niche: "djur", ...o });
 

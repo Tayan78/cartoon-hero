@@ -108,12 +108,12 @@ export async function POST(request) {
   if (fromScript && !["nightly", "continue", "sweep_bg", "details_bg"].includes(body.action)) return json({ ok: false, error: "Inte tillåtet" }, 403);
   const origin = new URL(request.url).origin;
   if (!traderaConfigured()) return json({ ok: false, error: "Tradera är inte konfigurerat" }, 400);
-  if (!["discover", "lots", "lots_check", "db_status", "dashboard", "competitors", "week", "tradera_status", "tradera_connect", "tradera_sync", "products", "products_relink", "market", "purchases", "purchase_lookup", "purchase_save"].includes(body.action) && !storageConfigured()) return json({ ok: false, error: "Google Sheet är inte konfigurerat" }, 400);
+  if (!["discover", "lots", "lots_check", "db_status", "dashboard", "competitors", "week", "tradera_status", "tradera_connect", "tradera_sync", "products", "products_relink", "market", "purchases", "purchase_lookup", "purchase_save", "status", "sellers", "watch", "collect", "collect_all", "nightly", "continue", "own_account", "sweep", "sweep_bg", "details_bg", "sweep_status"].includes(body.action) && !storageConfigured()) return json({ ok: false, error: "Google Sheet är inte konfigurerat" }, 400);
 
   try {
     switch (body.action) {
       case "discover": {
-        const [found, sellers] = await Promise.all([discoverSellers({ niche: body.niche }), storageConfigured() ? listSellers().catch(() => []) : []]);
+        const [found, sellers] = await Promise.all([discoverSellers({ niche: body.niche }), dbConfigured() ? listSellers().catch(() => []) : []]);
         const ids = new Set(sellers.filter((s) => s.watched).map((s) => s.id));
         return json({ ok: true, ...found, sellers: found.sellers.map((s) => ({ ...s, watched: ids.has(String(s.id)) })) });
       }
@@ -204,7 +204,8 @@ export async function POST(request) {
       }
       case "collect": {
         const seller = await resolve({ id: body.user_id, alias: body.alias });
-        return json({ ok: true, ...(await collectSeller({ alias: seller.alias, user_id: seller.id })) });
+        const known = (await listSellers().catch(() => [])).find((s) => s.id === String(seller.id));
+        return json({ ok: true, ...(await collectSeller({ alias: seller.alias, user_id: seller.id, own: Boolean(known?.own) })) });
       }
       case "collect_all":
       case "nightly": {
