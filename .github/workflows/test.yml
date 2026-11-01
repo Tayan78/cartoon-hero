@@ -26,3 +26,18 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+
+  # Startar appen i en riktig webbläsare: fångar fel som stoppar hela appen.
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm install --no-save playwright@1.49.1
+      - run: npx playwright install --with-deps chromium
+      - run: node scripts/smoke.mjs
