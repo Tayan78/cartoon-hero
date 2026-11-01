@@ -137,7 +137,7 @@ export async function POST(request) {
         return json({ ok: true, ...(await dbCompetitors({ limit: body.limit, min: body.min })) });
       case "league":
         if (!dbConfigured()) return json({ ok: false, error: "APP_TOKEN saknas på servern" }, 400);
-        return json({ ok: true, ...(await dbLeague({ period: body.period === "month" ? "month" : "week", offset: body.offset ?? body.week })) });
+        return json({ ok: true, ...(await dbLeague({ period: body.period === "month" ? "month" : "week", offset: body.offset ?? body.week, metric: body.metric === "count" ? "count" : "revenue" })) });
       case "week":
         if (!dbConfigured()) return json({ ok: false, error: "APP_TOKEN saknas på servern" }, 400);
         {

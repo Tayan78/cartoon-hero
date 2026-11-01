@@ -499,3 +499,15 @@ button:disabled { opacity: .4; }
 .wk-move.up { color: var(--green); }
 .wk-move.down { color: var(--red); }
 .wk-history { margin: 8px 0 0; }
+
+/* Topplistan: omsättning eller antal */
+.wk-listhead { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 14px 0 4px; }
+.wk-listhead .wk-title { margin: 0; }
+.wk-metric { flex: none; padding: 0; gap: 4px; }
+.wk-metric .chip { padding: 4px 10px; font-size: 13px; }
+.wk-top li { grid-template-columns: 26px 1fr auto; }
+.wk-top .wk-name { display: flex; flex-direction: column; overflow: visible; white-space: normal; }
+.wk-top .wk-line { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wk-top .wk-sub { color: var(--muted); font-size: 12px; font-weight: 400; font-variant-numeric: tabular-nums; text-align: left; }
+.wk-top li.wk-me .wk-sub { color: var(--text); opacity: .8; }
+.wk-top b { text-align: right; }

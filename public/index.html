@@ -48,7 +48,13 @@
         </div>
         <p id="h-week-rank" class="wk-rankline"></p>
         <p id="h-week-share" class="muted small wk-share"></p>
-        <p class="metric-label wk-title">Topplista – flest sålda Schleich</p>
+        <div class="wk-listhead">
+          <p id="h-week-listtitle" class="metric-label wk-title">Topplista – Schleich</p>
+          <div id="h-week-metric" class="chips wk-metric" role="group" aria-label="Räkna på">
+            <button type="button" class="chip on" data-metric="revenue">Omsättning</button>
+            <button type="button" class="chip" data-metric="count">Antal</button>
+          </div>
+        </div>
         <ol id="h-week-top" class="wk-top"></ol>
         <p id="h-week-history" class="muted small wk-history"></p>
       </div>

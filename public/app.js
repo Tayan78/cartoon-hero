@@ -1718,22 +1718,32 @@ async function renderHome() {
 // Veckoligan: måndag–söndag, placering, förändring sedan i går och förra veckans resultat.
 let leagueWeek = 0;
 let leaguePeriod = store.get("league_period", "week") === "month" ? "month" : "week";
+let leagueMetric = store.get("league_metric", "revenue") === "count" ? "count" : "revenue";
 const MEDALS = { 1: "🥇", 2: "🥈", 3: "🥉" };
 const shortDate = (iso) => new Date(iso).toLocaleDateString("sv-SE", { weekday: "short", day: "numeric", month: "numeric", timeZone: "Europe/Stockholm" });
 
 function paintHomeWeek(w) {
   if (!w?.market || !(w.week || w.month)) return;
-  if ((w.period ?? "week") !== leaguePeriod) return; // svar för den andra fliken
+  if ((w.period ?? "week") !== leaguePeriod || (w.metric ?? "revenue") !== leagueMetric) return; // svar för en annan flik
   const monthly = w.period === "month";
   const days = w.days || 7;
   const name = monthly ? w.label : `vecka ${w.week}`;
   $("h-week").hidden = false;
   for (const b of document.querySelectorAll("#h-week-period .chip")) b.classList.toggle("on", b.dataset.period === leaguePeriod);
+  for (const b of document.querySelectorAll("#h-week-metric .chip")) b.classList.toggle("on", b.dataset.metric === leagueMetric);
+  const byCount = leagueMetric === "count";
   for (const b of document.querySelectorAll("#h-week-period .chip")) {
   b.addEventListener("click", () => {
     leaguePeriod = b.dataset.period === "month" ? "month" : "week";
     store.set("league_period", leaguePeriod);
     leagueWeek = 0;
+    renderHomeWeek();
+  });
+}
+for (const b of document.querySelectorAll("#h-week-metric .chip")) {
+  b.addEventListener("click", () => {
+    leagueMetric = b.dataset.metric === "count" ? "count" : "revenue";
+    store.set("league_metric", leagueMetric);
     renderHomeWeek();
   });
 }
@@ -1758,7 +1768,11 @@ for (const b of document.querySelectorAll("#h-week-tabs .chip")) {
     rankLine = w.final
       ? `${MEDALS[me.rank] ?? ""} ${me.rank === 1 ? `Du vann ${name}!` : `Du kom på plats ${me.rank} av ${w.sellers}`}`.trim()
       : `Plats ${me.rank} av ${w.sellers}` + (me.move ? ` ${move(me.move)} sedan i går` : "") +
-        (w.mine.to_next ? ` · ${w.mine.to_next.needed} till för att gå om ${w.mine.to_next.alias}` : me.rank === 1 ? " · du leder!" : "");
+        (w.mine.to_next
+          ? ` · ${w.mine.to_next.unit === "kr" ? kr(w.mine.to_next.needed) : `${w.mine.to_next.needed} st`} till för att gå om ${w.mine.to_next.alias}`
+          : me.rank === 1
+            ? " · du leder!"
+            : "");
   } else if (w.own) {
     rankLine = w.final ? `Ingen försäljning ${monthly ? "den månaden" : "den veckan"}.` : `Ingen försäljning än ${monthly ? "den här månaden" : "den här veckan"}.`;
   }
@@ -1773,16 +1787,19 @@ for (const b of document.querySelectorAll("#h-week-tabs .chip")) {
     last = t.rank;
     const li = document.createElement("li");
     if (t.own) li.className = "wk-me";
-    const name = Object.assign(document.createElement("span"), { className: "wk-name", textContent: t.own ? `${t.alias || t.id} (du)` : t.alias || t.id });
+    const name = Object.assign(document.createElement("span"), { className: "wk-name" });
+    const line = Object.assign(document.createElement("span"), { className: "wk-line", textContent: t.own ? `${t.alias || t.id} (du)` : t.alias || t.id });
     if (!w.final && "move" in t) {
-      const m = Object.assign(document.createElement("i"), { className: `wk-move ${t.move > 0 ? "up" : t.move < 0 ? "down" : ""}`, textContent: move(t.move) });
-      name.append(" ", m);
+      line.append(" ", Object.assign(document.createElement("i"), { className: `wk-move ${t.move > 0 ? "up" : t.move < 0 ? "down" : ""}`, textContent: move(t.move) }));
     }
+    name.append(line);
+    // Det som rankas står i fetstil; under namnet antal och snitt per sålt.
+    const avg = t.sold ? Math.round((t.revenue || 0) / t.sold) : 0;
+    name.append(Object.assign(document.createElement("small"), { className: "wk-sub", textContent: byCount ? `${kr(t.revenue || 0)} · ${avg} kr/st` : `${t.sold} st · ${avg} kr/st` }));
     li.append(
       Object.assign(document.createElement("span"), { className: "wk-rank", textContent: w.final && MEDALS[t.rank] ? MEDALS[t.rank] : String(t.rank) }),
       name,
-      Object.assign(document.createElement("b"), { textContent: `${t.sold} st` }),
-      Object.assign(document.createElement("small"), { textContent: t.revenue ? kr(t.revenue) : "" }),
+      Object.assign(document.createElement("b"), { textContent: byCount ? `${t.sold} st` : kr(t.revenue || 0) }),
     );
     rows.push(li);
   }
@@ -1805,10 +1822,10 @@ for (const b of document.querySelectorAll("#h-week-tabs .chip")) {
 }
 
 async function renderHomeWeek() {
-  const key = `league_cache_${leaguePeriod}_${leagueWeek}`;
+  const key = `league_cache_${leaguePeriod}_${leagueWeek}_${leagueMetric}`;
   paintHomeWeek(store.get(key, null));
   try {
-    const w = await marketApi({ action: "league", period: leaguePeriod, offset: leagueWeek });
+    const w = await marketApi({ action: "league", period: leaguePeriod, offset: leagueWeek, metric: leagueMetric });
     store.set(key, w);
     paintHomeWeek(w);
   } catch {
