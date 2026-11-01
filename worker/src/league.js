@@ -65,14 +65,16 @@ export function monthBounds(now = Date.now(), offset = 0) {
 
 const iso = (ms) => new Date(ms).toISOString();
 
-// Alla säljare med sålda annonser mellan from och to, rangordnade.
-async function ranking(db, from, to) {
+// Alla säljare med sålda annonser mellan from och to, rangordnade på omsättning
+// (standard) eller antal.
+async function ranking(db, from, to, metric = "revenue") {
+  const order = metric === "count" ? "sold DESC, revenue DESC" : "revenue DESC, sold DESC";
   const { results } = await db
     .prepare(
-      `SELECT l.seller_id AS id, MAX(l.seller) AS alias, COUNT(*) AS sold, SUM(l.price) AS revenue, COALESCE(MAX(s.own), 0) AS own
+      `SELECT l.seller_id AS id, MAX(l.seller) AS alias, COUNT(*) AS sold, COALESCE(SUM(l.price), 0) AS revenue, COALESCE(MAX(s.own), 0) AS own
        FROM listings l LEFT JOIN sellers s ON s.id = l.seller_id
        WHERE ${SOLD} AND julianday(l.end_at) >= julianday(?1) AND julianday(l.end_at) < julianday(?2)
-       GROUP BY l.seller_id ORDER BY sold DESC, revenue DESC`,
+       GROUP BY l.seller_id ORDER BY ${order}`,
     )
     .bind(iso(from), iso(to))
     .all();
@@ -96,14 +98,16 @@ function board(list, before = null) {
 }
 
 // period: "week" (måndag–söndag) eller "month". offset 0 = pågående, -1 = förra.
-export async function league(db, { period = "week", offset, week = 0, now = Date.now(), history } = {}) {
+export async function league(db, { period = "week", offset, week = 0, metric = "revenue", now = Date.now(), history } = {}) {
   const monthly = period === "month";
+  const by = metric === "count" ? "count" : "revenue";
+  const rank = (from, to) => ranking(db, from, to, by);
   const off = Math.min(0, Math.max(-52, Number(offset ?? week) || 0));
   const bounds = (o) => (monthly ? monthBounds(now, o) : weekBounds(now, o));
   const w = bounds(off);
   const cutoff = off === 0 ? Math.min(now, w.end) : w.end;
   const [list, market, ownRow] = await Promise.all([
-    ranking(db, w.start, cutoff),
+    rank(w.start, cutoff),
     totals(db, w.start, cutoff),
     db.prepare("SELECT id, alias FROM sellers WHERE own = 1 LIMIT 1").all(),
   ]);
@@ -111,6 +115,7 @@ export async function league(db, { period = "week", offset, week = 0, now = Date
   const me = list.find((r) => r.own) ?? null;
   const out = {
     period: monthly ? "month" : "week",
+    metric: by,
     ...(monthly ? { month: w.month, label: w.label, days: w.days } : { week: w.week, days: 7 }),
     year: w.year,
     start: iso(w.start),
@@ -128,16 +133,21 @@ export async function league(db, { period = "week", offset, week = 0, now = Date
     const prev = bounds(-1);
     const prevCut = Math.min(prev.end, prev.start + (cutoff - w.start));
     const [yesterday, lastPeriod, lastMine] = await Promise.all([
-      w.today > w.start ? ranking(db, w.start, w.today) : null,
+      w.today > w.start ? rank(w.start, w.today) : null,
       totals(db, prev.start, prevCut),
-      ranking(db, prev.start, prevCut).then((l) => l.find((r) => r.own)?.sold ?? 0),
+      rank(prev.start, prevCut).then((l) => l.find((r) => r.own) ?? null),
     ]);
     out.top = board(list, yesterday);
     out.market.prev = lastPeriod.sold;
-    out.mine.prev = lastMine;
+    out.market.prev_revenue = lastPeriod.revenue;
+    out.mine.prev = lastMine?.sold ?? 0;
+    out.mine.prev_revenue = lastMine?.revenue ?? 0;
     if (me && me.rank > 1) {
       const ahead = list[me.rank - 2];
-      out.mine.to_next = { alias: ahead.alias, rank: ahead.rank, needed: ahead.sold - me.sold + 1 };
+      out.mine.to_next =
+        by === "count"
+          ? { alias: ahead.alias, rank: ahead.rank, needed: ahead.sold - me.sold + 1, unit: "st" }
+          : { alias: ahead.alias, rank: ahead.rank, needed: ahead.revenue - me.revenue + 1, unit: "kr" };
     }
   } else {
     out.top = board(list);
@@ -150,7 +160,7 @@ export async function league(db, { period = "week", offset, week = 0, now = Date
     for (let i = 1; i <= count; i++) {
       const b = bounds(Math.min(off, 0) - i + (off < 0 ? 1 : 0));
       if (b.start === w.start) continue;
-      const l = await ranking(db, b.start, b.end);
+      const l = await rank(b.start, b.end);
       const r = l.find((x) => x.own);
       periods.push({ ...(monthly ? { month: b.month, label: b.label } : { week: b.week }), rank: r?.rank ?? null, sold: r?.sold ?? 0, sellers: l.length });
     }
