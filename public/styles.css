@@ -487,3 +487,15 @@ button:disabled { opacity: .4; }
 .wk-top li.wk-me { background: color-mix(in srgb, var(--accent) 18%, transparent); border-top-color: transparent; border-radius: 10px; margin: 2px -8px; padding: 8px; font-weight: 600; }
 .wk-top li.wk-me .wk-rank, .wk-top li.wk-me small { color: var(--text); }
 .wk-top li.wk-gap { display: block; text-align: center; color: var(--muted); padding: 2px 0; }
+
+/* Veckoligan */
+.wk-tabs { margin: 8px 0 6px; }
+.wk-day { display: flex; align-items: center; gap: 10px; margin: 2px 0 8px; }
+.wk-day .meter { flex: 1; }
+.wk-day .meter span { background: var(--accent); }
+.wk-day small { white-space: nowrap; }
+.wk-rankline { margin: 10px 0 0; font-weight: 600; font-size: 15px; }
+.wk-move { font-style: normal; font-size: 12px; color: var(--muted); font-weight: 600; }
+.wk-move.up { color: var(--green); }
+.wk-move.down { color: var(--red); }
+.wk-history { margin: 8px 0 0; }

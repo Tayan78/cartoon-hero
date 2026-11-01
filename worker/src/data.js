@@ -5,6 +5,7 @@ import { marketStats } from "./analytics.js";
 import { modelStats } from "./model.js";
 import { own } from "./own.js";
 import { ads } from "./ads.js";
+import { league } from "./league.js";
 import { purchases } from "./purchases.js";
 import { addUsage, competitors, dashboard, productStats, recordRun, weekStats } from "./monitor.js";
 
@@ -259,6 +260,7 @@ export async function handleData(request, env, path, extra = {}) {
     if (path === "/data/seller-list") return Response.json({ ok: true, ...(await sellerList(env.DB, body)) });
     if (path === "/data/own") return Response.json({ ok: true, ...(await own(env.DB, body)) });
     if (path === "/data/model") return Response.json({ ok: true, ...(await modelStats(env.DB, body)) });
+    if (path === "/data/league") return Response.json({ ok: true, ...(await league(env.DB, body)) });
     if (path === "/data/week") return Response.json({ ok: true, ...(await weekStats(env.DB, body)) });
     if (path === "/data/products") return Response.json({ ok: true, ...(await productStats(env.DB, body)) });
     if (path === "/data/texts") return Response.json({ ok: true, ...(await listingTexts(env.DB, body)) });

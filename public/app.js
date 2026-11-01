@@ -1715,77 +1715,81 @@ async function renderHome() {
   renderHomeWeek();
 }
 
-// Veckan: dina sålda mot hela marknaden och topp 5 konkurrenter (cachas så kortet syns direkt).
+// Veckoligan: måndag–söndag, placering, förändring sedan i går och förra veckans resultat.
+let leagueWeek = 0;
+const MEDALS = { 1: "🥇", 2: "🥈", 3: "🥉" };
+const shortDate = (iso) => new Date(iso).toLocaleDateString("sv-SE", { weekday: "short", day: "numeric", month: "numeric", timeZone: "Europe/Stockholm" });
+
 function paintHomeWeek(w) {
-  if (!w?.market) return;
+  if (!w?.market || !w.week) return;
   $("h-week").hidden = false;
-  const trend = (now, prev) => (prev ? `${now >= prev ? "▲" : "▼"} ${Math.abs(Math.round((100 * (now - prev)) / prev))} % mot förra veckan` : "");
+  for (const b of document.querySelectorAll("#h-week-tabs .chip")) b.classList.toggle("on", Number(b.dataset.week) === leagueWeek);
+  $("h-week-title").textContent = `Vecka ${w.week}`;
+  $("h-week-dates").textContent = `${shortDate(w.start)} – ${shortDate(w.end)}`;
+  $("h-week-day").style.width = `${Math.round((100 * w.day) / 7)}%`;
+  $("h-week-day-note").textContent = w.final ? "Slutresultat" : w.day === 7 ? "Sista dagen" : `Dag ${w.day} av 7`;
+  const trend = (now, prev) => (prev ? `${now >= prev ? "▲" : "▼"} ${Math.abs(Math.round((100 * (now - prev)) / prev))} % mot samma dag förra veckan` : "");
   $("h-week-mine").textContent = w.own ? String(w.mine.sold) : "–";
-  $("h-week-mine-note").textContent = w.own ? [w.mine.revenue ? kr(w.mine.revenue) : "", trend(w.mine.sold, w.mine.prev)].filter(Boolean).join(" · ") : "Ditt konto kopplas – siffran kommer efter nattens insamling";
+  $("h-week-mine-note").textContent = w.own ? [w.mine.revenue ? kr(w.mine.revenue) : "", w.final ? "" : trend(w.mine.sold, w.mine.prev)].filter(Boolean).join(" · ") : "Ditt konto kopplas vid nattens insamling";
   $("h-week-market").textContent = w.market.sold.toLocaleString("sv-SE");
-  $("h-week-market-note").textContent = [w.market.revenue ? kr(w.market.revenue) : "", trend(w.market.sold, w.market.prev)].filter(Boolean).join(" · ");
-  // Stapeln: du mot den bästa konkurrenten (inte dig själv).
-  const rival = (w.top ?? []).find((t) => !t.own);
+  $("h-week-market-note").textContent = [w.market.revenue ? kr(w.market.revenue) : "", w.final ? "" : trend(w.market.sold, w.market.prev)].filter(Boolean).join(" · ");
+
   const me = (w.top ?? []).find((t) => t.own);
-  $("h-week-bar").style.width = `${Math.min(100, (100 * (w.mine.sold || 0)) / (rival?.sold || 1))}%`;
-  $("h-week-share").textContent = w.own
-    ? `Din andel: ${String(w.mine.share).replace(".", ",")} % av alla sålda` +
-      (me ? ` · plats ${me.rank}` : "") +
-      (rival ? ` · stapeln: du mot ${rival.alias} (${rival.sold})` : "")
-    : "";
+  const move = (m) => (m == null ? "ny" : m > 0 ? `▲${m}` : m < 0 ? `▼${-m}` : "–");
+  let rankLine = "";
+  if (me) {
+    rankLine = w.final
+      ? `${MEDALS[me.rank] ?? ""} ${me.rank === 1 ? `Du vann vecka ${w.week}!` : `Du kom på plats ${me.rank} av ${w.sellers}`}`.trim()
+      : `Plats ${me.rank} av ${w.sellers}` + (me.move ? ` ${move(me.move)} sedan i går` : "") +
+        (w.mine.to_next ? ` · ${w.mine.to_next.needed} till för att gå om ${w.mine.to_next.alias}` : me.rank === 1 ? " · du leder!" : "");
+  } else if (w.own) {
+    rankLine = w.final ? "Ingen försäljning den veckan." : "Ingen försäljning än den här veckan.";
+  }
+  $("h-week-rank").textContent = rankLine;
+  $("h-week-share").textContent = w.own ? `Din andel: ${String(w.mine.share).replace(".", ",")} % av alla sålda` : "";
+
   const rows = [];
   let last = 0;
-  for (const t of w.top ?? []) {
+  for (const [i, t0] of (w.top ?? []).entries()) {
+    const t = { ...t0, rank: Number(t0.rank) || i + 1 };
     if (t.rank > last + 1 && last) rows.push(Object.assign(document.createElement("li"), { className: "wk-gap", textContent: "…" }));
     last = t.rank;
     const li = document.createElement("li");
     if (t.own) li.className = "wk-me";
+    const name = Object.assign(document.createElement("span"), { className: "wk-name", textContent: t.own ? `${t.alias || t.id} (du)` : t.alias || t.id });
+    if (!w.final && "move" in t) {
+      const m = Object.assign(document.createElement("i"), { className: `wk-move ${t.move > 0 ? "up" : t.move < 0 ? "down" : ""}`, textContent: move(t.move) });
+      name.append(" ", m);
+    }
     li.append(
-      Object.assign(document.createElement("span"), { className: "wk-rank", textContent: String(t.rank) }),
-      Object.assign(document.createElement("span"), { className: "wk-name", textContent: t.own ? `${t.alias || t.id} (du)` : t.alias || t.id }),
+      Object.assign(document.createElement("span"), { className: "wk-rank", textContent: w.final && MEDALS[t.rank] ? MEDALS[t.rank] : String(t.rank) }),
+      name,
       Object.assign(document.createElement("b"), { textContent: `${t.sold} st` }),
       Object.assign(document.createElement("small"), { textContent: t.revenue ? kr(t.revenue) : "" }),
     );
     rows.push(li);
   }
   $("h-week-top").replaceChildren(...rows);
+
+  const h = w.history;
+  $("h-week-history").textContent = h
+    ? [h.best ? `Bästa placering: ${h.best.rank} (v${h.best.week})` : "", h.top3_streak >= 2 ? `${h.top3_streak} veckor i rad i topp 3` : ""].filter(Boolean).join(" · ")
+    : "";
 }
 
-// Granska: modellens siffror ur databasen (sålt senaste 4 mån, säljgrad, till salu nu).
-function renderReviewMarket(m) {
-  const box = $("v-market");
-  box.hidden = !m;
-  if (!m) return;
-  const el = (tag, cls, text) => Object.assign(document.createElement(tag), { className: cls, textContent: text });
-  const stat = (label, value, note = "") => {
-    const d = el("div", "vm-stat", "");
-    d.append(el("span", "metric-label", label), el("b", "", value), el("small", "", note));
-    return d;
-  };
-  const head = el("p", "metric-label vm-head", `${m.number} i databasen · senaste 4 mån`);
-  const grid = el("div", "vm-grid", "");
-  grid.append(
-    stat("Sålda", String(m.sold), m.sell_through != null ? `${m.sell_through} % säljs` : ""),
-    stat("Median", m.median ? kr(m.median) : "–", m.p25 && m.p75 && m.p25 !== m.p75 ? `${m.p25}–${m.p75} kr` : ""),
-    stat("Till salu nu", String(m.active), m.active_low ? `från ${kr(m.active_low)}` : ""),
-    stat("Tid till såld", m.days_to_sell != null ? `${m.days_to_sell} d` : "–", "median"),
-  );
-  const list = el("ul", "vm-recent", "");
-  for (const r of m.recent ?? []) {
-    const li = document.createElement("li");
-    const a = Object.assign(el("a", "", ""), { href: r.url || "#", target: "_blank", rel: "noopener" });
-    a.append(el("span", "", r.title), el("b", "", kr(r.price)), el("small", "", String(r.end_at ?? "").slice(0, 10)));
-    li.append(a);
-    list.append(li);
-  }
-  box.replaceChildren(head, grid, ...(m.recent?.length ? [el("p", "metric-label vm-head", "Senast sålda"), list] : []));
+for (const b of document.querySelectorAll("#h-week-tabs .chip")) {
+  b.addEventListener("click", () => {
+    leagueWeek = Number(b.dataset.week);
+    renderHomeWeek();
+  });
 }
 
 async function renderHomeWeek() {
-  paintHomeWeek(store.get("week_cache", null));
+  const key = `league_cache_${leagueWeek}`;
+  paintHomeWeek(store.get(key, null));
   try {
-    const w = await marketApi({ action: "week", days: 7 });
-    store.set("week_cache", w);
+    const w = await marketApi({ action: "league", week: leagueWeek });
+    store.set(key, w);
     paintHomeWeek(w);
   } catch {
     /* kortet visar senaste kända siffror */
