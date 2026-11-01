@@ -643,6 +643,12 @@
         <input id="s-auto-send" type="checkbox">
         <span>Skicka till AI direkt när du trycker Nästa annons</span>
       </label>
+      <label class="check">
+        <input id="s-ads-db" type="checkbox">
+        <span>Annonser i databasen (Cloudflare) i stället för Google Sheet och Drive – snabbare</span>
+      </label>
+      <button id="s-ads-import" type="button" class="secondary">Kopiera annonserna från Google Sheet</button>
+      <p id="s-ads-db-status" class="hint">Kopieringen läser bara från Google – arket och Drive lämnas orörda.</p>
       <button id="btn-test" class="secondary">Testa anslutning</button>
       <p id="s-test" class="hint"></p>
       <button id="btn-test-lego" class="secondary" hidden>Testa Tradera: sålda Lego-partier</button>

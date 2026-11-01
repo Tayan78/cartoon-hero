@@ -4,6 +4,7 @@
 import { marketStats } from "./analytics.js";
 import { modelStats } from "./model.js";
 import { own } from "./own.js";
+import { ads } from "./ads.js";
 import { purchases } from "./purchases.js";
 import { addUsage, competitors, dashboard, productStats, recordRun, weekStats } from "./monitor.js";
 
@@ -254,6 +255,7 @@ export async function handleData(request, env, path, extra = {}) {
     if (path === "/data/usage") return Response.json({ ok: true, ...(await addUsage(env.DB, body.counts)) });
     if (path === "/data/run") return Response.json({ ok: true, ...(await recordRun(env.DB, body)) });
     if (path === "/data/competitors") return Response.json({ ok: true, ...(await competitors(env.DB, body)) });
+    if (path === "/data/ads") return Response.json({ ok: true, ...(await ads(env, body)) });
     if (path === "/data/seller-list") return Response.json({ ok: true, ...(await sellerList(env.DB, body)) });
     if (path === "/data/own") return Response.json({ ok: true, ...(await own(env.DB, body)) });
     if (path === "/data/model") return Response.json({ ok: true, ...(await modelStats(env.DB, body)) });

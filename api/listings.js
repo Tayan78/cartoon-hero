@@ -12,6 +12,9 @@
 //       sparas i Drive (Loppisskannern/Export) och annonserna markeras Exporterad
 // Själva berikningen sker i kön (Apps Script → /api/listing-process), så appen
 // kan stängas efter uppladdningen.
+import { waitUntil } from "@vercel/functions";
+import { adsCall, exportAds, importStep, processAd } from "../lib/ads.js";
+import { dbConfigured, dbLatestRun } from "../lib/db.js";
 import { checkAuth, json, parseDataUrl } from "../lib/http.js";
 import { purchasesCall } from "../lib/purchases.js";
 import { researchListing } from "../lib/listing.js";
@@ -33,6 +36,15 @@ export async function POST(request) {
     body = await request.json();
   } catch {
     return json({ ok: false, error: "Ogiltig förfrågan" }, 400);
+  }
+  // Annonserna i databasen (inställningen "Annonser i databasen" i appen).
+  if (body.backend === "db" || body.action === "ads_import" || body.action === "storage") {
+    if (!dbConfigured()) return json({ ok: false, error: "APP_TOKEN saknas på servern" }, 400);
+    try {
+      return json({ ok: true, ...(await dbAction(body, request)) });
+    } catch (err) {
+      return json({ ok: false, error: err.message, ...(err.skipped ? { skipped: err.skipped } : {}) }, 502);
+    }
   }
   if (body.action === "export") {
     const res = await exportProLister(Boolean(body.include_exported), mergeSettings(body.settings), new URL(request.url).origin);
@@ -112,6 +124,86 @@ export async function POST(request) {
     await purchasesCall({ op: "item", item: { id, purchase_id: body.purchase_id } }).catch(() => {});
   }
   return json(res, res.ok ? 200 : 502);
+}
+
+// ---------- Annonserna i databasen ----------
+const cleanId = (v) => String(v ?? "").replace(/[^\w-]/g, "").slice(0, 40);
+const later = (p) => waitUntil(p.catch(() => {}));
+const selfCall = (request, body) =>
+  fetch(new URL("/api/listings", request.url), {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-app-token": process.env.APP_TOKEN },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(15000),
+  }).catch(() => {});
+
+async function dbAction(body, request) {
+  const id = cleanId(body.id);
+  if (!["list", "approve", "export", "ads_import", "storage"].includes(body.action) && !id) throw new Error("id saknas");
+  switch (body.action) {
+    case "submit": {
+      const r = await adsCall({ op: "create", id, note: String(body.note ?? "").trim().slice(0, 300), settings: body.settings ?? {}, purchase_id: body.purchase_id ?? null });
+      if (body.purchase_id !== undefined) await purchasesCall({ op: "item", item: { id, purchase_id: body.purchase_id } }).catch(() => {});
+      return r;
+    }
+    case "image":
+      if (!parseDataUrl(body.image) || body.image.length * 0.75 > MAX_IMAGE_BYTES) throw new Error("Bilden saknas eller är för stor (max 1 MB)");
+      return adsCall({ op: "image", id, image: body.image });
+    case "commit": {
+      const r = await adsCall({ op: "commit", id });
+      later(processAd(id)); // AI:n direkt, i det här anropet
+      return r;
+    }
+    case "requeue": {
+      const r = await adsCall({ op: "requeue", id, confirmed: String(body.confirmed ?? "").trim().slice(0, 20) });
+      later(processAd(id));
+      return r;
+    }
+    case "list": {
+      const [list, stuck] = await Promise.all([adsCall({ op: "list" }), adsCall({ op: "stuck" }).catch(() => ({ ids: [] }))]);
+      // Annonser som fastnat (servern dog) tas upp igen, var och en i ett eget anrop.
+      for (const sid of stuck.ids ?? []) later(selfCall(request, { backend: "db", action: "process", id: sid }));
+      return { listings: list.listings };
+    }
+    case "process":
+      later(processAd(id));
+      return { started: true };
+    case "update": {
+      const f = body.fields ?? {};
+      const fields = {};
+      if (typeof f.title === "string") fields.title = f.title.replace(/\s+/g, " ").trim().slice(0, 80);
+      if (typeof f.description === "string") fields.description = f.description.slice(0, 7000);
+      if (Number.isFinite(Number(f.price)) && Number(f.price) >= 0 && f.price !== "") fields.price = Math.round(Number(f.price));
+      if (CHANNELS.includes(f.channel)) fields.channel = f.channel;
+      if (STATUSES.includes(f.status)) fields.status = f.status;
+      if (typeof f.confirmed === "string") fields.confirmed = f.confirmed.trim().slice(0, 20);
+      return adsCall({ op: "update", id, fields });
+    }
+    case "approve": {
+      const items = (Array.isArray(body.items) ? body.items : []).slice(0, 200).map((it) => ({ id: cleanId(it?.id), confirmed: String(it?.confirmed ?? "").trim().slice(0, 20) })).filter((it) => it.id);
+      if (!items.length) throw new Error("Inga annonser att godkänna");
+      return adsCall({ op: "approve", items });
+    }
+    case "delete":
+      return adsCall({ op: "delete", id });
+    case "export": {
+      const res = await exportAds(Boolean(body.include_exported), mergeSettings(body.settings), new URL(request.url).origin);
+      if (!res.ok) throw Object.assign(new Error(res.error), { skipped: res.skipped });
+      return res;
+    }
+    case "storage": {
+      const [storage, run] = await Promise.all([adsCall({ op: "storage" }), dbLatestRun("kopiering").catch(() => null)]);
+      return { ...storage, import_run: run };
+    }
+    case "ads_import": {
+      // Kopieringen från Google Sheet, i steg som startar nästa själv.
+      const out = await importStep(body.state ?? {});
+      if (out.more) later(selfCall(request, { action: "ads_import", state: out.state }));
+      return out;
+    }
+    default:
+      throw new Error("Okänd action");
+  }
 }
 
 function store(action, payload) {

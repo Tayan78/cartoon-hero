@@ -918,6 +918,33 @@ $("c-next").addEventListener("click", async () => {
 // och berikas medan du fotar nästa.
 const autoSend = () => store.get("auto_send", true) !== false;
 $("s-auto-send").checked = autoSend();
+$("s-ads-db").checked = adsDb();
+$("s-ads-db").addEventListener("change", () => {
+  store.set("ads_db", $("s-ads-db").checked);
+  sentLoaded = false;
+  $("s-ads-db-status").textContent = $("s-ads-db").checked ? "✓ Nya annonser sparas i databasen och bilderna i Cloudflare." : "Annonserna sparas i Google Sheet och Drive som förut.";
+});
+async function renderAdsStorage() {
+  try {
+    const s = await listingsApi({ action: "storage" });
+    const gb = (b) => (b / 1024 ** 3).toFixed(2).replace(".", ",");
+    const run = s.import_run;
+    $("s-ads-db-status").textContent =
+      `Bildlagring: ${gb(s.r2?.bytes ?? 0)} GB av ${gb(s.max_bytes)} GB · ${s.r2?.objects ?? 0} bilder · ${s.puts_today} uppladdade i dag (gräns ${s.daily_puts}).` +
+      (run ? ` Kopiering: ${run.status} – ${run.summary ?? ""}.` : "");
+  } catch {
+    /* databasen svarar inte – lämna texten */
+  }
+}
+$("s-ads-import").addEventListener("click", async () => {
+  $("s-ads-db-status").textContent = "Kopierar… (fortsätter i bakgrunden, se Drift → Körningar)";
+  try {
+    const r = await listingsApi({ action: "ads_import" });
+    $("s-ads-db-status").textContent = `Kopieringen är igång: ${r.state.offset} av ${r.total} annonser hittills. Fortsätter i bakgrunden – du kan stänga appen.`;
+  } catch (err) {
+    $("s-ads-db-status").textContent = `⚠️ ${err.message}`;
+  }
+});
 $("s-auto-send").addEventListener("change", () => store.set("auto_send", $("s-auto-send").checked));
 
 $("c-list").addEventListener("click", () => {
@@ -1022,11 +1049,15 @@ $("g-capture").addEventListener("click", () => openCapture());
 // du trycker Nästa. "Skicka till AI" lägger bara de uppladdade annonserna i kön.
 // Avbryts något (skärmen släcks, täckningen försvinner) fortsätter det av sig
 // självt nästa gång appen är öppen.
+// Annonserna i databasen (Cloudflare) i stället för Google Sheet/Drive.
+const adsDb = () => store.get("ads_db", false) === true;
+const backend = () => (adsDb() ? { backend: "db" } : {});
+
 async function listingsApi(body) {
   const res = await fetch("/api/listings", {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-app-token": getToken() },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ ...body, ...backend() }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.ok) throw new Error(data.error || `Fel ${res.status}`);
@@ -1446,13 +1477,15 @@ $("g-export").addEventListener("click", async () => {
     const res = await fetch("/api/listings", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-app-token": getToken() },
-      body: JSON.stringify({ action: "export", include_exported: $("g-export-all").checked, settings: getSettings() }),
+      body: JSON.stringify({ action: "export", include_exported: $("g-export-all").checked, settings: getSettings(), ...backend() }),
     });
     const data = await res.json().catch(() => ({}));
     showSkipped(data.skipped);
     if (!res.ok || !data.ok) throw new Error(data.error || `Fel ${res.status}`);
     exportFile = new File([data.csv], data.name, { type: "text/csv" });
-    $("g-export-hint").textContent = `✓ ${data.count} ${data.count === 1 ? "annons" : "annonser"} i ${data.name}. Filen ligger i Drive under Loppisskannern/Export – importera den i ProLister.`;
+    $("g-export-hint").textContent = adsDb()
+      ? `✓ ${data.count} ${data.count === 1 ? "annons" : "annonser"} i ${data.name}. Spara eller dela filen och importera den i ProLister.`
+      : `✓ ${data.count} ${data.count === 1 ? "annons" : "annonser"} i ${data.name}. Filen ligger i Drive under Loppisskannern/Export – importera den i ProLister.`;
     $("g-export-links").hidden = false;
     $("g-export-drive").hidden = !data.url;
     if (data.url) $("g-export-drive").href = data.url;
@@ -1512,6 +1545,7 @@ function openSettings(message = "") {
   const visible = views.find((v) => !$(`view-${v}`).hidden);
   if (visible && visible !== "settings") viewBeforeSettings = visible;
   $("s-token").value = getToken();
+  if (getToken()) renderAdsStorage();
   const s = getSettings();
   $("s-fees").replaceChildren(
     ...Object.entries(s.platforms).map(([name, p]) => {
@@ -1658,7 +1692,7 @@ async function renderHome() {
     const res = await fetch("/api/home", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-app-token": getToken() },
-      body: JSON.stringify({ since: getSettings().budget.google_spent_at }),
+      body: JSON.stringify({ since: getSettings().budget.google_spent_at, ...backend() }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || `Fel ${res.status}`);
@@ -2715,6 +2749,7 @@ const USAGE_INFO = [
   { api: "tradera_item", label: "Tradera – annonsdetaljer", limit: 10000 },
   { api: "tradera_seller", label: "Tradera – säljarnas annonser", limit: 10000 },
   { api: "d1_rows", label: "Databasen – skrivna rader", limit: 1000000 },
+  { api: "r2_put", label: "Bilder uppladdade till Cloudflare", limit: 3000 },
   { api: "d1_rows_listings", label: "  varav annonser" },
   { api: "d1_rows_snapshots", label: "  varav observationer" },
   { api: "d1_rows_prices", label: "  varav prishistorik" },
