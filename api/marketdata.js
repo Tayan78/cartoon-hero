@@ -34,7 +34,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { waitUntil } from "@vercel/functions";
 import { checkAuth, json } from "../lib/http.js";
-import { dbCompetitors, dbConfigured, dbOwn, dbWeek, dbDashboard, dbMarket, dbProducts, dbStatus } from "../lib/db.js";
+import { dbCompetitors, dbConfigured, dbLeague, dbOwn, dbWeek, dbDashboard, dbMarket, dbProducts, dbStatus } from "../lib/db.js";
 import { relinkProducts, syncCategories } from "../lib/productsync.js";
 import { OWN_ALIAS, lookupPurchase, purchasesCall } from "../lib/purchases.js";
 import { collectSeller, copyToDb, discoverSellers, listSellers, runStatus, runStep, startRun, watchSeller } from "../lib/marketdata.js";
@@ -108,7 +108,7 @@ export async function POST(request) {
   if (fromScript && !["nightly", "continue", "sweep_bg", "details_bg"].includes(body.action)) return json({ ok: false, error: "Inte tillåtet" }, 403);
   const origin = new URL(request.url).origin;
   if (!traderaConfigured()) return json({ ok: false, error: "Tradera är inte konfigurerat" }, 400);
-  if (!["discover", "lots", "lots_check", "db_status", "dashboard", "competitors", "week", "tradera_status", "tradera_connect", "tradera_sync", "products", "products_relink", "market", "purchases", "purchase_lookup", "purchase_save", "status", "sellers", "watch", "collect", "collect_all", "nightly", "continue", "own_account", "sweep", "sweep_bg", "details_bg", "sweep_status"].includes(body.action) && !storageConfigured()) return json({ ok: false, error: "Google Sheet är inte konfigurerat" }, 400);
+  if (!["discover", "lots", "lots_check", "db_status", "dashboard", "competitors", "week", "league", "tradera_status", "tradera_connect", "tradera_sync", "products", "products_relink", "market", "purchases", "purchase_lookup", "purchase_save", "status", "sellers", "watch", "collect", "collect_all", "nightly", "continue", "own_account", "sweep", "sweep_bg", "details_bg", "sweep_status"].includes(body.action) && !storageConfigured()) return json({ ok: false, error: "Google Sheet är inte konfigurerat" }, 400);
 
   try {
     switch (body.action) {
@@ -135,6 +135,9 @@ export async function POST(request) {
       case "competitors":
         if (!dbConfigured()) return json({ ok: false, error: "APP_TOKEN saknas på servern" }, 400);
         return json({ ok: true, ...(await dbCompetitors({ limit: body.limit, min: body.min })) });
+      case "league":
+        if (!dbConfigured()) return json({ ok: false, error: "APP_TOKEN saknas på servern" }, 400);
+        return json({ ok: true, ...(await dbLeague({ week: body.week })) });
       case "week":
         if (!dbConfigured()) return json({ ok: false, error: "APP_TOKEN saknas på servern" }, 400);
         {

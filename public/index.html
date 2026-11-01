@@ -32,15 +32,21 @@
         <button id="h-todo-ready" type="button" class="hc-row"></button>
       </div>
       <div id="h-week" class="home-card" hidden>
-        <div class="hc-head"><b>Sålt 7 dagar</b><span class="muted small">Schleich · Tradera</span></div>
+        <div class="hc-head"><b id="h-week-title">Veckan</b><span id="h-week-dates" class="muted small"></span></div>
+        <div id="h-week-tabs" class="chips seg wk-tabs" role="tablist" aria-label="Vecka">
+          <button type="button" class="chip on" data-week="0">Denna vecka</button>
+          <button type="button" class="chip" data-week="-1">Förra veckan</button>
+        </div>
+        <div class="wk-day"><div class="meter"><span id="h-week-day"></span></div><span id="h-week-day-note" class="muted small"></span></div>
         <div class="wk-vs">
           <div><span class="metric-label">Du</span><span id="h-week-mine" class="metric-value big-number">–</span><span id="h-week-mine-note" class="metric-note"></span></div>
           <div><span class="metric-label">Hela marknaden</span><span id="h-week-market" class="metric-value big-number">–</span><span id="h-week-market-note" class="metric-note"></span></div>
         </div>
-        <div class="meter"><span id="h-week-bar"></span></div>
+        <p id="h-week-rank" class="wk-rankline"></p>
         <p id="h-week-share" class="muted small wk-share"></p>
-        <p class="metric-label wk-title">Topplista – flest sålda</p>
+        <p class="metric-label wk-title">Topplista – flest sålda Schleich</p>
         <ol id="h-week-top" class="wk-top"></ol>
+        <p id="h-week-history" class="muted small wk-history"></p>
       </div>
       <button id="h-purchase" type="button" class="home-card hc-button" hidden>
         <div class="hc-head"><b id="h-purchase-title">Inköp</b><span id="h-purchase-note" class="muted small"></span></div>
