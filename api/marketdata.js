@@ -77,11 +77,9 @@ async function resolve(seller) {
 // Kör ett steg och startar nästa steg som ett nytt anrop (varje anrop får ca 2 min).
 async function chain(state, origin) {
   const out = await runStep(state);
-  // Alla säljare klara → hela Schleich-insamlingen, som ett eget anrop (egen tid).
-  if (!out.more) {
-    if (!state?.only) await selfCall(origin, { action: "sweep_bg" });
-    return;
-  }
+  // Schleich-insamlingen startas redan av nightly (oberoende av säljarna), så att
+  // den körs även om säljarinsamlingen dör halvvägs.
+  if (!out.more) return;
   await selfCall(origin, { action: "continue", state: out.state });
 }
 
@@ -221,6 +219,8 @@ export async function POST(request) {
         }
         const run = await startRun(only);
         if (run.started) waitUntil(chain(run.state, origin).catch(() => {}));
+        // Schleich-sökningen och annonsdetaljerna, i ett eget anrop parallellt med säljarna.
+        if (body.action === "nightly" && !only) waitUntil(selfCall(origin, { action: "sweep_bg" }));
         // more: false – Apps Script-timern behöver inte vänta, servern fortsätter själv.
         return json({ ok: true, started: run.started, running: !run.started, run: run.status ?? null, more: false });
       }

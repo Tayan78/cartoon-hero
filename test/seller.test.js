@@ -101,3 +101,10 @@ test("Bara Schleich: annonser utan Schleich i rubrik eller text hoppas över (oc
   assert.deepEqual(r.items.map((i) => i.id), [1, 3]);
   assert.deepEqual(fetched, []); // Barbie utan nummer hämtas inte en och en
 });
+
+test("pris för auktion utan bud = nästa bud (samma som Schleich-sökningen), med bud = högsta bud", async () => {
+  const { toSellerItem } = await import("../lib/seller.js");
+  assert.equal(toSellerItem({ id: 1, shortDescription: "x", itemType: 1, totalBids: 0, nextBid: 40, buyItNowPrice: 120, openingBid: 40 }).price, 40);
+  assert.equal(toSellerItem({ id: 1, shortDescription: "x", itemType: 1, totalBids: 3, maxBid: 85, nextBid: 90, buyItNowPrice: 120 }).price, 85);
+  assert.equal(toSellerItem({ id: 1, shortDescription: "x", itemType: 3, buyItNowPrice: 99 }).price, 99);
+});

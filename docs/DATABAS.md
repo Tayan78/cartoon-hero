@@ -99,3 +99,11 @@ Granska visar rutan *"13773 i databasen"*: sålda, säljgrad, median med spann, 
 Koppling (en gång, Inköp → *Koppla Tradera-konto*): appen öppnar Traderas inloggning (`token-login?appId&pkey&skey`, skey = engångsnyckel som appen skapar). Du godkänner, går tillbaka till appen, och servern hämtar nyckeln med `POST /v4/auth/token { userId, secretKey }` (`lib/traderauser.js`). Kräver `TRADERA_PUBLIC_KEY` i Vercel och att *Accept URL/Reject URL* är tomma i appens inställningar hos Tradera.
 
 Varje natt (och med *Hämta försäljningar nu*): `GET /v4/orders` med `X-User-Id`/`X-User-Token`, från förra hämtningen minus 2 dygn (första gången 120 dygn bakåt) i 30-dagarsfönster. Drift varnar 30 dagar innan nyckeln går ut. Adress: `POST /data/own { op: auth_get | auth_set | status | sales_upsert }` – `status` och Drift visar aldrig själva nyckeln.
+
+## Skrivbudget och nattjobbets ordning
+
+- **Skrivbudget:** workern stoppar stora skrivningar (annonser, produktkopplingar, kategorier) när dygnets räknare `d1_rows` når 1 000 000 rader (Workers Paid: 50 miljoner per månad) (`DAILY_WRITE_BUDGET`, kan sättas som variabel på workern). Svaret blir 429 med förklaring; insamlingen visar felet och fortsätter efter midnatt UTC. Små skrivningar (körningar, säljare, inköp, ditt konto, räknare) går alltid igenom.
+- **Per del:** räknaren delas upp i `d1_rows_listings`, `d1_rows_snapshots`, `d1_rows_prices` och `d1_rows_links` (Drift → Anrop).
+- **Ingen onödig omskrivning:** länk och alias räknas inte som ändring, och säljarinsamlingen ger samma pris som Schleich-sökningen för auktioner utan bud (nästa bud), så att en annons som hämtas från båda inte skrivs om varje natt.
+- **Ordning:** `nightly` startar säljarinsamlingen och Schleich-sökningen (följd av annonsdetaljerna) parallellt – sökningen körs även om säljarinsamlingen dör. En körning som stått som *Pågår* markeras *Avbruten* när nästa av samma slag startar.
+- **Kontroll:** GitHub Actions → *BI-förhandsvisning* skriver även ut driftläget ur databasen (`scripts/drift-status.mjs`, bara läsning).
