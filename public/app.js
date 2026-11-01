@@ -896,7 +896,7 @@ $("c-next").addEventListener("click", async () => {
   const purchase_id = $("c-purchase").value === "" ? null : Number($("c-purchase").value);
   const group = editingGroup
     ? { ...editingGroup, photos: groupPhotos, note: $("c-note").value.trim(), purchase_id, upload: "ny", version: (editingGroup.version ?? 0) + 1 }
-    : { id: `G${Date.now()}`, ts: Date.now(), photos: groupPhotos, note: $("c-note").value.trim(), purchase_id, selected: true, upload: "ny", version: 1 };
+    : { id: `G${Date.now()}`, ts: Date.now(), photos: groupPhotos, note: $("c-note").value.trim(), purchase_id, selected: true, upload: "ny", version: 1, ...(autoSend() ? { send: true } : {}) };
   delete group.number;
   try {
     await putGroup(group);
@@ -911,8 +911,14 @@ $("c-next").addEventListener("click", async () => {
   $("c-note").value = "";
   const saved = (await allGroups().catch(() => [])).length;
   await renderCapture();
-  $("c-hint").textContent = `✓ Annons ${saved} sparad – fota nästa.`;
+  $("c-hint").textContent = autoSend() ? `✓ Annons skickad till AI – fota nästa.` : `✓ Annons ${saved} sparad – fota nästa.`;
 });
+
+// Skicka till AI direkt vid "Nästa annons" (på från början): annonsen laddas upp
+// och berikas medan du fotar nästa.
+const autoSend = () => store.get("auto_send", true) !== false;
+$("s-auto-send").checked = autoSend();
+$("s-auto-send").addEventListener("change", () => store.set("auto_send", $("s-auto-send").checked));
 
 $("c-list").addEventListener("click", () => {
   // Påbörjade bilder sparas inte automatiskt: fråga hellre än att tappa dem.

@@ -77,6 +77,8 @@ function doPost(e) {
       if (body.action === 'listListings') return reply(listListings());
       if (body.action === 'updateListing') return reply(updateListing(body));
       if (body.action === 'requeueListing') return reply(requeueListing(body));
+      if (body.action === 'claimListing') return reply(claimListing(body));
+      if (body.action === 'saveListingResult') return reply(saveListingResult(body));
       if (body.action === 'deleteListing') return reply(deleteListing(body));
       if (body.action === 'saveExport') return reply(saveExport(body));
       if (body.action === 'approveListings') return reply(approveListings(body));
@@ -470,33 +472,69 @@ function runJob(job) {
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
-    var sh = listingSheet();
-    var row = rowById(sh, job.id);
-    if (!row) return; // borttagen under tiden
-    if (!result.ok) {
-      setCells(sh, row, { 'Status': 'Fel', 'Fel': result.error });
-      return;
-    }
-    var l = result.listing;
-    var item = l.item || {};
-    setCells(sh, row, {
-      'Status': 'Klar',
-      'Rubrik': l.title,
-      'Beskrivning': l.description,
-      'Pris': l.price || '',
-      'Kanal': l.channel,
-      'Modellnummer': l.article && l.article.number ? l.article.number : '',
-      'Namn': item.name,
-      'Märke': item.brand,
-      'Kategori': item.category,
-      'Prisgrund': l.list_basis,
-      'Kostnad SEK': (l.cost || {}).sek,
-      'Fel': '',
-      'JSON': JSON.stringify(l)
-    });
+    writeResult(job.id, result);
   } finally {
     lock.releaseLock();
   }
+}
+
+// Resultatet från AI:n → annonsens rad (Klar eller Fel).
+function writeResult(id, result) {
+  var sh = listingSheet();
+  var row = rowById(sh, id);
+  if (!row) return false; // borttagen under tiden
+  if (!result || !result.ok) {
+    setCells(sh, row, { 'Status': 'Fel', 'Fel': (result && result.error) || 'Okänt fel' });
+    return true;
+  }
+  var l = result.listing;
+  var item = l.item || {};
+  setCells(sh, row, {
+    'Status': 'Klar',
+    'Rubrik': l.title,
+    'Beskrivning': l.description,
+    'Pris': l.price || '',
+    'Kanal': l.channel,
+    'Modellnummer': l.article && l.article.number ? l.article.number : '',
+    'Namn': item.name,
+    'Märke': item.brand,
+    'Kategori': item.category,
+    'Prisgrund': l.list_basis,
+    'Kostnad SEK': (l.cost || {}).sek,
+    'Fel': '',
+    'JSON': JSON.stringify(l)
+  });
+  return true;
+}
+
+// Direkt bearbetning från appens server (utan att vänta på timern): ta just den
+// här annonsen om den väntar (eller fastnat i Bearbetas i över 10 minuter).
+function claimListing(body) {
+  var sh = listingSheet();
+  var row = rowById(sh, body.id);
+  if (!row) return { ok: false, error: 'Annonsen finns inte' };
+  var c = cols(sh);
+  var r = sh.getRange(row, 1, 1, sh.getLastColumn()).getValues()[0];
+  var status = r[c['Status'] - 1];
+  var updated = new Date(r[c['Uppdaterad'] - 1]).getTime() || 0;
+  if (!(status === 'Väntar' || (status === 'Bearbetas' && Date.now() - updated > 10 * 60 * 1000))) return { ok: true, job: null };
+  setCells(sh, row, { 'Status': 'Bearbetas' });
+  var settings = {};
+  try { settings = JSON.parse(r[c['Inställningar'] - 1] || '{}'); } catch (e) {}
+  return {
+    ok: true,
+    job: {
+      id: String(body.id),
+      note: r[c['Anteckning'] - 1],
+      confirmed: String(r[c['Bekräftat'] - 1] || ''),
+      fileIds: String(r[c['Bild-ID'] - 1] || '').split(',').filter(String),
+      settings: settings
+    }
+  };
+}
+
+function saveListingResult(body) {
+  return { ok: true, saved: writeResult(body.id, body.result) };
 }
 
 // ---------- Generella flikfunktioner (används av Vercel) ----------
