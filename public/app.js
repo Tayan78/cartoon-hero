@@ -1726,7 +1726,7 @@ function paintHomeWeek(w) {
   $("h-week-market-note").textContent = [w.market.revenue ? kr(w.market.revenue) : "", trend(w.market.sold, w.market.prev)].filter(Boolean).join(" · ");
   // Stapeln: du mot den bästa konkurrenten (inte dig själv).
   const rival = (w.top ?? []).find((t) => !t.own);
-  const me = (w.top ?? []).find((t) => t.own);
+  const me = (w.top ?? []).find((t) => t.own && t.rank);
   $("h-week-bar").style.width = `${Math.min(100, (100 * (w.mine.sold || 0)) / (rival?.sold || 1))}%`;
   $("h-week-share").textContent = w.own
     ? `Din andel: ${String(w.mine.share).replace(".", ",")} % av alla sålda` +
@@ -1735,7 +1735,9 @@ function paintHomeWeek(w) {
     : "";
   const rows = [];
   let last = 0;
-  for (const t of w.top ?? []) {
+  // Äldre svar (sparade i appen innan topplistan fick placering) saknar rank.
+  for (const [i, t0] of (w.top ?? []).entries()) {
+    const t = { ...t0, rank: Number(t0.rank) || i + 1 };
     if (t.rank > last + 1 && last) rows.push(Object.assign(document.createElement("li"), { className: "wk-gap", textContent: "…" }));
     last = t.rank;
     const li = document.createElement("li");
