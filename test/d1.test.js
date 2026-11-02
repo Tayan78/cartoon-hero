@@ -399,3 +399,27 @@ test("Topplistan: topp 10, och du längst ner med din placering om du inte är m
   assert.deepEqual(w.top.slice(0, 3).map((t) => [t.rank, t.alias]), [[1, "S1"], [2, "S2"], [3, "S3"]]);
   assert.deepEqual([w.top.at(-1).rank, w.top.at(-1).alias, w.top.at(-1).own], [13, "Joulupukkin", true]);
 });
+
+test("Partiets utveckling: annonserna matchas mot dina Tradera-annonser (referens eller rubrik), sålt för enligt ordrarna, upplagd igen följs", async () => {
+  const { purchases } = await import("../worker/src/purchases.js");
+  const { own } = await import("../worker/src/own.js");
+  const db = fakeD1();
+  await upsertSellers(db, [{ id: "9", alias: "Joulupukkin" }]);
+  await db.prepare("UPDATE sellers SET own = 1 WHERE id = '9'").run();
+  const { id } = await purchases(db, { op: "save", purchase: { title: "Parti Marketplace", source: "facebook", price: 300, total_cost: 300 } });
+  for (const g of ["G1", "G2", "G3", "G4", "G5"]) await purchases(db, { op: "item", item: { id: g, purchase_id: id } });
+  await purchases(db, { op: "titles", items: [{ id: "G1", title: "Schleich Tinker sto 13773" }, { id: "G2", title: "Schleich föl" }, { id: "G3", title: "Schleich föl" }, { id: "G4", title: "Schleich stall" }] });
+  const L = (lid, title, status, price, seen, raw) => ({ id: lid, seller_id: "9", seller: "Joulupukkin", title, status, price, first_seen: seen, niche: "djur", ...(raw ? { raw } : {}) });
+  await upsertListings(db, [
+    L("100", "Schleich Tinker sto 13773", "Såld", 89, "2026-11-02T10:00:00Z"),
+    L("101", "Schleich föl", "Såld", 49, "2026-11-02T10:00:00Z"),
+    L("102", "Schleich föl", "Osåld", 49, "2026-11-02T11:00:00Z"),
+    L("103", "Schleich föl", "Aktiv", 45, "2026-11-09T11:00:00Z"), // G3 upplagd igen
+    L("104", "Annan rubrik helt", "Aktiv", 120, "2026-11-02T12:00:00Z", JSON.stringify({ id: 104, ownReferences: ["G5"] })),
+  ]);
+  await own(db, { op: "sales_upsert", rows: [{ order_id: 1, item_id: "100", unit_price: 75, quantity: 1 }] }); // prisförslag: 75 i stället för 89
+  const { purchases: list, totals } = await purchases(db, { op: "list" });
+  const p = list[0];
+  assert.deepEqual([p.registered, p.matched, p.sold_count, p.sold_revenue, p.sold_exact, p.active_count, p.active_value], [5, 4, 2, 124, 1, 2, 165]);
+  assert.deepEqual(totals, { cost: 300, sold_revenue: 124, sold_count: 2, active_value: 165 });
+});

@@ -61,6 +61,7 @@
       <button id="h-purchase" type="button" class="home-card hc-button" hidden>
         <div class="hc-head"><b id="h-purchase-title">Inköp</b><span id="h-purchase-note" class="muted small"></span></div>
         <div class="meter"><span id="h-purchase-bar"></span></div>
+        <small id="h-purchase-total" class="muted small hc-sub"></small>
       </button>
       <button id="h-lots" type="button" class="home-card hc-button">
         <div class="hc-head"><b>💎 Fynd</b><span id="h-lots-note" class="muted small"></span></div>
@@ -496,21 +497,28 @@
         <label class="field"><span>Tradera-länk (fyller i resten)</span><input id="p-link" type="url" inputmode="url" autocapitalize="off" placeholder="https://www.tradera.com/item/…"></label>
         <button id="p-lookup" type="button" class="secondary">Hämta</button>
       </div>
-      <label class="field"><span>Vad</span><input id="p-title" type="text" maxlength="200" placeholder="t.ex. 42 st Schleich-djur"></label>
+      <label class="field"><span>Namn på inköpet</span><input id="p-title" type="text" maxlength="200" placeholder="t.ex. Parti Marketplace 1/11"></label>
       <div class="p-grid">
-        <label class="field"><span>Datum</span><input id="p-date" type="date"></label>
-        <label class="field"><span>Källa</span><select id="p-source">
-          <option value="tradera">Tradera</option><option value="loppis">Loppis</option><option value="blocket">Blocket</option><option value="vinted">Vinted</option><option value="facebook">Facebook</option><option value="annat">Annat</option>
+        <label class="field"><span>Var</span><select id="p-source">
+          <option value="facebook">Facebook / Marketplace</option><option value="tradera">Tradera</option><option value="loppis">Loppis</option><option value="blocket">Blocket</option><option value="vinted">Vinted</option><option value="annat">Annat</option>
         </select></label>
-        <label class="field"><span>Pris</span><input id="p-price" type="number" inputmode="numeric" min="0"></label>
-        <label class="field"><span>Frakt</span><input id="p-shipping" type="number" inputmode="numeric" min="0"></label>
-        <label class="field"><span>Avgifter</span><input id="p-fees" type="number" inputmode="numeric" min="0"></label>
-        <label class="field"><span>Antal objekt</span><input id="p-count" type="number" inputmode="numeric" min="1"></label>
+        <label class="field"><span>Betalt totalt (kr)</span><input id="p-price" type="number" inputmode="numeric" min="0"></label>
       </div>
+      <details class="fold">
+        <summary>Datum, frakt och avgifter</summary>
+        <div class="p-grid">
+          <label class="field"><span>Datum</span><input id="p-date" type="date"></label>
+          <label class="field"><span>Frakt</span><input id="p-shipping" type="number" inputmode="numeric" min="0"></label>
+          <label class="field"><span>Avgifter</span><input id="p-fees" type="number" inputmode="numeric" min="0"></label>
+        </div>
+        <input id="p-count" type="hidden">
+      </details>
       <p id="p-total" class="hint"></p>
       <button id="p-save" type="button" class="primary big">Spara inköp</button>
       <p id="p-status" class="hint"></p>
 
+      <button id="p-refresh-own" type="button" class="secondary">↻ Uppdatera från ditt Tradera-konto</button>
+      <p id="p-refresh-own-status" class="hint">Hämtar dina annonser och försäljningar nu – t.ex. direkt efter en import i ProLister. Görs annars varje natt.</p>
       <div class="hist-head">
         <h3>Dina inköp</h3>
         <span class="acts-inline"><button id="p-legacy" type="button" class="chip">+ Gammalt lager</button></span>

@@ -135,3 +135,9 @@ Cloudflare har inget tak som stänger av vid en summa, så appen stoppar själv 
 | R2 läsningar / nedladdning | 10 miljoner / gratis | – |
 
 Drift visar bilder uppladdade i dag; Inställningar visar lagringen.
+
+## Partiets utveckling (Inköp)
+
+Ett inköp är bara namn, var och vad du betalade totalt. Annonserna kopplas till inköpet när du fotar (`own_items`). Vid export sparas annonsens rubrik på objektet (`op: titles`).
+
+`purchaseStats` (worker/src/purchases.js) matchar objekten mot dina annonser på Tradera (`listings` för ditt konto): först exakt på referensen (ProLister skickar appens annons-id som `ownReferences`), annars på rubriken i tidsordning. En annons som gick osåld och lades upp igen med samma rubrik följs till den nya. **Sålt för** = vad köparen betalade enligt dina ordrar (`own_sales`), annars annonsens slutpris. **Ute nu** = aktiva annonser till sina priser. Appen drar av Tradera-avgiften enligt dina inställningar och visar break-even, vinst, kostnad per sålt hittills och totalen för alla inköp (gammalt lager räknas inte).
