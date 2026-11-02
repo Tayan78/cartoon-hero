@@ -56,8 +56,23 @@ test("Nattens körning i steg: fortsätter tills det är slut eller nattens tak 
   assert.deepEqual([s1.done, next?.done, s1.run_id], [DETAIL_PER_STEP, DETAIL_PER_STEP, 77]);
   next = null;
   const s2 = await detailStep(s1, { step, history: hist, next: async (st) => (next = st), perNight: 1000 });
-  assert.equal(s2.done, 1000); // nattens tak
+  next = null;
+  const s3 = await detailStep(s2, { step, history: hist, next: async (st) => (next = st), perNight: 1000 });
+  assert.equal(s3.done, 1000); // nattens tak
   assert.equal(next, null); // inget nästa steg
-  assert.equal(calls, 2);
-  assert.match(history.at(-1).summary, /1000 annonsdetaljer hämtade · 20 med modellnummer · fler kvar till nästa natt/);
+  assert.equal(calls, 3);
+  assert.match(history.at(-1).summary, /1000 annonsdetaljer hämtade · 30 med modellnummer · fler kvar till nästa natt/);
+});
+
+test("Annonsdetaljer: fel eller ett nästa steg som inte startar lämnar aldrig körningen som Pågår", async () => {
+  const history = [];
+  const hist = async (b) => (history.push(b), b.id ? b.id : 5);
+  const broken = await detailStep({}, { step: async () => { throw new Error("Databasen: 500"); }, history: hist });
+  assert.equal(broken.error, "Databasen: 500");
+  assert.match(history.at(-1).status, /^Fel: Databasen: 500/);
+  history.length = 0;
+  const step = async ({ max }) => ({ checked: max, fetched: max, linked: 0, errors: 0, more: true });
+  await detailStep({}, { step, history: hist, next: async () => false, perNight: 2500 });
+  assert.equal(history.at(-1).status, "Avbruten");
+  assert.ok(history.some((h) => h.progress));
 });
