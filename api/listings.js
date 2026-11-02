@@ -232,6 +232,8 @@ async function exportProLister(includeExported, settings, origin) {
   const stamp = new Date().toLocaleString("sv-SE", { timeZone: "Europe/Stockholm" }).replace(/[-:]/g, "").replace(" ", "-").slice(0, 13);
   const name = `prolister-${stamp}.csv`;
   const saved = await store("saveExport", { name, csv, ids: included });
+  // Rubrikerna till inköpens objekt – så kopplas försäljningarna till partiet.
+  await purchasesCall({ op: "titles", items: wanted.filter((l) => included.includes(l.id)).map((l) => ({ id: l.id, title: l.title })) }).catch(() => {});
   if (!saved.ok) return saved;
   return { ok: true, name, csv, url: saved.url ?? "", count: included.length, skipped };
 }

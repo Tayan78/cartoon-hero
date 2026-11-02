@@ -511,3 +511,14 @@ button:disabled { opacity: .4; }
 .wk-top .wk-sub { color: var(--muted); font-size: 12px; font-weight: 400; font-variant-numeric: tabular-nums; text-align: left; }
 .wk-top li.wk-me .wk-sub { color: var(--text); opacity: .8; }
 .wk-top b { text-align: right; }
+
+/* Inköp: partiets utveckling */
+#p-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.pc { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; }
+.pc-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.pc-head b { font-size: 17px; }
+.pc-sub { color: var(--muted); font-size: 13px; }
+.pc-status { margin: 0; font-weight: 600; font-size: 15px; }
+.pc-bar span { background: var(--accent); }
+.pc-bar.done span { background: var(--green); }
+.hc-sub { display: block; margin-top: 6px; }

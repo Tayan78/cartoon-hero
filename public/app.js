@@ -1883,10 +1883,15 @@ function renderHomePurchase() {
   $("h-purchase").hidden = !p;
   if (!p) return;
   $("h-purchase-title").textContent = `🧾 ${p.title || "Inköp"}`;
-  const done = p.items_registered ?? 0;
-  $("h-purchase-note").textContent = p.item_count ? `${done} av ${p.item_count} fotade` : `${done} fotade`;
-  meter("h-purchase-bar", p.item_count ? done / p.item_count : 0);
+  const n = purchaseNumbers(p);
+  $("h-purchase-note").textContent = n.result >= 0 && n.net ? `vinst ${kr(n.result)}` : `${Math.round(n.share * 100)} % till break-even`;
+  meter("h-purchase-bar", n.share);
   $("h-purchase-bar").className = "";
+  const t = store.get("purchase_totals", null);
+  if (t?.cost) {
+    const all = purchaseNumbers({ total_cost: t.cost, sold_revenue: t.sold_revenue, sold_count: t.sold_count });
+    $("h-purchase-total").textContent = `Alla inköp: betalt ${kr(t.cost)} · sålt för ${kr(all.net)} · ${all.result >= 0 ? "+" : "−"}${kr(Math.abs(all.result))}`;
+  } else $("h-purchase-total").textContent = "";
 }
 
 async function renderHomeOps() {
@@ -3313,6 +3318,7 @@ async function loadPurchases() {
   try {
     const d = await marketApi({ action: "purchases" });
     purchaseList = d.purchases ?? [];
+    store.set("purchase_totals", d.totals ?? null);
     store.set("purchases_cache", purchaseList);
     $("p-own-status").textContent = d.own_seller ? `✓ ${d.own_seller.alias} är kopplat.` : "Kopplas automatiskt så fort databasen svarar.";
     renderPurchases();
@@ -3321,23 +3327,53 @@ async function loadPurchases() {
   }
 }
 
-function renderPurchases() {
-  $("p-list").replaceChildren(
-    ...purchaseList.map((p) => {
-      const li = Object.assign(document.createElement("li"), { className: "m-row" });
-      const t = Object.assign(document.createElement("div"), { className: "t" });
-      const perItem = p.total_cost && p.item_count ? ` · ${kr(Math.round(p.total_cost / p.item_count))}/st` : "";
-      t.append(
-        Object.assign(document.createElement("b"), { textContent: `${p.legacy ? "📦 " : ""}${p.title || "Inköp"}` }),
-        Object.assign(document.createElement("small"), {
-          textContent: `${p.bought_at ?? ""} · ${p.legacy ? "gammalt lager" : kr(p.total_cost ?? 0)}${perItem} · ${p.items_registered ?? 0}${p.item_count ? ` av ${p.item_count}` : ""} fotade${p.items_sold ? ` · ${p.items_sold} sålda` : ""}`,
-        }),
-      );
-      const open = p.status !== "klar";
-      li.append(t, smallBtn(open ? "Öppen" : "Klar", open ? "chip on" : "chip", () => savePurchase({ id: p.id, status: open ? "klar" : "öppen" })));
-      return li;
-    }),
+// Partiets utveckling: betalt, sålt för (efter Tradera-avgift), break-even, ute nu.
+function purchaseNumbers(p) {
+  const fee = getSettings().platforms?.Tradera ?? { fee_percent: 0, fee_fixed: 0 };
+  const cost = Number(p.total_cost ?? p.price) || 0;
+  const gross = Number(p.sold_revenue) || 0;
+  const fees = Math.round((gross * (Number(fee.fee_percent) || 0)) / 100 + (Number(fee.fee_fixed) || 0) * (Number(p.sold_count) || 0));
+  const net = gross - fees;
+  return { cost, gross, fees, net, result: net - cost, share: cost ? Math.min(1, net / cost) : net > 0 ? 1 : 0 };
+}
+
+function purchaseCard(p) {
+  const n = purchaseNumbers(p);
+  const li = Object.assign(document.createElement("li"), { className: "pc" });
+  const head = Object.assign(document.createElement("div"), { className: "pc-head" });
+  head.append(
+    Object.assign(document.createElement("b"), { textContent: `${p.legacy ? "📦 " : ""}${p.title || "Inköp"}` }),
+    smallBtn(p.status !== "klar" ? "Öppen" : "Klar", p.status !== "klar" ? "chip on" : "chip", () => savePurchase({ id: p.id, status: p.status !== "klar" ? "klar" : "öppen" })),
   );
+  const sub = Object.assign(document.createElement("small"), {
+    className: "pc-sub",
+    textContent: `${p.bought_at ?? ""} · ${SOURCE_LABEL[p.source] ?? p.source ?? ""} · ${p.legacy ? "gammalt lager" : `betalt ${kr(n.cost)}`}`,
+  });
+  li.append(head, sub);
+  if (!p.legacy) {
+    const bar = Object.assign(document.createElement("div"), { className: `meter pc-bar${n.result >= 0 && n.net ? " done" : ""}` });
+    bar.append(Object.assign(document.createElement("span"), { style: `width:${Math.round(n.share * 100)}%` }));
+    const status = Object.assign(document.createElement("p"), {
+      className: "pc-status",
+      textContent:
+        n.result >= 0 && n.net
+          ? `Vinst ${kr(n.result)} · sålt ${p.sold_count} st för ${kr(n.gross)}`
+          : `${Math.round(n.share * 100)} % till break-even · sålt ${p.sold_count ?? 0} st för ${kr(n.gross)} · kvar att tjäna in ${kr(n.cost - n.net)}`,
+    });
+    const extra = [
+      p.sold_count ? `kostnad per sålt hittills ${kr(Math.round(n.cost / p.sold_count))}` : "",
+      p.active_count ? `ute nu ${p.active_count} annonser för ${kr(p.active_value)}` : "",
+      p.registered && p.registered > (p.matched ?? 0) ? `${p.registered - (p.matched ?? 0)} fotade som inte syns på Tradera än` : "",
+      n.fees ? `Tradera-avgift ${kr(n.fees)} avdragen` : "",
+    ].filter(Boolean);
+    li.append(bar, status, Object.assign(document.createElement("small"), { className: "pc-sub", textContent: extra.join(" · ") }));
+  }
+  return li;
+}
+const SOURCE_LABEL = { facebook: "Marketplace", tradera: "Tradera", loppis: "Loppis", blocket: "Blocket", vinted: "Vinted", annat: "Annat", gammalt: "Gammalt lager" };
+
+function renderPurchases() {
+  $("p-list").replaceChildren(...purchaseList.map(purchaseCard));
   renderPurchasePicker();
 }
 

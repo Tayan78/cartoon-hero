@@ -37,6 +37,14 @@ export async function purchases(db, body = {}, now = new Date().toISOString()) {
       .run();
     return { id: it.id };
   }
+  if (op === "titles") {
+    // Rubriken annonsen fick (vid export) – den som ProLister lägger upp på Tradera.
+    const items = (Array.isArray(body.items) ? body.items : []).filter((i) => i?.id && i.title).slice(0, 500);
+    if (items.length) {
+      await db.batch(items.map((i) => db.prepare("UPDATE own_items SET title = ?2, updated_at = ?3 WHERE id = ?1").bind(String(i.id), String(i.title).slice(0, 200), now)));
+    }
+    return { updated: items.length };
+  }
   if (op === "own_seller") {
     await db.prepare("UPDATE sellers SET own = CASE WHEN id = ?1 THEN 1 ELSE 0 END WHERE own = 1 OR id = ?1").bind(String(body.seller_id)).run();
     return { seller_id: String(body.seller_id) };
@@ -50,5 +58,88 @@ export async function purchases(db, body = {}, now = new Date().toISOString()) {
     )
     .all();
   const own = await db.prepare("SELECT id, alias FROM sellers WHERE own = 1").all();
-  return { purchases: results, own_seller: own.results[0] ?? null };
+  const stats = await purchaseStats(db);
+  const list = results.map((p) => ({ ...p, ...(stats.get(p.id) ?? emptyStats()) }));
+  const totals = list
+    .filter((p) => !Number(p.legacy))
+    .reduce((t, p) => ({ cost: t.cost + (Number(p.total_cost ?? p.price) || 0), sold_revenue: t.sold_revenue + p.sold_revenue, sold_count: t.sold_count + p.sold_count, active_value: t.active_value + p.active_value }), { cost: 0, sold_revenue: 0, sold_count: 0, active_value: 0 });
+  return { purchases: list, totals, own_seller: own.results[0] ?? null };
+}
+
+// ---------- Partiets utveckling ----------
+// Annonserna som kopplats till ett inköp matchas mot dina annonser på Tradera via
+// rubriken (ProLister lägger upp exakt den rubrik appen skrev). Samma rubrik flera
+// gånger matchas i tidsordning; en annons som lagts upp igen (osåld → ny annons med
+// samma rubrik) följs till den senaste. Sålt för = vad köparen betalade enligt dina
+// ordrar, annars annonsens slutpris.
+const norm = (t) => String(t ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+const emptyStats = () => ({ registered: 0, matched: 0, sold_count: 0, sold_revenue: 0, sold_exact: 0, active_count: 0, active_value: 0 });
+
+export async function purchaseStats(db) {
+  const [items, listings, sales] = await db.batch([
+    db.prepare(
+      `SELECT o.id, o.purchase_id, o.created_at, COALESCE(o.title, a.title) AS title
+       FROM own_items o LEFT JOIN ads a ON a.id = o.id WHERE o.purchase_id IS NOT NULL ORDER BY o.created_at, o.id`,
+    ),
+    db.prepare(
+      `SELECT l.id, l.title, l.status, l.price, COALESCE(l.start_at, l.first_seen) AS seen,
+         CASE WHEN json_valid(l.raw) THEN json_extract(l.raw, '$.ownReferences') END AS refs
+       FROM listings l JOIN sellers s ON s.id = l.seller_id AND s.own = 1 ORDER BY seen, l.id`,
+    ),
+    db.prepare("SELECT item_id, SUM(unit_price * COALESCE(quantity, 1)) AS revenue FROM own_sales GROUP BY item_id"),
+  ]);
+  // Exakt: ProLister skickar appens annons-id som referens till Tradera.
+  const byRef = new Map();
+  for (const l of listings.results) {
+    let refs = [];
+    try {
+      refs = [].concat(JSON.parse(l.refs ?? "[]") ?? []);
+    } catch {
+      refs = l.refs ? [l.refs] : [];
+    }
+    for (const r of refs) {
+      const k = String(r).trim();
+      if (!k) continue;
+      if (!byRef.has(k)) byRef.set(k, []);
+      byRef.get(k).push(l);
+    }
+  }
+  const byTitle = new Map();
+  for (const l of listings.results) {
+    const k = norm(l.title);
+    if (!byTitle.has(k)) byTitle.set(k, []);
+    byTitle.get(k).push(l);
+  }
+  const paid = new Map(sales.results.map((s) => [String(s.item_id), Number(s.revenue) || 0]));
+  const used = new Set();
+  const out = new Map();
+  for (const it of items.results) {
+    const s = out.get(it.purchase_id) ?? emptyStats();
+    out.set(it.purchase_id, s);
+    s.registered++;
+    const exactChain = (byRef.get(String(it.id)) ?? []).filter((l) => !used.has(l.id));
+    const chain = exactChain.length ? exactChain : (byTitle.get(norm(it.title)) ?? []).filter((l) => !used.has(l.id));
+    if (!chain.length || (!exactChain.length && !it.title)) continue;
+    let l = chain[0];
+    used.add(l.id);
+    // Osåld och upplagd igen: följ till den nya annonsen.
+    for (let i = 1; l.status === "Osåld" && i < chain.length; i++) {
+      l = chain[i];
+      used.add(l.id);
+    }
+    s.matched++;
+    const exact = paid.get(String(l.id));
+    if (exact != null) {
+      s.sold_count++;
+      s.sold_revenue += exact;
+      s.sold_exact++;
+    } else if (l.status === "Såld") {
+      s.sold_count++;
+      s.sold_revenue += Number(l.price) || 0;
+    } else if (l.status === "Aktiv") {
+      s.active_count++;
+      s.active_value += Number(l.price) || 0;
+    }
+  }
+  return out;
 }
