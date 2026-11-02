@@ -522,3 +522,7 @@ button:disabled { opacity: .4; }
 .pc-bar span { background: var(--accent); }
 .pc-bar.done span { background: var(--green); }
 .hc-sub { display: block; margin-top: 6px; }
+.wk-headright { display: inline-flex; align-items: center; gap: 8px; }
+.wk-refresh { padding: 2px 10px; font-size: 15px; }
+.wk-refresh:disabled { opacity: .5; }
+.wk-refresh-status { margin: 4px 0 0; }

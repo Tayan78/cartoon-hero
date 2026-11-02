@@ -32,7 +32,8 @@
         <button id="h-todo-ready" type="button" class="hc-row"></button>
       </div>
       <div id="h-week" class="home-card" hidden>
-        <div class="hc-head"><b id="h-week-title">Veckan</b><span id="h-week-dates" class="muted small"></span></div>
+        <div class="hc-head"><b id="h-week-title">Veckan</b><span class="wk-headright"><span id="h-week-dates" class="muted small"></span><button id="h-week-refresh" type="button" class="chip wk-refresh" aria-label="Hämta senaste försäljningarna">↻</button></span></div>
+        <p id="h-week-refresh-status" class="muted small wk-refresh-status" hidden></p>
         <div id="h-week-period" class="chips seg wk-tabs" role="tablist" aria-label="Period">
           <button type="button" class="chip on" data-period="week">Vecka</button>
           <button type="button" class="chip" data-period="month">Månad</button>
