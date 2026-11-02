@@ -25,6 +25,7 @@
 //     { action: "tradera_status" }          kopplingen till ditt Tradera-konto + det appen behöver för inloggningen
 //     { action: "tradera_connect", skey }   efter att du godkänt hos Tradera: hämta och spara nyckeln, hämta ordrarna
 //     { action: "tradera_sync" }            hämta dina ordrar nu
+//     { action: "league_refresh" }          topplistan nu: all Schleich på Tradera + ditt konto (högst var 10:e minut)
 //     { action: "own_refresh" }             ditt konto nu: dina annonser + dina ordrar (efter import i ProLister)
 //     { action: "products_relink" }         koppla annonser utan produkt + uppdatera kategorierna
 //   Från Apps Script-timern (x-script-secret): { action: "nightly" }
@@ -35,7 +36,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { waitUntil } from "@vercel/functions";
 import { checkAuth, json } from "../lib/http.js";
-import { dbCompetitors, dbConfigured, dbLeague, dbOwn, dbWeek, dbDashboard, dbMarket, dbProducts, dbStatus } from "../lib/db.js";
+import { dbCompetitors, dbConfigured, dbLatestRun, dbLeague, dbOwn, dbWeek, dbDashboard, dbMarket, dbProducts, dbStatus } from "../lib/db.js";
 import { relinkProducts, syncCategories } from "../lib/productsync.js";
 import { OWN_ALIAS, lookupPurchase, purchasesCall } from "../lib/purchases.js";
 import { collectSeller, copyToDb, discoverSellers, listSellers, runStatus, runStep, startRun, watchSeller } from "../lib/marketdata.js";
@@ -54,6 +55,8 @@ async function ensureOwnAccount(origin) {
   await purchasesCall({ op: "own_seller", seller_id: seller.id });
   return { id: seller.id, alias: seller.alias };
 }
+
+const LEAGUE_COOLDOWN_MS = 10 * 60000;
 
 function scriptAllowed(request) {
   const expected = process.env.APPS_SCRIPT_SECRET;
@@ -118,7 +121,7 @@ export async function POST(request) {
   if (fromScript && !["nightly", "continue", "sweep_bg", "details_bg"].includes(body.action)) return json({ ok: false, error: "Inte tillåtet" }, 403);
   const origin = new URL(request.url).origin;
   if (!traderaConfigured()) return json({ ok: false, error: "Tradera är inte konfigurerat" }, 400);
-  if (!["discover", "lots", "lots_check", "db_status", "dashboard", "competitors", "week", "league", "tradera_status", "tradera_connect", "tradera_sync", "own_refresh", "products", "products_relink", "market", "purchases", "purchase_lookup", "purchase_save", "status", "sellers", "watch", "collect", "collect_all", "nightly", "continue", "own_account", "sweep", "sweep_bg", "details_bg", "sweep_status"].includes(body.action) && !storageConfigured()) return json({ ok: false, error: "Google Sheet är inte konfigurerat" }, 400);
+  if (!["discover", "lots", "lots_check", "db_status", "dashboard", "competitors", "week", "league", "tradera_status", "tradera_connect", "tradera_sync", "own_refresh", "league_refresh", "products", "products_relink", "market", "purchases", "purchase_lookup", "purchase_save", "status", "sellers", "watch", "collect", "collect_all", "nightly", "continue", "own_account", "sweep", "sweep_bg", "details_bg", "sweep_status"].includes(body.action) && !storageConfigured()) return json({ ok: false, error: "Google Sheet är inte konfigurerat" }, 400);
 
   try {
     switch (body.action) {
@@ -178,6 +181,22 @@ export async function POST(request) {
       }
       case "tradera_sync":
         return json({ ok: true, sync: await syncOwnOrders() });
+      case "league_refresh": {
+        // Schleich-sökningen (utan annonsdetaljer) + ditt konto. Högst var 10:e minut.
+        const last = await dbLatestRun("schleich").catch(() => null);
+        const since = last ? Date.now() - Date.parse(last.started_at) : Infinity;
+        if (last?.status === "Pågår" && since < 10 * 60000) return json({ ok: true, started: false, running: true });
+        if (since < LEAGUE_COOLDOWN_MS) return json({ ok: true, started: false, wait_min: Math.ceil((LEAGUE_COOLDOWN_MS - since) / 60000) });
+        const seller = await resolve({ alias: OWN_ALIAS });
+        waitUntil(
+          Promise.allSettled([
+            runSweep(),
+            collectSeller({ alias: seller.alias, user_id: seller.id, own: true }),
+            syncOwnOrders(),
+          ]),
+        );
+        return json({ ok: true, started: true });
+      }
       case "own_refresh": {
         // Bara ditt konto: annonserna (så att nya från ProLister syns) och ordrarna.
         const seller = await resolve({ alias: OWN_ALIAS });

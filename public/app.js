@@ -1741,6 +1741,33 @@ function paintHomeWeek(w) {
     renderHomeWeek();
   });
 }
+// ↻ Hämta senaste försäljningarna nu (all Schleich + ditt konto), högst var 10:e minut.
+$("h-week-refresh").addEventListener("click", async () => {
+  const btn = $("h-week-refresh");
+  const note = $("h-week-refresh-status");
+  btn.disabled = true;
+  note.hidden = false;
+  note.textContent = "Hämtar senaste försäljningarna från Tradera…";
+  try {
+    const r = await marketApi({ action: "league_refresh" });
+    if (r.started) {
+      note.textContent = "Hämtar – listan uppdateras om ungefär en minut.";
+      setTimeout(async () => {
+        await renderHomeWeek();
+        note.textContent = "✓ Uppdaterad nyss.";
+        setTimeout(() => (note.hidden = true), 8000);
+      }, 75000);
+    } else {
+      note.textContent = r.running ? "Hämtningen pågår redan – listan uppdateras snart." : `Uppdaterades nyss – försök igen om ${r.wait_min} min.`;
+      setTimeout(() => (note.hidden = true), 8000);
+    }
+  } catch (err) {
+    note.textContent = `⚠️ ${err.message}`;
+  } finally {
+    setTimeout(() => (btn.disabled = false), 10000);
+  }
+});
+
 for (const b of document.querySelectorAll("#h-week-metric .chip")) {
   b.addEventListener("click", () => {
     leagueMetric = b.dataset.metric === "count" ? "count" : "revenue";
