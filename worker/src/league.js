@@ -1,3 +1,4 @@
+import { soldAt } from "./soldat.js";
 // Veckoligan på Hem: sålda Schleich-annonser per säljare vecka för vecka
 // (måndag–söndag, svensk tid). Placering, förändring sedan i går, hur många som
 // fattas till nästa placering, förra veckans slutresultat och din historik.
@@ -73,7 +74,7 @@ async function ranking(db, from, to, metric = "revenue") {
     .prepare(
       `SELECT l.seller_id AS id, MAX(l.seller) AS alias, COUNT(*) AS sold, COALESCE(SUM(l.price), 0) AS revenue, COALESCE(MAX(s.own), 0) AS own
        FROM listings l LEFT JOIN sellers s ON s.id = l.seller_id
-       WHERE ${SOLD} AND julianday(l.end_at) >= julianday(?1) AND julianday(l.end_at) < julianday(?2)
+       WHERE ${SOLD} AND julianday(${soldAt("l.")}) >= julianday(?1) AND julianday(${soldAt("l.")}) < julianday(?2)
        GROUP BY l.seller_id ORDER BY ${order}`,
     )
     .bind(iso(from), iso(to))
@@ -83,7 +84,7 @@ async function ranking(db, from, to, metric = "revenue") {
 
 async function totals(db, from, to) {
   const { results } = await db
-    .prepare(`SELECT COUNT(*) AS sold, SUM(l.price) AS revenue FROM listings l WHERE ${SOLD} AND julianday(l.end_at) >= julianday(?1) AND julianday(l.end_at) < julianday(?2)`)
+    .prepare(`SELECT COUNT(*) AS sold, SUM(l.price) AS revenue FROM listings l WHERE ${SOLD} AND julianday(${soldAt("l.")}) >= julianday(?1) AND julianday(${soldAt("l.")}) < julianday(?2)`)
     .bind(iso(from), iso(to))
     .all();
   return { sold: results[0]?.sold ?? 0, revenue: results[0]?.revenue ?? 0 };

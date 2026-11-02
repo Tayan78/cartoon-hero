@@ -1,10 +1,11 @@
+import { soldAt } from "./soldat.js";
 // Marknadsanalys (BI) för Schleich: allt räknas i SQL i D1 (workerns gratisnivå
 // har bara 10 ms processortid per anrop). Period = de senaste N dagarna räknat på
 // slutdatum (days = null: allt). Avslutade annonser med slutdatum i framtiden
 // (butiksannonser som löper i åratal) räknas inte.
 
 const SCHLEICH = "(niche IS NOT NULL OR series IS NOT NULL OR source = 'sök')";
-const DAY = "substr(end_at, 1, 10)";
+const DAY = `substr(${soldAt()}, 1, 10)`;
 const PERIOD = `${DAY} <= date('now') AND (?1 IS NULL OR ${DAY} > date('now', '-' || ?1 || ' days'))`;
 const ENDED = `${SCHLEICH} AND status IN ('Såld', 'Osåld') AND end_at IS NOT NULL AND ${PERIOD}`;
 
@@ -45,12 +46,12 @@ export async function marketStats(db, { days = 30 } = {}) {
     q(`SELECT COUNT(*) AS ended, SUM(status = 'Såld') AS sold, COUNT(DISTINCT CASE WHEN status = 'Såld' THEN seller_id END) AS sellers,
          MIN(${DAY}) AS first_day FROM listings WHERE ${ENDED}`),
     q(medianSql("1", ENDED.replace("status IN ('Såld', 'Osåld') AND ", ""))),
-    q(`SELECT ${bucket("end_at")} AS b, SUM(status = 'Såld') AS sold, SUM(status = 'Osåld') AS unsold FROM listings WHERE ${ENDED} GROUP BY b ORDER BY b`),
+    q(`SELECT ${bucket(soldAt())} AS b, SUM(status = 'Såld') AS sold, SUM(status = 'Osåld') AS unsold FROM listings WHERE ${ENDED} GROUP BY b ORDER BY b`),
     q(`SELECT ${bucket("start_at")} AS b, COUNT(*) AS n FROM listings
        WHERE ${SCHLEICH} AND start_at IS NOT NULL AND substr(start_at, 1, 10) <= date('now')
          AND (?1 IS NULL OR substr(start_at, 1, 10) > date('now', '-' || ?1 || ' days')) GROUP BY b ORDER BY b`),
     q(`SELECT CAST(strftime('%w', ${DAY}) AS INTEGER) AS dow, COUNT(*) AS ended, SUM(status = 'Såld') AS sold FROM listings WHERE ${ENDED} GROUP BY dow`),
-    q(`SELECT CAST(substr(end_at, 12, 2) AS INTEGER) AS hour, COUNT(*) AS ended, SUM(status = 'Såld') AS sold FROM listings
+    q(`SELECT CAST(substr(${soldAt()}, 12, 2) AS INTEGER) AS hour, COUNT(*) AS ended, SUM(status = 'Såld') AS sold FROM listings
        WHERE ${ENDED} AND type = 'auktion' GROUP BY hour ORDER BY hour`),
     q(`SELECT ${SEGMENT} AS segment, COUNT(*) AS ended, SUM(status = 'Såld') AS sold FROM listings WHERE ${ENDED} GROUP BY segment ORDER BY sold DESC`),
     q(medianSql(SEGMENT, ENDED.replace("status IN ('Såld', 'Osåld') AND ", ""))),
