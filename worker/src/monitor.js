@@ -62,7 +62,7 @@ export async function dashboard(db, { now = Date.now() } = {}) {
     db.prepare("SELECT substr(first_seen, 1, 10) AS day, COUNT(*) AS n FROM listings WHERE first_seen >= ?1 GROUP BY day ORDER BY day").bind(growthSince),
     db.prepare("SELECT substr(end_at, 1, 7) AS month, COUNT(*) AS n FROM listings WHERE status = 'Såld' AND end_at IS NOT NULL GROUP BY month ORDER BY month"),
     db.prepare(
-      "SELECT name, started_at, finished_at, status, summary FROM runs r WHERE (SELECT COUNT(*) FROM runs r2 WHERE r2.name = r.name AND r2.started_at > r.started_at) < 3 ORDER BY name, started_at DESC",
+      "SELECT name, started_at, finished_at, updated_at, status, summary FROM runs r WHERE (SELECT COUNT(*) FROM runs r2 WHERE r2.name = r.name AND r2.started_at > r.started_at) < 3 ORDER BY name, started_at DESC",
     ),
     db.prepare("SELECT day, api, count FROM usage WHERE day >= ?1 ORDER BY day").bind(since),
   ]);

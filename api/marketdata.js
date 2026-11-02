@@ -89,14 +89,23 @@ const sweepThenDetails = (origin) =>
     .catch(() => {})
     .then(() => selfCall(origin, { action: "details_bg", state: {} }));
 
-// Startar nästa steg som ett nytt anrop till servern själv.
-const selfCall = (origin, body) =>
-  fetch(`${origin}/api/marketdata`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-script-secret": process.env.APPS_SCRIPT_SECRET },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(15000),
-  }).catch(() => {});
+// Startar nästa steg som ett nytt anrop till servern själv. Ger true om steget
+// startade; ett misslyckat försök görs om en gång.
+const selfCall = async (origin, body) => {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const ok = await fetch(`${origin}/api/marketdata`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-script-secret": process.env.APPS_SCRIPT_SECRET },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(20000),
+    }).then(
+      (r) => r.ok,
+      () => false,
+    );
+    if (ok) return true;
+  }
+  return false;
+};
 
 export async function POST(request) {
   const fromScript = scriptAllowed(request);

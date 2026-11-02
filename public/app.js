@@ -2882,7 +2882,7 @@ function opsHealth(d) {
   for (const [name, info] of Object.entries(RUN_INFO)) {
     const last = d.runs?.[name]?.[0];
     if (!last) out.push(["warn", `${info.label}: ingen körning registrerad än.`]);
-    else if (last.status === "Pågår" && Date.now() - Date.parse(last.started_at) > 30 * 60000) out.push(["bad", `${info.label} har stannat (startade ${ago(last.started_at)}).`]);
+    else if (last.status === "Pågår" && Date.now() - Date.parse(last.updated_at || last.started_at) > 15 * 60000) out.push(["bad", `${info.label} har stannat (startade ${ago(last.started_at)}).`]);
     else if (/^Fel/.test(last.status ?? "")) out.push(["bad", `${info.label}: ${last.status}`]);
     else if (Date.now() - Date.parse(last.started_at) > info.every * 3600000) out.push(["bad", `${info.label} har inte körts sedan ${ago(last.started_at)}.`]);
     else if (/fel/.test(last.status ?? "")) out.push(["warn", `${info.label}: ${last.status}`]);
