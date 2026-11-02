@@ -25,6 +25,7 @@
 //     { action: "tradera_status" }          kopplingen till ditt Tradera-konto + det appen behöver för inloggningen
 //     { action: "tradera_connect", skey }   efter att du godkänt hos Tradera: hämta och spara nyckeln, hämta ordrarna
 //     { action: "tradera_sync" }            hämta dina ordrar nu
+//     { action: "own_refresh" }             ditt konto nu: dina annonser + dina ordrar (efter import i ProLister)
 //     { action: "products_relink" }         koppla annonser utan produkt + uppdatera kategorierna
 //   Från Apps Script-timern (x-script-secret): { action: "nightly" }
 //   Från servern själv (x-script-secret):     { action: "continue", state } – nästa steg,
@@ -117,7 +118,7 @@ export async function POST(request) {
   if (fromScript && !["nightly", "continue", "sweep_bg", "details_bg"].includes(body.action)) return json({ ok: false, error: "Inte tillåtet" }, 403);
   const origin = new URL(request.url).origin;
   if (!traderaConfigured()) return json({ ok: false, error: "Tradera är inte konfigurerat" }, 400);
-  if (!["discover", "lots", "lots_check", "db_status", "dashboard", "competitors", "week", "league", "tradera_status", "tradera_connect", "tradera_sync", "products", "products_relink", "market", "purchases", "purchase_lookup", "purchase_save", "status", "sellers", "watch", "collect", "collect_all", "nightly", "continue", "own_account", "sweep", "sweep_bg", "details_bg", "sweep_status"].includes(body.action) && !storageConfigured()) return json({ ok: false, error: "Google Sheet är inte konfigurerat" }, 400);
+  if (!["discover", "lots", "lots_check", "db_status", "dashboard", "competitors", "week", "league", "tradera_status", "tradera_connect", "tradera_sync", "own_refresh", "products", "products_relink", "market", "purchases", "purchase_lookup", "purchase_save", "status", "sellers", "watch", "collect", "collect_all", "nightly", "continue", "own_account", "sweep", "sweep_bg", "details_bg", "sweep_status"].includes(body.action) && !storageConfigured()) return json({ ok: false, error: "Google Sheet är inte konfigurerat" }, 400);
 
   try {
     switch (body.action) {
@@ -177,6 +178,15 @@ export async function POST(request) {
       }
       case "tradera_sync":
         return json({ ok: true, sync: await syncOwnOrders() });
+      case "own_refresh": {
+        // Bara ditt konto: annonserna (så att nya från ProLister syns) och ordrarna.
+        const seller = await resolve({ alias: OWN_ALIAS });
+        const [listings, sync] = await Promise.all([
+          collectSeller({ alias: seller.alias, user_id: seller.id, own: true }),
+          syncOwnOrders().catch((err) => ({ error: err.message })),
+        ]);
+        return json({ ok: true, listings: listings.items, sync });
+      }
       case "own_account":
         return json({ ok: true, seller: await ensureOwnAccount(new URL(request.url).origin) });
       case "market":

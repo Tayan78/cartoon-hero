@@ -3516,6 +3516,22 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && store.get("tradera_skey", null) && !$("view-purchases").hidden) finishTradera({ quiet: true });
 });
 
+$("p-refresh-own").addEventListener("click", async () => {
+  const btn = $("p-refresh-own");
+  btn.disabled = true;
+  $("p-refresh-own-status").textContent = "Hämtar dina annonser och försäljningar från Tradera…";
+  try {
+    const r = await marketApi({ action: "own_refresh" });
+    await loadPurchases();
+    $("p-refresh-own-status").textContent =
+      `✓ ${r.listings} annonser på ditt konto uppdaterade` + (r.sync?.fetched != null ? ` · ${r.sync.fetched} försäljningar hämtade` : r.sync?.skipped ? ` · försäljningar: ${r.sync.skipped}` : "") + ".";
+  } catch (err) {
+    $("p-refresh-own-status").textContent = `⚠️ ${err.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 $("p-tradera-sync").addEventListener("click", async () => {
   $("p-tradera-status").textContent = "Hämtar dina ordrar från Tradera…";
   try {
