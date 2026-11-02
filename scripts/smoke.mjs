@@ -17,7 +17,14 @@ const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
 await page.route("**/*", async (route) => {
   const url = new URL(route.request().url());
-  if (url.pathname.startsWith("/api/")) return route.fulfill({ json: { ok: true, listings: [], sellers: [], purchases: [] } });
+  if (url.pathname.startsWith("/api/")) {
+    const body = JSON.parse(route.request().postData() || "{}");
+    // En klar annons att granska, så att Granska och annonsvyn testas.
+    if (url.pathname === "/api/listings" && body.action === "list") {
+      return route.fulfill({ json: { ok: true, listings: [{ id: "G1", status: "Klar", title: "Schleich Tinker sto 13773", price: 89, channel: "Tradera", image_urls: [], listing: { price: 89, list_basis: "sålt median", article: { number: "13773" }, market: { number: "13773", sold: 3, median: 89, active: 1, recent: [] } } }] } });
+    }
+    return route.fulfill({ json: { ok: true, listings: [], sellers: [], purchases: [] } });
+  }
   const file = join(ROOT, url.pathname === "/" ? "index.html" : url.pathname);
   return existsSync(file) ? route.fulfill({ path: file }) : route.fulfill({ status: 404, body: "" });
 });
@@ -29,6 +36,16 @@ for (const tab of ["groups", "capture", "analytics", "ops", "home"]) {
   await page.click(`[data-tab="${tab}"]`, { timeout: 3000 }).catch((e) => fail(`fliken ${tab} går inte att klicka: ${e.message}`));
   await page.waitForTimeout(300);
 }
+// Annonser → Granska: markera/avmarkera och öppna annonsen.
+await page.click('[data-tab="groups"]');
+await page.waitForTimeout(400);
+await page.click('#g-tabs [data-panel="review"]').catch((e) => fail(`Granska går inte att öppna: ${e.message}`));
+await page.waitForTimeout(300);
+await page.click("#g-sent .open", { timeout: 3000 }).catch((e) => fail(`annonsen går inte att klicka: ${e.message}`));
+await page.waitForTimeout(400);
+if (!(await page.isVisible("#view-review"))) fail("annonsen öppnas inte i Granska");
+await page.click('[data-tab="home"]');
+await page.waitForTimeout(300);
 const homeVisible = await page.isVisible("#view-home");
 if (!homeVisible) fail("Hem syns inte efter klick på fliken");
 await page.click('[data-tab="ops"]');

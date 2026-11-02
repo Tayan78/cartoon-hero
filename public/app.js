@@ -1281,14 +1281,15 @@ function renderApproveBar() {
   $("g-approve").textContent = `✓ Godkänn markerade (${marked})`;
 }
 
-$("g-approve-all").addEventListener("click", () => {
-  for (const l of readyListings()) approveSkip.delete(l.id);
-  renderSent();
-});
-$("g-approve-none").addEventListener("click", () => {
-  for (const l of readyListings()) approveSkip.add(l.id);
-  renderSent();
-});
+// Markera/avmarkera direkt i listan (ingen ny hämtning – den gjorde att rutorna
+// visade fel läge tills listan kom tillbaka).
+function setAllMarked(on) {
+  for (const l of readyListings()) on ? approveSkip.delete(l.id) : approveSkip.add(l.id);
+  for (const box of document.querySelectorAll("#g-sent input[type=checkbox]")) box.checked = on;
+  renderApproveBar();
+}
+$("g-approve-all").addEventListener("click", () => setAllMarked(true));
+$("g-approve-none").addEventListener("click", () => setAllMarked(false));
 
 // Godkänner med det modellnummer du bekräftat, annars det AI:n valt.
 // Rätta de annonser som har fel modell först (öppna dem och tryck på rätt nummer).
@@ -1832,6 +1833,37 @@ async function renderHomeWeek() {
     /* kortet visar senaste kända siffror */
   }
 }
+
+// Granska: modellens siffror ur databasen (sålt senaste 4 mån, säljgrad, till salu nu).
+function renderReviewMarket(m) {
+  const box = $("v-market");
+  box.hidden = !m;
+  if (!m) return;
+  const el = (tag, cls, text) => Object.assign(document.createElement(tag), { className: cls, textContent: text });
+  const stat = (label, value, note = "") => {
+    const d = el("div", "vm-stat", "");
+    d.append(el("span", "metric-label", label), el("b", "", value), el("small", "", note));
+    return d;
+  };
+  const head = el("p", "metric-label vm-head", `${m.number} i databasen · senaste 4 mån`);
+  const grid = el("div", "vm-grid", "");
+  grid.append(
+    stat("Sålda", String(m.sold), m.sell_through != null ? `${m.sell_through} % säljs` : ""),
+    stat("Median", m.median ? kr(m.median) : "–", m.p25 && m.p75 && m.p25 !== m.p75 ? `${m.p25}–${m.p75} kr` : ""),
+    stat("Till salu nu", String(m.active), m.active_low ? `från ${kr(m.active_low)}` : ""),
+    stat("Tid till såld", m.days_to_sell != null ? `${m.days_to_sell} d` : "–", "median"),
+  );
+  const list = el("ul", "vm-recent", "");
+  for (const r of m.recent ?? []) {
+    const li = document.createElement("li");
+    const a = Object.assign(el("a", "", ""), { href: r.url || "#", target: "_blank", rel: "noopener" });
+    a.append(el("span", "", r.title), el("b", "", kr(r.price)), el("small", "", String(r.end_at ?? "").slice(0, 10)));
+    li.append(a);
+    list.append(li);
+  }
+  box.replaceChildren(head, grid, ...(m.recent?.length ? [el("p", "metric-label vm-head", "Senast sålda"), list] : []));
+}
+
 
 function renderHomeLots() {
   const d = store.get("lots_djur", null);
