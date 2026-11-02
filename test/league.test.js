@@ -98,3 +98,19 @@ test("Omsättning som standard: färre men dyrare försäljningar slår många b
   const jeyd = await league(db, { now, history: 0 });
   assert.equal(jeyd.mine.rank, 1);
 });
+
+test("Butiksannons med slutdatum år 2045: räknas när den såldes, inte på slutdatumet; Övrigt bara en gång", async () => {
+  const { dashboard } = await import("../worker/src/monitor.js");
+  const db = fakeD1();
+  await upsertSellers(db, [{ id: "1", alias: "Butiken" }]);
+  await upsertListings(db, [
+    { id: "s1", seller_id: "1", seller: "Butiken", title: "Schleich häst", niche: "djur", source: "sök", status: "Såld", price: 99, end_at: "2045-10-01T10:00:00Z", sold_seen: "2026-11-03T03:00:00Z", type: "butik" },
+    { id: "s2", seller_id: "1", seller: "Butiken", title: "Lego", status: "Aktiv", price: 10, end_at: "2026-11-20T10:00:00Z" },
+    { id: "s3", seller_id: "1", seller: "Butiken", title: "Barbie", niche: null, status: "Aktiv", price: 10, end_at: "2026-11-20T10:00:00Z" },
+  ]);
+  const w = await league(db, { now: Date.parse("2026-11-04T11:00:00Z"), history: 0 });
+  assert.deepEqual([w.market.sold, w.top[0]?.alias], [1, "Butiken"]);
+  const d = await dashboard(db, { now: Date.parse("2026-11-04T11:00:00Z") });
+  assert.deepEqual(d.sold_by_month.map((m) => m.month), ["2026-11"]);
+  assert.equal(d.db.niches.filter((n) => n.key === "").length, 1);
+});

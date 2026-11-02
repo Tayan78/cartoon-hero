@@ -1,3 +1,4 @@
+import { soldAt } from "./soldat.js";
 // Översikten: körningar, anrop per dygn och siffror om databasen (D1).
 
 const today = (now = Date.now()) => new Date(now).toISOString().slice(0, 10);
@@ -53,14 +54,14 @@ export async function dashboard(db, { now = Date.now() } = {}) {
   const growthSince = today(now - 59 * 86400000);
   const [totals, niches, series, sources, sellers, prices, unresolved, growth, soldByMonth, runs, usage] = await db.batch([
     db.prepare("SELECT COUNT(*) AS listings, SUM(status = 'Såld') AS sold, SUM(status = 'Osåld') AS unsold, SUM(status = 'Aktiv') AS active, MAX(last_seen) AS last_change FROM listings"),
-    db.prepare("SELECT COALESCE(niche, '') AS key, COUNT(*) AS listings, SUM(status = 'Såld') AS sold FROM listings GROUP BY niche ORDER BY listings DESC"),
-    db.prepare("SELECT COALESCE(series, '') AS key, COUNT(*) AS listings, SUM(status = 'Såld') AS sold FROM listings GROUP BY series ORDER BY listings DESC"),
-    db.prepare("SELECT COALESCE(source, 'arket') AS key, COUNT(*) AS listings FROM listings GROUP BY source ORDER BY listings DESC"),
+    db.prepare("SELECT COALESCE(niche, '') AS key, COUNT(*) AS listings, SUM(status = 'Såld') AS sold FROM listings GROUP BY key ORDER BY listings DESC"),
+    db.prepare("SELECT COALESCE(series, '') AS key, COUNT(*) AS listings, SUM(status = 'Såld') AS sold FROM listings GROUP BY key ORDER BY listings DESC"),
+    db.prepare("SELECT COALESCE(source, 'arket') AS key, COUNT(*) AS listings FROM listings GROUP BY key ORDER BY listings DESC"),
     db.prepare("SELECT COUNT(*) AS sellers, SUM(watched = 1) AS watched, (SELECT COUNT(DISTINCT seller_id) FROM listings) AS all_sellers FROM sellers"),
     db.prepare("SELECT COUNT(*) AS price_points FROM price_history"),
     db.prepare(`SELECT COUNT(*) AS n FROM listings WHERE ${UNRESOLVED}`).bind(nowIso),
     db.prepare("SELECT substr(first_seen, 1, 10) AS day, COUNT(*) AS n FROM listings WHERE first_seen >= ?1 GROUP BY day ORDER BY day").bind(growthSince),
-    db.prepare("SELECT substr(end_at, 1, 7) AS month, COUNT(*) AS n FROM listings WHERE status = 'Såld' AND end_at IS NOT NULL GROUP BY month ORDER BY month"),
+    db.prepare(`SELECT substr(${soldAt()}, 1, 7) AS month, COUNT(*) AS n FROM listings WHERE status = 'Såld' AND end_at IS NOT NULL AND substr(${soldAt()}, 1, 10) <= date('now', '+1 day') GROUP BY month ORDER BY month`),
     db.prepare(
       "SELECT name, started_at, finished_at, updated_at, status, summary FROM runs r WHERE (SELECT COUNT(*) FROM runs r2 WHERE r2.name = r.name AND r2.started_at > r.started_at) < 3 ORDER BY name, started_at DESC",
     ),
@@ -125,7 +126,7 @@ export async function competitors(db, { limit = 40, min = 10, now = Date.now() }
     .prepare(
       `SELECT l.seller_id AS id, MAX(l.seller) AS alias, COUNT(*) AS listings,
          SUM(l.status = 'Såld') AS sold, SUM(l.status = 'Osåld') AS unsold, SUM(l.status = 'Aktiv') AS active,
-         SUM(l.status = 'Såld' AND l.end_at >= ?1) AS sold_90d, MAX(l.end_at) AS last_end,
+         SUM(l.status = 'Såld' AND ${soldAt("l.")} >= ?1) AS sold_90d, MAX(l.end_at) AS last_end,
          COALESCE(MAX(s.watched), 0) AS watched
        FROM listings l LEFT JOIN sellers s ON s.id = l.seller_id
        WHERE l.seller_id IS NOT NULL AND ${SCHLEICH_ROW} AND COALESCE(s.own, 0) = 0
