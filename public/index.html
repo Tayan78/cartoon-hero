@@ -121,6 +121,10 @@
         <h2 id="c-title">Fota annonser</h2>
         <span id="c-count" class="muted small"></span>
       </div>
+      <div id="c-kind" class="chips seg" role="tablist" aria-label="Vad fotar du">
+        <button type="button" class="chip on" data-kind="figure">Figur (AI)</button>
+        <button type="button" class="chip" data-kind="accessory">Tillbehör</button>
+      </div>
       <div class="cam">
         <video id="c-video" playsinline muted autoplay></video>
         <p id="c-cam-msg" class="cam-msg" hidden></p>
@@ -139,6 +143,14 @@
         <span>Från inköp</span>
         <select id="c-purchase"></select>
       </label>
+      <div id="c-acc" class="c-acc" hidden>
+        <div class="p-grid">
+          <label class="field"><span>Typ</span><select id="c-acc-type"></select></label>
+          <label class="field"><span>Pris (kr)</span><input id="c-acc-price" type="number" inputmode="numeric" min="1"></label>
+        </div>
+        <label class="field"><span>Färg / variant (valfritt)</span><input id="c-acc-color" type="text" maxlength="40" placeholder="t.ex. rosa/brun"></label>
+        <p id="c-acc-preview" class="hint"></p>
+      </div>
       <label class="field">
         <span>Anteckning (valfritt)</span>
         <textarea id="c-note" rows="2" maxlength="300" placeholder="Skick, märke, något som saknas …"></textarea>
