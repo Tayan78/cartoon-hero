@@ -22,6 +22,15 @@ const report = {
     json_extract(result, '$.flags') AS flags, json_extract(result, '$.market') AS market, json_extract(result, '$.article') AS article,
     json_extract(result, '$.candidates') AS candidates, json_extract(result, '$.sources') AS sources, json_extract(result, '$.for_sale') AS for_sale
     FROM ads ORDER BY created_at DESC LIMIT 5`),
+  saddles_summary: q(`SELECT status, COALESCE(type,'') AS type, COUNT(*) AS n, ROUND(AVG(price)) AS avg, MIN(price) AS min, MAX(price) AS max
+    FROM listings WHERE (lower(title) LIKE '%sadel%' OR lower(title) LIKE '%tr_ns%' OR lower(title) LIKE '%saddle%') AND lower(title) LIKE '%schleich%'
+    GROUP BY status, type ORDER BY status, type`),
+  saddles_sold: q(`SELECT title, price, type, bids, substr(end_at,1,10) AS ended, seller FROM listings
+    WHERE (lower(title) LIKE '%sadel%' OR lower(title) LIKE '%tr_ns%' OR lower(title) LIKE '%saddle%') AND lower(title) LIKE '%schleich%' AND status = 'Såld'
+    ORDER BY end_at DESC LIMIT 80`),
+  saddles_unsold: q(`SELECT title, price, type, substr(end_at,1,10) AS ended FROM listings
+    WHERE (lower(title) LIKE '%sadel%' OR lower(title) LIKE '%tr_ns%' OR lower(title) LIKE '%saddle%') AND lower(title) LIKE '%schleich%' AND status IN ('Osåld','Aktiv')
+    ORDER BY end_at DESC LIMIT 60`),
   counts: q(`SELECT (SELECT COUNT(*) FROM listings) AS listings, (SELECT COUNT(*) FROM listing_products) AS linked,
     (SELECT COUNT(*) FROM products) AS products, (SELECT COUNT(*) FROM categories) AS categories,
     (SELECT COUNT(*) FROM listings WHERE detail_at IS NOT NULL) AS detailed, (SELECT COUNT(*) FROM purchases) AS purchases`),
