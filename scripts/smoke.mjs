@@ -36,6 +36,13 @@ for (const tab of ["groups", "capture", "analytics", "ops", "home"]) {
   await page.click(`[data-tab="${tab}"]`, { timeout: 3000 }).catch((e) => fail(`fliken ${tab} går inte att klicka: ${e.message}`));
   await page.waitForTimeout(300);
 }
+// Fota → Tillbehör: läget visar typ/pris och en förhandsrubrik utan AI.
+await page.click('[data-tab="capture"]');
+await page.click('#c-kind [data-kind="accessory"]', { timeout: 3000 }).catch((e) => fail(`Tillbehör går inte att välja: ${e.message}`));
+await page.waitForTimeout(200);
+if (!(await page.isVisible("#c-acc"))) fail("Tillbehörspanelen syns inte");
+else if (!/sadel/i.test(await page.textContent("#c-acc-preview"))) fail("förhandsrubriken för tillbehör saknas");
+await page.click('#c-kind [data-kind="figure"]').catch(() => {});
 // Annonser → Granska: markera/avmarkera och öppna annonsen.
 await page.click('[data-tab="groups"]');
 await page.waitForTimeout(400);

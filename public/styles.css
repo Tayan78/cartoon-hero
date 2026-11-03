@@ -526,3 +526,8 @@ button:disabled { opacity: .4; }
 .wk-refresh { padding: 2px 10px; font-size: 15px; }
 .wk-refresh:disabled { opacity: .5; }
 .wk-refresh-status { margin: 4px 0 0; }
+
+/* Fota: tillbehör utan AI */
+.c-acc { display: flex; flex-direction: column; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px; }
+.c-acc[hidden] { display: none; }
+.c-acc .hint { margin: 0; }

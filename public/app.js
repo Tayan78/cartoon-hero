@@ -890,13 +890,67 @@ for (const id of ["c-gallery", "c-native"]) {
 }
 
 // Nästa: bilderna och anteckningen blir en annons, och nästa börjar tomt.
+// ---------- Tillbehör: snabbannons utan AI ----------
+// Sadlar, täcken och annat smått: ingen Lens/Gemini (ger inget för tillbehör),
+// rubrik och text från en mall, och annonsen blir Klar direkt.
+const ACCESSORIES = {
+  saddle: { label: "Sadel & träns", title: "Schleich sadel och träns", price: 69 },
+  pony: { label: "Ponnysadel & träns", title: "Schleich ponnysadel och träns", price: 69 },
+  western: { label: "Westernsadel & träns", title: "Schleich westernsadel och träns", price: 69 },
+  blanket: { label: "Hästtäcke", title: "Schleich hästtäcke", price: 29 },
+  halter: { label: "Grimma", title: "Schleich grimma", price: 25 },
+  other: { label: "Annat tillbehör", title: "Schleich tillbehör", price: 39 },
+};
+let captureKind = store.get("capture_kind", "figure") === "accessory" ? "accessory" : "figure";
+
+function accessoryListing({ type, color = "", price }, note = "") {
+  const a = ACCESSORIES[type] ?? ACCESSORIES.other;
+  const title = `${a.title}${color ? ` – ${color}` : ""}`.slice(0, 80);
+  const extra = String(note ?? "").trim();
+  const description = [`${title}, lekt men i bra skick enligt bild. Passar Schleich-hästar.${extra ? ` ${extra}` : ""}`, getSettings().listing?.closing ?? ""].filter(Boolean).join("\n\n");
+  return { title, description, price: Number(price) || a.price, channel: "Tradera" };
+}
+
+function renderCaptureKind() {
+  for (const b of document.querySelectorAll("#c-kind .chip")) b.classList.toggle("on", b.dataset.kind === captureKind);
+  $("c-acc").hidden = captureKind !== "accessory";
+  if (captureKind === "accessory") renderAccPreview();
+}
+function renderAccPreview() {
+  const l = accessoryListing({ type: $("c-acc-type").value, color: $("c-acc-color").value.trim(), price: $("c-acc-price").value });
+  $("c-acc-preview").textContent = `Rubrik: ${l.title} · ${l.price} kr · ingen AI – klar direkt`;
+}
+$("c-acc-type").replaceChildren(...Object.entries(ACCESSORIES).map(([k, a]) => Object.assign(document.createElement("option"), { value: k, textContent: a.label })));
+$("c-acc-type").value = store.get("acc_type", "saddle");
+$("c-acc-price").value = ACCESSORIES[$("c-acc-type").value]?.price ?? 69;
+$("c-acc-type").addEventListener("change", () => {
+  store.set("acc_type", $("c-acc-type").value);
+  $("c-acc-price").value = ACCESSORIES[$("c-acc-type").value]?.price ?? 39;
+  renderAccPreview();
+});
+for (const id of ["c-acc-color", "c-acc-price"]) $(id).addEventListener("input", renderAccPreview);
+for (const b of document.querySelectorAll("#c-kind .chip")) {
+  b.addEventListener("click", () => {
+    captureKind = b.dataset.kind === "accessory" ? "accessory" : "figure";
+    store.set("capture_kind", captureKind);
+    renderCaptureKind();
+  });
+}
+renderCaptureKind();
+
 $("c-next").addEventListener("click", async () => {
   if (!groupPhotos.length) return;
   // version ökar vid varje ändring, så att en ändrad annons laddas upp på nytt.
   const purchase_id = $("c-purchase").value === "" ? null : Number($("c-purchase").value);
   const group = editingGroup
     ? { ...editingGroup, photos: groupPhotos, note: $("c-note").value.trim(), purchase_id, upload: "ny", version: (editingGroup.version ?? 0) + 1 }
-    : { id: `G${Date.now()}`, ts: Date.now(), photos: groupPhotos, note: $("c-note").value.trim(), purchase_id, selected: true, upload: "ny", version: 1, ...(autoSend() ? { send: true } : {}) };
+    : {
+        id: `G${Date.now()}`, ts: Date.now(), photos: groupPhotos, note: $("c-note").value.trim(), purchase_id, selected: true, upload: "ny", version: 1,
+        // Tillbehör kostar ingen AI – skickas alltid direkt.
+        ...(captureKind === "accessory"
+          ? { send: true, accessory: { type: $("c-acc-type").value, color: $("c-acc-color").value.trim(), price: Number($("c-acc-price").value) || undefined } }
+          : autoSend() ? { send: true } : {}),
+      };
   delete group.number;
   try {
     await putGroup(group);
@@ -909,9 +963,12 @@ $("c-next").addEventListener("click", async () => {
   if (editingGroup) return openGroups();
   groupPhotos = [];
   $("c-note").value = "";
+  $("c-acc-color").value = "";
+  if (captureKind === "accessory") renderAccPreview();
   const saved = (await allGroups().catch(() => [])).length;
   await renderCapture();
-  $("c-hint").textContent = autoSend() ? `✓ Annons skickad till AI – fota nästa.` : `✓ Annons ${saved} sparad – fota nästa.`;
+  $("c-hint").textContent =
+    captureKind === "accessory" ? "✓ Tillbehör sparat – klart att granska. Fota nästa." : autoSend() ? `✓ Annons skickad till AI – fota nästa.` : `✓ Annons ${saved} sparad – fota nästa.`;
 });
 
 // Skicka till AI direkt vid "Nästa annons" (på från början): annonsen laddas upp
@@ -1136,7 +1193,12 @@ async function runUploads() {
           refreshUploads();
           await uploadGroup(next);
         } else {
-          await withRetry(() => listingsApi({ action: "commit", id: next.id }));
+          // Tillbehör: rubrik, text och pris från mallen – klar direkt, ingen AI.
+          if (next.accessory) {
+            await withRetry(() => listingsApi({ action: "update", id: next.id, fields: { ...accessoryListing(next.accessory, next.note), status: "Klar" } }));
+          } else {
+            await withRetry(() => listingsApi({ action: "commit", id: next.id }));
+          }
           await deleteGroup(next.id);
           refreshUploads(true);
         }
